@@ -117,3 +117,7 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+configurations.all {
+    exclude group: 'com.android.support'
+}
