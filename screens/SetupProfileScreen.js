@@ -11,37 +11,160 @@ import {
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
+
+import {
+  configureReanimatedLogger,
+  ReanimatedLogLevel,
+} from 'react-native-reanimated';
+
+// Configure Reanimated logger
+configureReanimatedLogger({
+  level: ReanimatedLogLevel.warn,
+  strict: true,
+});
 import { useRef } from 'react';
+import CustomAlert from '../components/CustomAlert';
 
 export default function SetupProfileScreen() {
   const [gender, setGender] = useState('');
+  const [nonbinary, setNonbinary] = useState('');
+
   const navigation = useNavigation();
   const [day, setDay] = useState('');
   const [month, setMonth] = useState('');
   const [year, setYear] = useState('');
   const monthRef = useRef(null);
   const yearRef = useRef(null);
+
   const [dayError, setDayError] = useState(false);
   const [monthError, setMonthError] = useState(false);
   const [yearError, setYearError] = useState(false);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+
+  const showAlert = (title, message) => {
+    setAlertTitle(title);
+    setAlertMessage(message);
+    setAlertVisible(true);
+  };
+
   const [isDOBValid, setIsDOBValid] = useState(false);
 
   const CURRENT_YEAR = new Date().getFullYear();
+  const card1Y = useSharedValue(30);
+  const card1Opacity = useSharedValue(0);
+
+  const card2Y = useSharedValue(30);
+  const card2Opacity = useSharedValue(0);
+
+  const card3Y = useSharedValue(30);
+  const card3Opacity = useSharedValue(0);
 
   useEffect(() => {
-    if (
+    if (gender === 'Non-Binary') {
+      card1Y.value = withDelay(
+        100,
+        withSpring(0, { damping: 20, stiffness: 90 }),
+      );
+      card1Opacity.value = withDelay(100, withTiming(1, { duration: 400 }));
+      card2Y.value = withDelay(
+        200,
+        withSpring(0, { damping: 20, stiffness: 90 }),
+      );
+      card2Opacity.value = withDelay(200, withTiming(1, { duration: 400 }));
+      card3Y.value = withDelay(
+        300,
+        withSpring(0, { damping: 20, stiffness: 90 }),
+      );
+      card3Opacity.value = withDelay(300, withTiming(1, { duration: 400 }));
+    } else {
+      card1Y.value = withSpring(30, { damping: 20, stiffness: 90 });
+      card1Opacity.value = withTiming(0, { duration: 200 });
+      card2Y.value = withSpring(30, { damping: 20, stiffness: 90 });
+      card2Opacity.value = withTiming(0, { duration: 200 });
+      card3Y.value = withSpring(30, { damping: 20, stiffness: 90 });
+      card3Opacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [gender]);
+
+  const card1Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: card1Y.value }],
+    opacity: card1Opacity.value,
+  }));
+
+  const card2Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: card2Y.value }],
+    opacity: card2Opacity.value,
+  }));
+
+  const card3Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: card3Y.value }],
+    opacity: card3Opacity.value,
+  }));
+
+  // const RadioButton = ({ label, value }) => (
+  //   <Pressable
+  //     onPress={() => setGender(value)}
+  //     style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+  //   >
+  //     <View
+  //       style={{
+  //         width: 20,
+  //         height: 20,
+  //         borderRadius: 10,
+  //         borderWidth: 2,
+  //         borderColor: '#599FDD',
+  //         justifyContent: 'center',
+  //         alignItems: 'center',
+  //       }}
+  //     >
+  //       {gender === value && (
+  //         <View
+  //           style={{
+  //             width: 12,
+  //             height: 12,
+  //             borderRadius: 6,
+  //             backgroundColor: '#599FDD',
+  //           }}
+  //         />
+  //       )}
+  //     </View>
+  //     <Text style={{ fontSize: 16 }}>{label}</Text>
+  //   </Pressable>
+  // );
+
+  useEffect(() => {
+    // DOB validation
+    const dobValid =
       day.length === 2 &&
       !dayError &&
       month.length === 2 &&
       !monthError &&
       year.length === 4 &&
-      !yearError
-    ) {
+      !yearError;
+
+    // Gender validation
+    const genderValid =
+      gender === 'Male' ||
+      gender === 'Female' ||
+      (gender === 'Non-Binary' && nonbinary !== '');
+
+    // Combine both
+    if (dobValid && genderValid) {
       setIsDOBValid(true);
     } else {
       setIsDOBValid(false);
     }
-  }, [day, month, year, dayError, monthError, yearError]);
+  }, [day, month, year, dayError, monthError, yearError, gender, nonbinary]);
 
   // dayhandler
 
@@ -53,25 +176,23 @@ export default function SetupProfileScreen() {
       const dayNum = parseInt(numericText, 10);
       if (dayNum < 1 || dayNum > 31) {
         setDayError(true);
-        Alert.alert('Invalid Day', 'Day must be between 01 and 31');
+        showAlert('Invalid Day', 'Day must be between 01 and 31'); // Custom Alert
         return;
-      }
-
-      // valid → move focus safely
+      } // valid → move focus safely
       setTimeout(() => {
         monthRef.current?.focus();
-      }, 50);
+      }, 100);
     }
   };
   const handleDayBlur = () => {
     if (day.length !== 2) {
       setDayError(true);
-      Alert.alert('Invalid Day', 'Day must be in 2-digit format (01-31)');
+      showAlert('Invalid Day', 'Day must be in 2-digit format (01-31)');
     } else {
       const dayNum = parseInt(day, 10);
       if (dayNum < 1 || dayNum > 31) {
         setDayError(true);
-        Alert.alert('Invalid Day', 'Day must be between 01 and 31');
+        showAlert('Invalid Day', 'Day must be between 01 and 31');
       } else {
         setDayError(false);
       }
@@ -88,7 +209,7 @@ export default function SetupProfileScreen() {
       const MonthNum = parseInt(numericText, 10);
       if (MonthNum < 1 || MonthNum > 12) {
         setMonthError(true);
-
+        showAlert('Invalid month', 'Month must be between 01 and 12');
         return;
       }
 
@@ -104,7 +225,7 @@ export default function SetupProfileScreen() {
       setMonthError(true);
     } else {
       const MonthNum = parseInt(month, 10);
-      if (MonthNum < 1 || MonthNum > 31) {
+      if (MonthNum < 1 || MonthNum > 12) {
         setMonthError(true);
       } else {
         setMonthError(false);
@@ -121,9 +242,9 @@ export default function SetupProfileScreen() {
       const yearNum = parseInt(numeric, 10);
       if (yearNum < 1980 || yearNum > CURRENT_YEAR) {
         setYearError(true);
-        Alert.alert(
+        showAlert(
           'Invalid Year',
-          `Year must be between 1900 and ${CURRENT_YEAR}`,
+          `Year must be between 1980 and ${CURRENT_YEAR}`,
         );
       }
     }
@@ -133,6 +254,7 @@ export default function SetupProfileScreen() {
       setYearError(true);
     }
   };
+
   const handleNextGoals = () => {
     navigation.navigate('Goals');
   };
@@ -154,6 +276,16 @@ export default function SetupProfileScreen() {
           }}
         >
           Setup your Profile
+        </Text>
+        <Text
+          style={{
+            marginLeft: 5,
+
+            justifyContent: 'flex-start',
+            color: 'gray',
+          }}
+        >
+          Be real — it helps us match you better based on Age and Gender
         </Text>
       </View>
       <View style={{ marginTop: 18, marginHorizontal: 20, marginLeft: 30 }}>
@@ -289,17 +421,17 @@ export default function SetupProfileScreen() {
         }}
       >
         {dayError && (
-          <Text style={{ color: 'red', fontSize: 18, marginTop: 4 }}>
+          <Text style={{ color: 'red', fontSize: 14, marginTop: 4 }}>
             Enter a valid day between 01 and 31
           </Text>
         )}
         {monthError && (
-          <Text style={{ color: 'red', fontSize: 18, marginTop: 4 }}>
+          <Text style={{ color: 'red', fontSize: 14, marginTop: 4 }}>
             Enter a valid Month between 01 and 12
           </Text>
         )}
         {yearError && (
-          <Text style={{ color: 'red', fontSize: 18, marginTop: 4 }}>
+          <Text style={{ color: 'red', fontSize: 14, marginTop: 4 }}>
             Enter a valid Month between 1980 and {CURRENT_YEAR}
           </Text>
         )}
@@ -333,7 +465,7 @@ export default function SetupProfileScreen() {
         }}
       >
         <Pressable
-          onPress={() => setGender('Men')}
+          onPress={() => setGender('Male')}
           style={({ pressed }) => ({
             transform: [{ scale: pressed ? 0.96 : 1 }],
             opacity: pressed ? 0.85 : 1,
@@ -345,7 +477,7 @@ export default function SetupProfileScreen() {
               width: 82,
               height: 104,
               borderRadius: 30,
-              borderColor: gender === 'Men' ? '#E79FE9' : '#F7F6FF',
+              borderColor: gender === 'Male' ? '#E79FE9' : '#F7F6FF',
               borderWidth: 2.05,
               backgroundColor: '#fff',
               elevation: 8,
@@ -432,171 +564,221 @@ export default function SetupProfileScreen() {
             />
             <Text
               style={{
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: '600',
-                marginLeft: 13,
+                // marginLeft: 13,
+                textAlign: 'center',
               }}
             >
-              Non- Binary
+              Non-Binary
             </Text>
           </View>
         </Pressable>
       </View>
-      <View>
-        <View
-          style={{
-            marginLeft: 30,
-            marginTop: 30,
-            width: 377,
-            height: 78,
-            borderRadius: 10,
-            borderColor: '#F7F6FF',
-            borderWidth: 1,
-            backgroundColor: '#F8F8FF',
-            elevation: 6,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: 10,
-            justifyContent: 'flex-start',
-          }}
-        >
-          <View style={{ marginRight: 65, paddingLeft: 15 }}>
-            <Text
-              style={{
-                fontSize: 22,
-                fontFamily: 'GeezaPro-Bold',
-                fontWeight: '300',
-                color: '#1e1d1dff',
-              }}
+
+      {gender === 'Non-Binary' && (
+        <View>
+          <Animated.View style={card1Style}>
+            <Pressable
+              onPress={() => setNonbinary('Transgender')}
+              style={({ pressed }) => ({
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+                opacity: pressed ? 0.85 : 1,
+              })}
             >
-              Transgender
-            </Text>
-            <Text
-              style={{
-                fontSize: 16,
-                fontFamily: 'GeezaPro-Bold',
-                fontWeight: '300',
-                color: '#6D6B6B',
-                multiLine: true,
-                width: 300,
-              }}
-            >
-              A person whose gender identity is different from the sex assigned
-              to them at birth.
-            </Text>
+              <View
+                style={{
+                  marginLeft: 30,
+                  marginTop: 20,
+                  width: 377,
+                  height: 78,
+                  borderRadius: 10,
+                  borderColor:
+                    nonbinary === 'Transgender' ? '#599FDD' : '#CFCFCF',
+                  borderWidth: 1,
+                  backgroundColor: '#F8F8FF',
+                  elevation: 6,
+                  shadowColor: '#000',
+                  shadowOpacity: 0.15,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 4 },
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  gap: 10,
+                  justifyContent: 'flex-start',
+                }}
+              >
+                <View style={{ marginRight: 65, paddingLeft: 15 }}>
+                  <Text
+                    style={{
+                      fontSize: 22,
+                      fontFamily: 'GeezaPro-Bold',
+                      fontWeight: '300',
+                      color: '#1e1d1dff',
+                    }}
+                  >
+                    Transgender
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontFamily: 'GeezaPro-Bold',
+                      fontWeight: '300',
+                      color: '#6D6B6B',
+
+                      width: 300,
+                    }}
+                  >
+                    A person whose gender identity is different from the sex
+                    assigned to them at birth.
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          </Animated.View>
+          <View>
+            <Animated.View style={card2Style}>
+              <Pressable
+                onPress={() => setNonbinary('Trans Man')}
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <View
+                  style={{
+                    marginLeft: 30,
+                    marginTop: 20,
+                    width: 377,
+                    height: 78,
+                    borderRadius: 10,
+                    borderColor:
+                      nonbinary === 'Trans Man' ? '#599FDD' : '#CFCFCF',
+                    borderWidth: 1,
+                    backgroundColor: '#F8F8FF',
+                    elevation: 6,
+                    shadowColor: '#000',
+                    shadowOpacity: 0.15,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 4 },
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: 10,
+                    justifyContent: 'flex-start',
+                  }}
+                >
+                  <View style={{ marginRight: 65, paddingLeft: 15 }}>
+                    <Text
+                      style={{
+                        fontSize: 22,
+                        fontFamily: 'GeezaPro-Bold',
+                        fontWeight: '300',
+                        color: '#1e1d1dff',
+                      }}
+                    >
+                      Trans Man
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontFamily: 'GeezaPro-Bold',
+                        fontWeight: '300',
+                        color: '#6D6B6B',
+
+                        width: 300,
+                      }}
+                    >
+                      A person who was assigned female at birth and identifies
+                      as a man.
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            </Animated.View>
+          </View>
+          <View>
+            <Animated.View style={card3Style}>
+              <Pressable
+                onPress={() => setNonbinary('Trans Feminine')}
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <View
+                  style={{
+                    marginLeft: 30,
+                    marginTop: 20,
+                    width: 377,
+                    height: 78,
+                    borderRadius: 10,
+                    borderColor:
+                      nonbinary === 'Trans Feminine' ? '#599FDD' : '#CFCFCF',
+                    borderWidth: 1,
+                    backgroundColor: '#F8F8FF',
+                    elevation: 6,
+                    shadowColor: '#000',
+                    shadowOpacity: 0.15,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 4 },
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: 10,
+                    justifyContent: 'flex-start',
+                  }}
+                >
+                  <View style={{ marginRight: 65, paddingLeft: 15 }}>
+                    <Text
+                      style={{
+                        fontSize: 22,
+                        fontFamily: 'GeezaPro-Bold',
+                        fontWeight: '300',
+                        color: '#1e1d1dff',
+                      }}
+                    >
+                      Trans Feminine
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontFamily: 'GeezaPro-Bold',
+                        fontWeight: '300',
+                        color: '#6D6B6B',
+
+                        width: 300,
+                      }}
+                    >
+                      A person who was assigned male at birth and identifies
+                      with femininity.
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            </Animated.View>
           </View>
         </View>
-      </View>
-      <View>
-        <View
-          style={{
-            marginLeft: 30,
-            marginTop: 30,
-            width: 377,
-            height: 78,
-            borderRadius: 10,
-            borderColor: '#F7F6FF',
-            borderWidth: 1,
-            backgroundColor: '#F8F8FF',
-            elevation: 6,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: 10,
-            justifyContent: 'flex-start',
-          }}
-        >
-          <View style={{ marginRight: 65, paddingLeft: 15 }}>
-            <Text
-              style={{
-                fontSize: 22,
-                fontFamily: 'GeezaPro-Bold',
-                fontWeight: '300',
-                color: '#1e1d1dff',
-              }}
-            >
-              Trans Man
-            </Text>
-            <Text
-              style={{
-                fontSize: 16,
-                fontFamily: 'GeezaPro-Bold',
-                fontWeight: '300',
-                color: '#6D6B6B',
-                multiLine: true,
-                width: 300,
-              }}
-            >
-              A person who was assigned female at birth and identifies as a man.
-            </Text>
-          </View>
-        </View>
-      </View>
-      <View>
-        <View
-          style={{
-            marginLeft: 30,
-            marginTop: 30,
-            width: 377,
-            height: 78,
-            borderRadius: 10,
-            borderColor: '#F7F6FF',
-            borderWidth: 1,
-            backgroundColor: '#F8F8FF',
-            elevation: 6,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: 10,
-            justifyContent: 'flex-start',
-          }}
-        >
-          <View style={{ marginRight: 65, paddingLeft: 15 }}>
-            <Text
-              style={{
-                fontSize: 22,
-                fontFamily: 'GeezaPro-Bold',
-                fontWeight: '300',
-                color: '#1e1d1dff',
-              }}
-            >
-              Trans Feminine
-            </Text>
-            <Text
-              style={{
-                fontSize: 16,
-                fontFamily: 'GeezaPro-Bold',
-                fontWeight: '300',
-                color: '#6D6B6B',
-                multiLine: true,
-                width: 300,
-              }}
-            >
-              A person who was assigned male at birth and identifies with
-              femininity.
-            </Text>
-          </View>
-        </View>
-      </View>
+      )}
+      <Text
+        style={{
+          marginLeft: 45,
+          marginTop: '25',
+          justifyContent: 'flex-start',
+          color: 'gray',
+        }}
+      >
+        This will be shown on your profile. You can always change it later.
+      </Text>
       <Pressable
         onPress={handleNextGoals}
         disabled={!isDOBValid}
-        style={{
+        style={({ pressed }) => ({
+          transform: [{ scale: pressed ? 0.96 : 1 }],
+          opacity: pressed ? 0.85 : 1,
           backgroundColor: isDOBValid ? '#ff0090ff' : '#ff009080',
-          marginTop: 50,
+
           padding: 15,
           margin: 20,
-          marginTop: 'auto',
+
           borderRadius: 35,
           borderStyle: 'solid',
           borderColor: '#ff00aaff',
@@ -611,12 +793,12 @@ export default function SetupProfileScreen() {
           shadowRadius: 4.65,
 
           elevation: 6,
-        }}
+        })}
       >
         <Text
           style={{
             color: 'white',
-            fontSize: 18,
+            fontSize: 20,
             fontWeight: 'bold',
             textAlign: 'center',
           }}
@@ -624,6 +806,13 @@ export default function SetupProfileScreen() {
           Continue
         </Text>
       </Pressable>
+      {/* Custom Alert */}
+      <CustomAlert
+        visible={alertVisible}
+        title={alertTitle}
+        message={alertMessage}
+        onClose={() => setAlertVisible(false)}
+      />
     </SafeAreaView>
   );
 }

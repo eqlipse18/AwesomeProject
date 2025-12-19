@@ -176,7 +176,13 @@ const SignInScreen = () => {
               }}
             />
             {/* SHOW / HIDE */}
-            <Pressable onPress={() => setShowPassword(!showPassword)}>
+            <Pressable
+              style={({ pressed }) => ({
+                transform: [{ scale: pressed ? 0.99 : 1 }],
+                opacity: pressed ? 0.85 : 1,
+              })}
+              onPress={() => setShowPassword(!showPassword)}
+            >
               <Text
                 style={{
                   color: '#8c8c8cff',
@@ -189,14 +195,22 @@ const SignInScreen = () => {
             </Pressable>
           </View>
           <View style={{ width: 330, alignItems: 'flex-end' }}>
-            <Pressable onPress={handleNextForget}>
+            <Pressable
+              style={({ pressed }) => ({
+                transform: [{ scale: pressed ? 0.99 : 1 }],
+                opacity: pressed ? 0.85 : 1,
+              })}
+              onPress={handleNextForget}
+            >
               <Text style={{ color: '#292828ff', fontWeight: '500' }}>
                 Forgot Password ?
               </Text>
             </Pressable>
           </View>
           <Pressable
-            style={{
+            style={({ pressed }) => ({
+              transform: [{ scale: pressed ? 0.96 : 1 }],
+              opacity: pressed ? 0.85 : 1,
               marginTop: 100,
               width: 260,
               height: 50,
@@ -204,7 +218,7 @@ const SignInScreen = () => {
               backgroundColor: '#FF0059',
               alignItems: 'center',
               justifyContent: 'center',
-            }}
+            })}
           >
             <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold' }}>
               Sign In
@@ -214,7 +228,9 @@ const SignInScreen = () => {
             <Text style={{ color: '#292828ff', fontWeight: '500' }}>OR</Text>
           </View>
           <Pressable
-            style={{
+            style={({ pressed }) => ({
+              transform: [{ scale: pressed ? 0.96 : 1 }],
+              opacity: pressed ? 0.85 : 1,
               marginTop: 10,
               backgroundColor: 'white',
               paddingVertical: 10,
@@ -224,7 +240,7 @@ const SignInScreen = () => {
               borderColor: '#fd97afff',
               alignItems: 'center',
               justifyContent: 'center',
-            }}
+            })}
           >
             <View
               style={{
@@ -272,7 +288,9 @@ const SignInScreen = () => {
             <Animated.View entering={SlideInRight.duration(500).delay(100)}>
               <Pressable
                 onPress={handleNextSignUp}
-                style={{
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
                   paddingHorizontal: 15,
                   paddingVertical: 10,
                   borderRadius: 25,
@@ -282,7 +300,7 @@ const SignInScreen = () => {
                   borderWidth: 1,
                   borderColor: '#fc7192ff',
                   backgroundColor: 'white',
-                }}
+                })}
               >
                 <Text
                   style={{

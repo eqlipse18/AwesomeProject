@@ -13,6 +13,10 @@ import ForgetPassScreen from '../screens/ForgetPassScreen';
 import NameScreen from '../screens/NameScreen';
 import SetupProfileScreen from '../screens/SetupProfileScreen';
 import GoalsScreen from '../screens/GoalsScreen';
+import LifeStyleScreen from '../screens/LifestyleScreen';
+import HomeJobScreen from '../screens/HomeJobScreen';
+import PhotoScreen from '../screens/PhotoScreen';
+
 import { NavigationContainer } from '@react-navigation/native';
 
 import CustomTabBar from './CustomTabBar';
@@ -48,11 +52,11 @@ const StackNavigator = () => {
         <Stack.Screen name="Name" component={NameScreen} />
         <Stack.Screen name="Setup" component={SetupProfileScreen} />
         <Stack.Screen name="Goals" component={GoalsScreen} />
+        <Stack.Screen name="LifeStyle" component={LifeStyleScreen} />
+        <Stack.Screen name="HomeJob" component={HomeJobScreen} />
+        <Stack.Screen name="Photo" component={PhotoScreen} />
         {/* <Stack.Screen name="Name" component={NameScreen} />
        
-        <Stack.Screen name="Goal" component={RelationGoalScreen} />
-        <Stack.Screen name="HomeTown" component={HomeTownScreen} />
-        <Stack.Screen name="WorkPlace" component={WorkPlace} />
         <Stack.Screen name="JobTitle" component={JobTitleScreen} />
         <Stack.Screen name="Photo" component={PhotoScreen} />
         <Stack.Screen name="Prompt" component={PromptScreen} />

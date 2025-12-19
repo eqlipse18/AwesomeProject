@@ -1,5 +1,5 @@
 import { StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
-import React from 'react';
+import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useNavigation } from '@react-navigation/native';
@@ -7,6 +7,8 @@ import { useNavigation } from '@react-navigation/native';
 const NameScreen = () => {
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
+  const [activeInput, setActiveInput] = useState(null);
+
   const navigation = useNavigation();
   const handleNextSetup = () => {
     navigation.navigate('Setup');
@@ -36,7 +38,8 @@ const NameScreen = () => {
         placeholder="eg Noah R                                               
          (Required)"
         placeholderTextColor={'#959494ff'}
-        autoFocus={true}
+        onFocus={() => setActiveInput('firstName')}
+        onBlur={() => setActiveInput(null)}
         paddingleft={15}
         fontSize={18}
         style={{
@@ -45,10 +48,11 @@ const NameScreen = () => {
           marginLeft: 35,
           marginTop: 25,
           paddingLeft: 15,
-          backgroundColor: '#ede7e7',
-          borderWidth: 2,
-          borderColor: '#c5c5c5',
-          borderRadius: 20,
+          backgroundColor: activeInput === 'firstName' ? '#FFFFFF' : '#F7F6FF',
+          borderWidth: 1.2,
+          borderColor: activeInput === 'firstName' ? '#599FDD' : '#E0E0E0',
+          transform: [{ scale: activeInput === 'firstName' ? 1.02 : 1 }],
+          borderRadius: 10,
           color: '#4d4d4d',
           fontWeight: '500',
         }}
@@ -69,7 +73,9 @@ const NameScreen = () => {
         placeholder="Last Name                                               
          (Optional)"
         placeholderTextColor={'#959494ff'}
-        paddingleft={15}
+        onFocus={() => setActiveInput('lastName')}
+        onBlur={() => setActiveInput(null)}
+        paddingLeft={15}
         fontSize={18}
         style={{
           width: 360,
@@ -77,12 +83,13 @@ const NameScreen = () => {
           marginLeft: 35,
           marginTop: 15,
           paddingLeft: 15,
-          backgroundColor: '#ede7e7',
-          borderWidth: 2,
-          borderColor: '#c5c5c5',
-          borderRadius: 20,
+          backgroundColor: activeInput === 'lastName' ? '#FFFFFF' : '#F7F6FF',
+          borderWidth: 1.2,
+          borderColor: activeInput === 'lastName' ? '#599FDD' : '#E0E0E0',
+          borderRadius: 10,
           color: '#4d4d4d',
           fontWeight: '500',
+          transform: [{ scale: activeInput === 'lastName' ? 1.02 : 1 }],
         }}
       />
       <Text

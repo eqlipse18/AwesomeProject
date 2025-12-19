@@ -26,6 +26,7 @@ const SignUpScreen = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const [activeInput, setActiveInput] = useState(null);
 
   const CARD_WIDTH = screenWidth * 1;
   const CARD_HEIGHT = screenHeight * 1;
@@ -297,11 +298,13 @@ const SignUpScreen = () => {
                   width: 370,
                   height: 50,
                   borderRadius: 35,
-                  backgroundColor: 'white',
+                  transform: [{ scale: activeInput === 'email' ? 1.02 : 1 }],
+                  backgroundColor:
+                    activeInput === 'email' ? '#FFFFFF' : '#F7F6FF',
+                  borderColor: activeInput === 'email' ? '#599FDD' : '#E0E0E0',
                   paddingHorizontal: 15,
                   marginBottom: 15,
                   borderWidth: 1,
-                  borderColor: '#a1a1a180',
                 }}
               >
                 <Image
@@ -313,11 +316,14 @@ const SignUpScreen = () => {
                   onChangeText={text => setEmail(text)}
                   placeholder="Enter your email"
                   placeholderTextColor="#bebebe"
+                  onFocus={() => setActiveInput('email')}
+                  onBlur={() => setActiveInput(null)}
                   autoFocus={true}
                   style={{
                     flex: 1,
                     fontSize: 16,
                     fontWeight: '500',
+
                     color: '#4d4d4d',
                   }}
                 />
@@ -331,11 +337,14 @@ const SignUpScreen = () => {
                   width: 370,
                   height: 50,
                   borderRadius: 35,
-                  backgroundColor: 'white',
+                  transform: [{ scale: activeInput === 'password' ? 1.02 : 1 }],
+                  backgroundColor:
+                    activeInput === 'password' ? '#FFFFFF' : '#F7F6FF',
+                  borderColor:
+                    activeInput === 'password' ? '#599FDD' : '#E0E0E0',
                   paddingHorizontal: 15,
                   marginBottom: 15,
                   borderWidth: 1,
-                  borderColor: '#a1a1a180',
                 }}
               >
                 <Image
@@ -347,6 +356,8 @@ const SignUpScreen = () => {
                   onChangeText={text => setPassword(text)}
                   placeholder="Set a password"
                   placeholderTextColor="#bebebe"
+                  onFocus={() => setActiveInput('password')}
+                  onBlur={() => setActiveInput(null)}
                   secureTextEntry={!showPassword}
                   style={{
                     flex: 1,
@@ -356,7 +367,13 @@ const SignUpScreen = () => {
                   }}
                 />
                 {/* SHOW / HIDE */}
-                <Pressable onPress={() => setShowPassword(!showPassword)}>
+                <Pressable
+                  style={({ pressed }) => ({
+                    transform: [{ scale: pressed ? 0.99 : 1 }],
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
                   <Text
                     style={{
                       color: '#8c8c8cff',
@@ -372,7 +389,9 @@ const SignUpScreen = () => {
               {/* Sign Up */}
               <Pressable
                 onPress={handleNextOtp}
-                style={{
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
                   marginTop: 100,
                   width: 260,
                   height: 50,
@@ -380,7 +399,7 @@ const SignUpScreen = () => {
                   backgroundColor: '#FF0059',
                   alignItems: 'center',
                   justifyContent: 'center',
-                }}
+                })}
               >
                 <Text
                   style={{ color: 'white', fontSize: 20, fontWeight: 'bold' }}
@@ -395,7 +414,9 @@ const SignUpScreen = () => {
               </View>
               {/* Sign Up with Google */}
               <Pressable
-                style={{
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
                   marginTop: 10,
                   backgroundColor: 'white',
                   paddingVertical: 10,
@@ -405,7 +426,7 @@ const SignUpScreen = () => {
                   borderColor: '#fd97afff',
                   alignItems: 'center',
                   justifyContent: 'center',
-                }}
+                })}
               >
                 <View
                   style={{
@@ -454,7 +475,9 @@ const SignUpScreen = () => {
                 <Animated.View entering={SlideInRight.duration(500).delay(100)}>
                   <Pressable
                     onPress={handleNextSignIn}
-                    style={{
+                    style={({ pressed }) => ({
+                      transform: [{ scale: pressed ? 0.96 : 1 }],
+                      opacity: pressed ? 0.85 : 1,
                       paddingHorizontal: 15,
                       paddingVertical: 10,
                       borderRadius: 25,
@@ -464,7 +487,7 @@ const SignUpScreen = () => {
                       borderWidth: 1,
                       borderColor: '#fc7192ff',
                       backgroundColor: 'white',
-                    }}
+                    })}
                   >
                     <Text
                       style={{

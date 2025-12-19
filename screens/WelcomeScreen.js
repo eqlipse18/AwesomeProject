@@ -89,7 +89,9 @@ const WelcomeScreen = () => {
             <Animated.View entering={FadeInUp.duration(600)}>
               <Pressable
                 onPress={handleNext}
-                style={{
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
                   backgroundColor: '#FF0059',
                   padding: 10,
                   width: 380,
@@ -99,7 +101,7 @@ const WelcomeScreen = () => {
                   justifyContent: 'center',
                   borderWidth: 1,
                   borderColor: '#fc86abff',
-                }}
+                })}
               >
                 <View
                   style={{
@@ -111,8 +113,8 @@ const WelcomeScreen = () => {
                 >
                   <Image
                     style={{
-                      height: 30,
-                      width: 30,
+                      height: 25,
+                      width: 25,
                       tintColor: 'white',
                     }}
                     source={require('../assets/Images/email.png')}
@@ -134,7 +136,9 @@ const WelcomeScreen = () => {
           <Animated.View entering={FadeIn.duration(300).delay(100)}>
             <Animated.View entering={FadeInUp.duration(700).delay(200)}>
               <Pressable
-                style={{
+                style={({ pressed }) => ({
+                  transform: [{ scale: pressed ? 0.96 : 1 }],
+                  opacity: pressed ? 0.85 : 1,
                   backgroundColor: 'white',
                   padding: 10,
                   width: 380,
@@ -146,7 +150,7 @@ const WelcomeScreen = () => {
                   borderWidth: 1,
                   borderColor: 'pink',
                   backgroundColor: 'white',
-                }}
+                })}
               >
                 <View
                   style={{
@@ -157,7 +161,7 @@ const WelcomeScreen = () => {
                   }}
                 >
                   <Image
-                    style={{ height: 30, width: 30 }}
+                    style={{ height: 25, width: 25 }}
                     source={require('../assets/Images/google.png')}
                   />
                   <Text
@@ -200,7 +204,9 @@ const WelcomeScreen = () => {
         <Animated.View entering={SlideInRight.duration(500).delay(100)}>
           <Pressable
             onPress={handleNextSignIn}
-            style={{
+            style={({ pressed }) => ({
+              transform: [{ scale: pressed ? 0.96 : 1 }],
+              opacity: pressed ? 0.85 : 1,
               paddingHorizontal: 15,
               paddingVertical: 10,
               borderRadius: 25,
@@ -210,7 +216,7 @@ const WelcomeScreen = () => {
               borderWidth: 1,
               borderColor: 'pink',
               backgroundColor: 'white',
-            }}
+            })}
           >
             <Text
               style={{
