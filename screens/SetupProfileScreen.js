@@ -18,6 +18,8 @@ import Animated, {
   withTiming,
   withDelay,
   Easing,
+  FadeInDown,
+  LinearTransition,
 } from 'react-native-reanimated';
 
 import {
@@ -32,6 +34,11 @@ configureReanimatedLogger({
 });
 import { useRef } from 'react';
 import CustomAlert from '../components/CustomAlert';
+import {
+  responsiveFontSize,
+  responsiveHeight,
+  responsiveWidth,
+} from 'react-native-responsive-dimensions';
 
 export default function SetupProfileScreen() {
   const [gender, setGender] = useState('');
@@ -56,6 +63,36 @@ export default function SetupProfileScreen() {
     setAlertMessage(message);
     setAlertVisible(true);
   };
+  //animation MIRON -->
+
+  const _damping = 15;
+  const _stiffness = 300;
+  const _damping1 = 15;
+  const _entering = FadeInDown.springify()
+    .damping(_damping1)
+    .stiffness(_stiffness);
+  const _entering1 = FadeInDown.springify()
+    .delay(200)
+    .damping(_damping1)
+    .stiffness(_stiffness);
+  const _entering2 = FadeInDown.springify()
+    .delay(350)
+    .damping(_damping1)
+    .stiffness(_stiffness);
+    const _layout = LinearTransition.springify();
+  // const _enteringt = FadeInDown.springify()
+  //   .damping(_damping)
+  //   .stiffness(_stiffness);
+  // const _enteringt1 = FadeInDown.springify()
+  //   .damping(_damping)
+  //   .stiffness(_stiffness)
+  //   .delay(200);
+  // const _enteringt2 = FadeInDown.springify()
+  //   .damping(_damping)
+  //   .stiffness(_stiffness)
+  //   .delay(350);
+  // const _existing = FadeOut.springify().damping(_damping);
+  // .damping(_damping);
 
   const [isDOBValid, setIsDOBValid] = useState(false);
 
@@ -267,10 +304,17 @@ export default function SetupProfileScreen() {
         backgroundColor: 'white',
       }}
     >
-      <View style={{ marginTop: 30, marginHorizontal: 20, marginLeft: 30 }}>
+      <Animated.View
+        layout={_layout}
+        style={{
+          marginTop: responsiveHeight(6),
+          // marginHorizontal: 20,
+          marginLeft: responsiveWidth(8), //30
+        }}
+      >
         <Text
           style={{
-            fontSize: 35,
+            fontSize: responsiveFontSize(3.5), //32
             fontFamily: 'Geeza-Pro-Bold',
             fontWeight: 'bold',
           }}
@@ -279,139 +323,150 @@ export default function SetupProfileScreen() {
         </Text>
         <Text
           style={{
-            marginLeft: 5,
-
+            fontSize: responsiveFontSize(1.4), //16
             justifyContent: 'flex-start',
             color: 'gray',
           }}
         >
           Be real — it helps us match you better based on Age and Gender
         </Text>
-      </View>
-      <View style={{ marginTop: 18, marginHorizontal: 20, marginLeft: 30 }}>
+      </Animated.View>
+      <Animated.View
+        layout={_layout}
+        style={{
+          marginTop: responsiveHeight(2),
+
+          marginLeft: responsiveWidth(4), //15
+        }}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
-          <Image
+          {/* <Image
             style={{ height: 40, width: 40 }}
             source={require('../assets/Images/calendar.png')}
-          />
+          /> */}
         </View>
         <Text
           style={{
-            fontSize: 25,
+            fontSize: responsiveFontSize(2.5), //25
             fontFamily: 'GeezaPro-Bold',
             fontWeight: '300',
-            color: '#3D3B3B',
+            color: '#222222',
           }}
         >
-          Your birthday
+          Your Birthday
         </Text>
-      </View>
+      </Animated.View>
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 10,
-          marginTop: 20,
+          marginTop: responsiveHeight(1.8),
         }}
       >
-        <TextInput
-          value={day}
-          onChangeText={handleDayChange}
-          onBlur={handleDayBlur}
-          autoFocus={true}
-          keyboardType="numeric"
-          maxLength={2}
-          placeholder="DD"
-          placeholderTextColor={dayError ? 'red' : '#bebebe'}
-          style={{
-            borderWidth: 1,
-            borderColor: '#8977a1ff',
-            backgroundColor: '#ffffffff',
-            width: 50,
-            height: 55,
-            textAlign: 'center',
-            fontSize: 20,
-            color: dayError ? 'red' : 'black',
-            fontWeight: '400',
-            marginHorizontal: 5,
-            borderRadius: 54,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 8,
-            borderWidth: 1,
-            borderColor: dayError ? 'red' : '#F7F6FF',
-          }}
-        />
-
-        <TextInput
-          value={month}
-          onChangeText={handleMonthChange}
-          onBlur={handleMonthBlur}
-          autoFocus={true}
-          ref={monthRef}
-          editable={!dayError && day.length === 2}
-          keyboardType="numeric"
-          maxLength={2}
-          placeholder="MM"
-          placeholderTextColor={monthError ? 'red' : '#bebebe'}
-          style={{
-            borderWidth: 1,
-            borderColor: '#8977a1ff',
-            backgroundColor: '#ffffffff',
-            width: 50,
-            height: 55,
-            textAlign: 'center',
-            fontSize: 20,
-            color: monthError ? 'red' : 'black',
-            fontWeight: '400',
-            marginHorizontal: 5,
-            borderRadius: 54,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 8,
-            borderWidth: 1,
-            borderColor: monthError ? 'red' : '#F7F6FF',
-          }}
-        />
-        <TextInput
-          value={year}
-          onChangeText={handleYearChange}
-          onBlur={handleYearBlur}
-          autoFocus={true}
-          ref={yearRef}
-          keyboardType="numeric"
-          maxLength={4}
-          placeholder="YYYY"
-          placeholderTextColor={yearError ? 'red' : '#bebebe'}
-          editable={
-            !dayError && day.length === 2 && !monthError && month.length === 2
-          }
-          style={{
-            borderWidth: 1,
-            borderColor: '#8977a1ff',
-            backgroundColor: '#ffffffff',
-            width: 80,
-            height: 55,
-            textAlign: 'center',
-            fontSize: 20,
-            color: yearError ? 'red' : 'black',
-            fontWeight: '400',
-            marginHorizontal: 5,
-            borderRadius: 54,
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 8,
-            borderWidth: 1,
-            borderColor: yearError ? 'red' : '#F7F6FF',
-          }}
-        />
+        <Animated.View entering={_entering}>
+          <TextInput
+            value={day}
+            onChangeText={handleDayChange}
+            onBlur={handleDayBlur}
+            autoFocus={true}
+            keyboardType="numeric"
+            maxLength={2}
+            placeholder="DD"
+            placeholderTextColor={dayError ? 'red' : '#bebebe'}
+            style={{
+              borderWidth: 1,
+              borderColor: '#8977a1ff',
+              backgroundColor: '#ffffffff',
+              width: responsiveWidth(12), //50
+              height: responsiveHeight(6), //55
+              textAlign: 'center',
+              fontSize: 20,
+              color: dayError ? 'red' : 'black',
+              fontWeight: '400',
+              marginHorizontal: 5,
+              borderRadius: 54,
+              shadowColor: '#000',
+              shadowOpacity: 0.15,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 8,
+              borderWidth: 1,
+              borderColor: dayError ? 'red' : '#F7F6FF',
+            }}
+          />
+        </Animated.View>
+        <Animated.View entering={_entering1}>
+          <TextInput
+            value={month}
+            onChangeText={handleMonthChange}
+            onBlur={handleMonthBlur}
+            autoFocus={true}
+            ref={monthRef}
+            editable={!dayError && day.length === 2}
+            keyboardType="numeric"
+            maxLength={2}
+            placeholder="MM"
+            placeholderTextColor={monthError ? 'red' : '#bebebe'}
+            style={{
+              borderWidth: 1,
+              borderColor: '#8977a1ff',
+              backgroundColor: '#ffffffff',
+              width: responsiveWidth(12), //50
+              height: responsiveHeight(6), //55
+              textAlign: 'center',
+              fontSize: 20,
+              color: monthError ? 'red' : 'black',
+              fontWeight: '400',
+              marginHorizontal: 5,
+              borderRadius: 54,
+              shadowColor: '#000',
+              shadowOpacity: 0.15,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 8,
+              borderWidth: 1,
+              borderColor: monthError ? 'red' : '#F7F6FF',
+            }}
+          />
+        </Animated.View>
+        <Animated.View entering={_entering2}>
+          <TextInput
+            value={year}
+            onChangeText={handleYearChange}
+            onBlur={handleYearBlur}
+            autoFocus={true}
+            ref={yearRef}
+            keyboardType="numeric"
+            maxLength={4}
+            placeholder="YYYY"
+            placeholderTextColor={yearError ? 'red' : '#bebebe'}
+            editable={
+              !dayError && day.length === 2 && !monthError && month.length === 2
+            }
+            style={{
+              borderWidth: 1,
+              borderColor: '#8977a1ff',
+              backgroundColor: '#ffffffff',
+              width: responsiveWidth(17), //80
+              height: responsiveHeight(6), //55
+              textAlign: 'center',
+              fontSize: 20,
+              color: yearError ? 'red' : 'black',
+              fontWeight: '400',
+              marginHorizontal: 5,
+              borderRadius: 54,
+              shadowColor: '#000',
+              shadowOpacity: 0.15,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 8,
+              borderWidth: 1,
+              borderColor: yearError ? 'red' : '#F7F6FF',
+            }}
+          />
+        </Animated.View>
       </View>
       <View
         style={{
@@ -437,24 +492,28 @@ export default function SetupProfileScreen() {
         )}
       </View>
 
-      <View style={{ marginTop: 20, marginHorizontal: 20, marginLeft: 30 }}>
+      <Animated.View
+        layout={_layout}
+        style={{
+          marginTop: responsiveHeight(2),
+
+          marginLeft: responsiveWidth(4),
+        }}
+      >
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <Image
-            style={{ height: 30, width: 30 }}
-            source={require('../assets/Images/gender.png')}
-          />
+          {/* <GenderIcon width={30} height={30} fill="#000000ff" /> */}
         </View>
         <Text
           style={{
-            fontSize: 25,
+            fontSize: responsiveFontSize(2.5), //25
             fontFamily: 'GeezaPro-Bold',
             fontWeight: '300',
-            color: '#3D3B3B',
+            color: '#222222',
           }}
         >
           Gender
         </Text>
-      </View>
+      </Animated.View>
       <View
         style={{
           flexDirection: 'row',
@@ -471,11 +530,13 @@ export default function SetupProfileScreen() {
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          <View
+          <Animated.View
+            layout={_layout}
+            entering={_entering}
             style={{
-              marginTop: 30,
-              width: 82,
-              height: 104,
+              marginTop: responsiveHeight(3), //30
+              width: responsiveWidth(19), //82
+              height: responsiveHeight(11), //104
               borderRadius: 30,
               borderColor: gender === 'Male' ? '#E79FE9' : '#F7F6FF',
               borderWidth: 2.05,
@@ -494,8 +555,12 @@ export default function SetupProfileScreen() {
               style={{ height: 30, width: 30 }}
               source={require('../assets/Images/male.png')}
             />
-            <Text style={{ fontSize: 20, fontWeight: '600' }}>Male</Text>
-          </View>
+            <Text
+              style={{ fontSize: responsiveFontSize(1.8), fontWeight: '600' }}
+            >
+              Male
+            </Text>
+          </Animated.View>
         </Pressable>
         <Pressable
           onPress={() => setGender('Female')}
@@ -504,12 +569,14 @@ export default function SetupProfileScreen() {
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          <View
+          <Animated.View
+            layout={_layout}
+            entering={_entering1}
             style={{
-              marginLeft: 30,
-              marginTop: 30,
-              width: 82,
-              height: 104,
+              marginLeft: responsiveWidth(8), //30
+              marginTop: responsiveHeight(3), //30
+              width: responsiveWidth(19), //82
+              height: responsiveHeight(11), //104
               borderRadius: 30,
               borderColor: gender === 'Female' ? '#E79FE9' : '#F7F6FF',
               borderWidth: 2.05,
@@ -528,8 +595,12 @@ export default function SetupProfileScreen() {
               style={{ height: 35, width: 35 }}
               source={require('../assets/Images/female.png')}
             />
-            <Text style={{ fontSize: 20, fontWeight: '600' }}>Female</Text>
-          </View>
+            <Text
+              style={{ fontSize: responsiveFontSize(1.8), fontWeight: '600' }}
+            >
+              Female
+            </Text>
+          </Animated.View>
         </Pressable>
         <Pressable
           onPress={() => setGender('Non-Binary')}
@@ -538,12 +609,14 @@ export default function SetupProfileScreen() {
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          <View
+          <Animated.View
+            layout={_layout}
+            entering={_entering2}
             style={{
-              marginLeft: 30,
-              marginTop: 30,
-              width: 82,
-              height: 104,
+              marginLeft: responsiveWidth(8), //30
+              marginTop: responsiveHeight(3), //30
+              width: responsiveWidth(19), //82
+              height: responsiveHeight(11), //104
               borderRadius: 30,
               borderColor: gender === 'Non-Binary' ? '#E79FE9' : '#F7F6FF',
               borderWidth: 2.05,
@@ -564,7 +637,7 @@ export default function SetupProfileScreen() {
             />
             <Text
               style={{
-                fontSize: 17,
+                fontSize: responsiveFontSize(1.6),
                 fontWeight: '600',
                 // marginLeft: 13,
                 textAlign: 'center',
@@ -572,13 +645,17 @@ export default function SetupProfileScreen() {
             >
               Non-Binary
             </Text>
-          </View>
+          </Animated.View>
         </Pressable>
       </View>
 
       {gender === 'Non-Binary' && (
         <View>
-          <Animated.View style={card1Style}>
+          <Animated.View
+            layout={_layout}
+            // entering={_enteringt}
+            style={card1Style}
+          >
             <Pressable
               onPress={() => setNonbinary('Transgender')}
               style={({ pressed }) => ({
@@ -588,10 +665,10 @@ export default function SetupProfileScreen() {
             >
               <View
                 style={{
-                  marginLeft: 30,
-                  marginTop: 20,
-                  width: 377,
-                  height: 78,
+                  marginLeft: responsiveWidth(7), //
+                  marginTop: responsiveHeight(2), //20
+                  width: responsiveWidth(85), //377
+                  height: responsiveHeight(8), //78
                   borderRadius: 10,
                   borderColor:
                     nonbinary === 'Transgender' ? '#599FDD' : '#CFCFCF',
@@ -608,10 +685,12 @@ export default function SetupProfileScreen() {
                   justifyContent: 'flex-start',
                 }}
               >
-                <View style={{ marginRight: 65, paddingLeft: 15 }}>
+                <View
+                  style={{ marginRight: responsiveWidth(14), paddingLeft: 15 }}
+                >
                   <Text
                     style={{
-                      fontSize: 22,
+                      fontSize: responsiveFontSize(2.5), //22
                       fontFamily: 'GeezaPro-Bold',
                       fontWeight: '300',
                       color: '#1e1d1dff',
@@ -621,12 +700,12 @@ export default function SetupProfileScreen() {
                   </Text>
                   <Text
                     style={{
-                      fontSize: 16,
+                      fontSize: responsiveFontSize(1.7), //16
                       fontFamily: 'GeezaPro-Bold',
                       fontWeight: '300',
                       color: '#6D6B6B',
 
-                      width: 300,
+                      width: responsiveWidth(66),
                     }}
                   >
                     A person whose gender identity is different from the sex
@@ -637,7 +716,11 @@ export default function SetupProfileScreen() {
             </Pressable>
           </Animated.View>
           <View>
-            <Animated.View style={card2Style}>
+            <Animated.View
+              layout={_layout}
+              // entering={_enteringt1}
+              style={card2Style}
+            >
               <Pressable
                 onPress={() => setNonbinary('Trans Man')}
                 style={({ pressed }) => ({
@@ -647,10 +730,10 @@ export default function SetupProfileScreen() {
               >
                 <View
                   style={{
-                    marginLeft: 30,
-                    marginTop: 20,
-                    width: 377,
-                    height: 78,
+                    marginLeft: responsiveWidth(7), //30
+                    marginTop: responsiveHeight(2), //20
+                    width: responsiveWidth(85), //377
+                    height: responsiveHeight(8), //78
                     borderRadius: 10,
                     borderColor:
                       nonbinary === 'Trans Man' ? '#599FDD' : '#CFCFCF',
@@ -667,10 +750,15 @@ export default function SetupProfileScreen() {
                     justifyContent: 'flex-start',
                   }}
                 >
-                  <View style={{ marginRight: 65, paddingLeft: 15 }}>
+                  <View
+                    style={{
+                      marginRight: responsiveWidth(14),
+                      paddingLeft: 15,
+                    }}
+                  >
                     <Text
                       style={{
-                        fontSize: 22,
+                        fontSize: responsiveFontSize(2.5), //22
                         fontFamily: 'GeezaPro-Bold',
                         fontWeight: '300',
                         color: '#1e1d1dff',
@@ -680,12 +768,12 @@ export default function SetupProfileScreen() {
                     </Text>
                     <Text
                       style={{
-                        fontSize: 16,
+                        fontSize: responsiveFontSize(1.7), //16
                         fontFamily: 'GeezaPro-Bold',
                         fontWeight: '300',
                         color: '#6D6B6B',
 
-                        width: 300,
+                        width: responsiveWidth(66),
                       }}
                     >
                       A person who was assigned female at birth and identifies
@@ -697,7 +785,11 @@ export default function SetupProfileScreen() {
             </Animated.View>
           </View>
           <View>
-            <Animated.View style={card3Style}>
+            <Animated.View
+              layout={_layout}
+              // entering={_enteringt2}
+              style={card3Style}
+            >
               <Pressable
                 onPress={() => setNonbinary('Trans Feminine')}
                 style={({ pressed }) => ({
@@ -707,10 +799,10 @@ export default function SetupProfileScreen() {
               >
                 <View
                   style={{
-                    marginLeft: 30,
-                    marginTop: 20,
-                    width: 377,
-                    height: 78,
+                    marginLeft: responsiveWidth(7), //30
+                    marginTop: responsiveHeight(2), //20
+                    width: responsiveWidth(85), //377
+                    height: responsiveHeight(8), //78
                     borderRadius: 10,
                     borderColor:
                       nonbinary === 'Trans Feminine' ? '#599FDD' : '#CFCFCF',
@@ -727,10 +819,15 @@ export default function SetupProfileScreen() {
                     justifyContent: 'flex-start',
                   }}
                 >
-                  <View style={{ marginRight: 65, paddingLeft: 15 }}>
+                  <View
+                    style={{
+                      marginRight: responsiveWidth(14),
+                      paddingLeft: 15,
+                    }}
+                  >
                     <Text
                       style={{
-                        fontSize: 22,
+                        fontSize: responsiveFontSize(2.5), //22
                         fontFamily: 'GeezaPro-Bold',
                         fontWeight: '300',
                         color: '#1e1d1dff',
@@ -740,12 +837,12 @@ export default function SetupProfileScreen() {
                     </Text>
                     <Text
                       style={{
-                        fontSize: 16,
+                        fontSize: responsiveFontSize(1.7), //16
                         fontFamily: 'GeezaPro-Bold',
                         fontWeight: '300',
                         color: '#6D6B6B',
 
-                        width: 300,
+                        width: responsiveWidth(66),
                       }}
                     >
                       A person who was assigned male at birth and identifies
@@ -758,54 +855,62 @@ export default function SetupProfileScreen() {
           </View>
         </View>
       )}
-      <Text
-        style={{
-          marginLeft: 45,
-          marginTop: '25',
-          justifyContent: 'flex-start',
-          color: 'gray',
-        }}
-      >
-        This will be shown on your profile. You can always change it later.
-      </Text>
-      <Pressable
-        onPress={handleNextGoals}
-        disabled={!isDOBValid}
-        style={({ pressed }) => ({
-          transform: [{ scale: pressed ? 0.96 : 1 }],
-          opacity: pressed ? 0.85 : 1,
-          backgroundColor: isDOBValid ? '#ff0090ff' : '#ff009080',
-
-          padding: 15,
-          margin: 20,
-
-          borderRadius: 35,
-          borderStyle: 'solid',
-          borderColor: '#ff00aaff',
-          borderWidth: 2,
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: {
-            width: 0,
-            height: 5,
-          },
-          shadowOpacity: 0.5,
-          shadowRadius: 4.65,
-
-          elevation: 6,
-        })}
-      >
+      <Animated.View layout={_layout}>
         <Text
           style={{
-            color: 'white',
-            fontSize: 20,
-            fontWeight: 'bold',
-            textAlign: 'center',
+            fontSize: responsiveFontSize(1.4), //16
+            marginLeft: responsiveWidth(8), //45
+            marginTop: responsiveHeight(4), //40
+            justifyContent: 'flex-start',
+            color: 'gray',
           }}
         >
-          Continue
+          This will be shown on your profile. You can always change it later.
         </Text>
-      </Pressable>
+      </Animated.View>
+      <Animated.View
+        layout={_layout}
+        style={{ alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Pressable
+          onPress={handleNextGoals}
+          disabled={!isDOBValid}
+          style={({ pressed }) => ({
+            transform: [{ scale: pressed ? 0.96 : 1 }],
+            opacity: pressed ? 0.85 : 1,
+            backgroundColor: isDOBValid ? '#ff0090ff' : '#ff009080',
+
+            width: responsiveWidth(85),
+            paddingVertical: 10,
+            marginTop: 5,
+            borderRadius: 35,
+            borderStyle: 'solid',
+            borderColor: '#ff00aaff',
+            borderWidth: 2,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: {
+              width: 0,
+              height: 5,
+            },
+            shadowOpacity: 0.5,
+            shadowRadius: 4.65,
+
+            elevation: 6,
+          })}
+        >
+          <Text
+            style={{
+              color: 'white',
+              fontSize: 20,
+              fontWeight: 'bold',
+              textAlign: 'center',
+            }}
+          >
+            Continue
+          </Text>
+        </Pressable>
+      </Animated.View>
       {/* Custom Alert */}
       <CustomAlert
         visible={alertVisible}

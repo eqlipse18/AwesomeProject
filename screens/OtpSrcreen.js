@@ -5,6 +5,11 @@ import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useRoute } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
+import {
+  responsiveFontSize,
+  responsiveHeight,
+  responsiveWidth,
+} from 'react-native-responsive-dimensions';
 const OtpSrcreen = () => {
   const [otp, setOtp] = React.useState(['', '', '', '', '', '']);
   const inputs = useRef([]);
@@ -67,25 +72,30 @@ const OtpSrcreen = () => {
     >
       <View
         style={{
-          height: 80,
+          height: responsiveHeight(10), //80
           justifyContent: 'center',
           alignItems: 'center',
-          marginTop: 50,
+          marginTop: responsiveHeight(6), //50
         }}
       >
-        <Text style={{ fontSize: 25, fontWeight: '500' }}>
+        <Text style={{ fontSize: responsiveFontSize(2.8), fontWeight: '500' }}>
           Verification code
         </Text>
-        <Text style={{ fontSize: 16, color: '#7d7d7dff', marginTop: 5 }}>
+        <Text
+          style={{
+            fontSize: responsiveFontSize(1.8), //16
+            color: '#7d7d7dff',
+            marginTop: 5,
+          }}
+        >
           Enter the 6 digit code sent to your email address
         </Text>
       </View>
       <View
         style={{
           flexDirection: 'row',
-          marginLeft: 45,
+          marginLeft: responsiveWidth(10), //45
           gap: 5,
-
           marginTop: 10,
         }}
       >
@@ -106,8 +116,8 @@ const OtpSrcreen = () => {
               borderWidth: 1,
               borderColor: '#8977a1ff',
               backgroundColor: '#ffffffff',
-              width: 44,
-              height: 55,
+              width: responsiveWidth(10), //45
+              height: responsiveHeight(6), //50
               textAlign: 'center',
               fontSize: 20,
               fontWeight: '400',
@@ -126,18 +136,18 @@ const OtpSrcreen = () => {
       </View>
       <View
         style={{
-          marginLeft: 20,
+          // marginLeft: 20,//20
           marginBottom: 'auto',
           justifyContent: 'center',
           alignItems: 'center',
-          marginTop: 70,
+          marginTop: responsiveHeight(8), //70
         }}
       >
         <View>
           <LottieView
             style={{
-              height: 260,
-              width: 300,
+              height: responsiveHeight(26), //260
+              width: responsiveWidth(60), //300
               alignSelf: 'center',
               opacity: 0.9,
               justifyContent: 'center',

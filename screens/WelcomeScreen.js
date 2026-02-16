@@ -16,6 +16,12 @@ import Animated, {
   SlideInLeft,
 } from 'react-native-reanimated';
 import { useNavigation } from '@react-navigation/native';
+import AppStatusBar from '../components/AppStatusBar';
+import {
+  responsiveHeight,
+  responsiveWidth,
+  responsiveFontSize,
+} from 'react-native-responsive-dimensions';
 
 const WelcomeScreen = () => {
   const navigation = useNavigation();
@@ -33,6 +39,7 @@ const WelcomeScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <AppStatusBar style="dark-content" />
       {/* <LinearGradient
         colors={['#fe73ad', '#ffffff']}
         start={{ x: 1, y: 1 }}
@@ -46,13 +53,8 @@ const WelcomeScreen = () => {
         }}
       /> */}
       <Image
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-        }}
+        style={StyleSheet.absoluteFillObject}
+        resizeMode="cover"
         source={require('../assets/Images/bg.jpg')}
       />
 
@@ -61,22 +63,18 @@ const WelcomeScreen = () => {
           source={require('../assets/Images/logo.png')}
           resizeMode="contain"
           style={{
-            height: 150,
-            width: 150,
-            marginTop: 145,
+            height: responsiveHeight(16),
+            width: responsiveHeight(16),
+            marginTop: responsiveHeight(15),
           }}
         />
       </View>
       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
         <Text
           style={{
-            fontSize: 18,
+            fontSize: responsiveFontSize(1.6),
             color: '#3e3d3dff',
             fontWeight: 'bold',
-            marginRight: 10,
-            alignItems: 'center',
-
-            marginleft: 100,
             marginBottom: 10,
           }}
         >
@@ -93,9 +91,8 @@ const WelcomeScreen = () => {
                   transform: [{ scale: pressed ? 0.96 : 1 }],
                   opacity: pressed ? 0.85 : 1,
                   backgroundColor: '#FF0059',
-                  padding: 10,
-                  width: 380,
-                  height: 50,
+                  width: responsiveWidth(90),
+                  paddingVertical: 10,
                   borderRadius: 35,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -113,18 +110,17 @@ const WelcomeScreen = () => {
                 >
                   <Image
                     style={{
-                      height: 25,
-                      width: 25,
+                      height: 23,
+                      width: 23,
                       tintColor: 'white',
                     }}
                     source={require('../assets/Images/email.png')}
                   />
                   <Text
                     style={{
-                      fontSize: 18,
+                      fontSize: responsiveFontSize(2.1),
                       color: 'white',
                       fontWeight: 'bold',
-                      padding: 3,
                     }}
                   >
                     Sign up using Email
@@ -139,10 +135,9 @@ const WelcomeScreen = () => {
                 style={({ pressed }) => ({
                   transform: [{ scale: pressed ? 0.96 : 1 }],
                   opacity: pressed ? 0.85 : 1,
-                  backgroundColor: 'white',
-                  padding: 10,
-                  width: 380,
-                  height: 50,
+
+                  width: responsiveWidth(90),
+                  paddingVertical: 10,
                   borderRadius: 35,
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -161,12 +156,12 @@ const WelcomeScreen = () => {
                   }}
                 >
                   <Image
-                    style={{ height: 25, width: 25 }}
+                    style={{ height: 23, width: 23, resizeMode: 'contain' }}
                     source={require('../assets/Images/google.png')}
                   />
                   <Text
                     style={{
-                      fontSize: 18,
+                      fontSize: responsiveFontSize(2.1),
                       color: 'Black',
                       fontWeight: 'bold',
                     }}
@@ -185,17 +180,17 @@ const WelcomeScreen = () => {
           flexDirection: 'row',
           justifyContent: 'center',
           alignItems: 'center',
-          marginBottom: 60,
-          marginTop: 10,
+
+          marginBottom: responsiveHeight(6),
+          gap: 10,
         }}
       >
         <Animated.View entering={SlideInLeft.duration(500).delay(50)}>
           <Text
             style={{
-              fontSize: 17,
+              fontSize: responsiveFontSize(1.7), //17
               color: '#585858ff',
               fontWeight: '400',
-              marginRight: 10,
             }}
           >
             Already have an account?
@@ -207,10 +202,10 @@ const WelcomeScreen = () => {
             style={({ pressed }) => ({
               transform: [{ scale: pressed ? 0.96 : 1 }],
               opacity: pressed ? 0.85 : 1,
-              paddingHorizontal: 15,
-              paddingVertical: 10,
+              // paddingHorizontal: 15,
+              paddingVertical: 8,
               borderRadius: 25,
-              width: 160,
+              width: responsiveWidth(24),
               alignItems: 'center',
               justifyContent: 'center',
               borderWidth: 1,
@@ -220,7 +215,7 @@ const WelcomeScreen = () => {
           >
             <Text
               style={{
-                fontSize: 16,
+                fontSize: responsiveFontSize(1.8), //16
                 color: 'black',
                 fontWeight: 'bold',
               }}

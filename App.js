@@ -11,6 +11,7 @@ import StackNavigator from './navigation/StackNavigator';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import SplashScreen from 'react-native-splash-screen';
 import LinearGradient from 'react-native-linear-gradient';
+import AppStatusBar from './components/AppStatusBar';
 
 const App = () => {
   const [showSplash, setShowSplash] = useState(true);
@@ -18,7 +19,7 @@ const App = () => {
   useEffect(() => {
     SplashScreen.hide();
 
-    StatusBar.setHidden(true, 'fade');
+    // StatusBar.setHidden(true, 'fade');
 
     if (Platform.OS === 'android') {
       changeNavigationBarColor('#FF001E', true);
@@ -37,27 +38,32 @@ const App = () => {
 
   if (showSplash) {
     return (
-      <LinearGradient
-        colors={['#FF001E', '#FF3C80']}
-        start={{ x: 0, y: 1 }} // left bottom
-        end={{ x: 1, y: 0 }} // top right
-        style={styles.splashContainer}
-      >
-        <StatusBar hidden={true} />
-        <View
-          style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+      <>
+        <AppStatusBar hidden />
+        {/* <AppStatusBar style="dark-content" />
+      <AppStatusBar style="light-content" /> */}
+        <LinearGradient
+          colors={['#FF001E', '#FF3C80']}
+          start={{ x: 0, y: 1 }} // left bottom
+          end={{ x: 1, y: 0 }} // top right
+          style={styles.splashContainer}
         >
-          <Image
-            source={require('./assets/Images/logo.png')}
-            resizeMode="contain"
-            style={{
-              height: 150,
-              width: 150,
-              marginTop: 145,
-            }}
-          />
-        </View>
-      </LinearGradient>
+          {/* <StatusBar hidden={true} /> */}
+          <View
+            style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+          >
+            <Image
+              source={require('./assets/Images/logo.png')}
+              resizeMode="contain"
+              style={{
+                height: 150,
+                width: 150,
+                marginTop: 145,
+              }}
+            />
+          </View>
+        </LinearGradient>
+      </>
     );
   }
 

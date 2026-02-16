@@ -12,6 +12,21 @@ import {
 import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import {
+  responsiveFontSize,
+  responsiveHeight,
+  responsiveWidth,
+} from 'react-native-responsive-dimensions';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+  Easing,
+  FadeInDown,
+  LinearTransition,
+} from 'react-native-reanimated';
 
 const HomeJobScreen = () => {
   const usenavigation = useNavigation();
@@ -35,7 +50,26 @@ const HomeJobScreen = () => {
 
   // convert ft + in to cm
   const feetToCm = (ft, inch) => Math.round((ft * 12 + inch) * 2.54);
+  const _damping = 15;
+  const _stiffness = 200;
+  const _damping1 = 25;
+  const _entering = FadeInDown.springify()
 
+    // .damping(_damping1)
+    .stiffness(_stiffness);
+  const _entering1 = FadeInDown.springify()
+    .delay(100)
+    .damping(_damping1)
+    .stiffness(_stiffness);
+  const _entering2 = FadeInDown.springify()
+    .delay(150)
+    .damping(_damping1)
+    .stiffness(_stiffness);
+  const _entering3 = FadeInDown.springify()
+    .delay(200)
+    .damping(_damping1)
+    .stiffness(_stiffness);
+  const _layout = LinearTransition.springify();
   return (
     <SafeAreaView
       style={{
@@ -44,10 +78,16 @@ const HomeJobScreen = () => {
         backgroundColor: 'white',
       }}
     >
-      <View style={{ marginTop: 50, marginHorizontal: 20, marginLeft: 30 }}>
+      <Animated.View
+        layout={_layout}
+        style={{
+          marginTop: responsiveHeight(6), //50
+          marginLeft: responsiveWidth(8), //30
+        }}
+      >
         <Text
           style={{
-            fontSize: 35,
+            fontSize: responsiveFontSize(4), //35
             fontFamily: 'Geeza-Pro-Bold',
             fontWeight: 'bold',
           }}
@@ -64,62 +104,72 @@ const HomeJobScreen = () => {
         >
           Be real — it helps us personalize your matches
         </Text>
-      </View>
-      <View style={{ marginTop: 10, marginHorizontal: 20, marginLeft: 30 }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-            marginTop: 25,
-          }}
-        >
-          <Image
-            source={require('../assets/Images/height.png')}
-            style={{ height: 30, width: 30 }}
-          />
-          <Text
+      </Animated.View>
+      <View
+        style={{
+          marginTop: responsiveHeight(2.5), //25
+          marginLeft: responsiveWidth(8), //30
+        }}
+      >
+        <Animated.View layout={_layout} entering={_entering}>
+          <View
             style={{
-              fontSize: 25,
-
-              fontWeight: '500',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              marginTop: responsiveHeight(2.5), //25
             }}
           >
-            Whats your Height ?
-          </Text>
-        </View>
-        <View>
-          <Pressable
-            onPress={() => setShowHeightPicker(true)}
-            style={{
-              width: 360,
-              height: 55,
-              marginLeft: 5,
-              marginTop: 25,
-              paddingLeft: 15,
-              justifyContent: 'center',
-              backgroundColor: activeInput === 'height' ? '#FFFFFF' : '#F7F6FF',
-              borderWidth: 1.2,
-              borderColor: activeInput === 'height' ? '#599FDD' : '#E0E0E0',
-              transform: [{ scale: activeInput === 'height' ? 1.02 : 1 }],
-              borderRadius: 10,
-            }}
-          >
+            <Image
+              source={require('../assets/Images/height.png')}
+              style={{
+                height: responsiveHeight(3), //30
+                width: responsiveWidth(6), //30
+              }}
+            />
             <Text
               style={{
-                fontSize: 18,
-                color: heightCm ? '#4d4d4d' : '#959494ff',
+                fontSize: responsiveFontSize(2.8), //25
+
                 fontWeight: '500',
               }}
             >
-              {heightCm
-                ? unit === 'cm'
-                  ? `${heightCm} cm`
-                  : `${cmToFeet(heightCm).feet}' ${cmToFeet(heightCm).inch}"`
-                : 'Height'}
+              Whats your Height ?
             </Text>
-          </Pressable>
-        </View>
+          </View>
+          <View>
+            <Pressable
+              onPress={() => setShowHeightPicker(true)}
+              style={{
+                width: responsiveWidth(85), //360
+                height: responsiveHeight(6), //55
+                marginTop: responsiveHeight(2.5), //25
+                paddingLeft: 15,
+                justifyContent: 'center',
+                backgroundColor:
+                  activeInput === 'height' ? '#FFFFFF' : '#F7F6FF',
+                borderWidth: 1.2,
+                borderColor: activeInput === 'height' ? '#599FDD' : '#E0E0E0',
+                transform: [{ scale: activeInput === 'height' ? 1.02 : 1 }],
+                borderRadius: 10,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 18,
+                  color: heightCm ? '#4d4d4d' : '#959494ff',
+                  fontWeight: '500',
+                }}
+              >
+                {heightCm
+                  ? unit === 'cm'
+                    ? `${heightCm} cm`
+                    : `${cmToFeet(heightCm).feet}' ${cmToFeet(heightCm).inch}"`
+                  : 'Height'}
+              </Text>
+            </Pressable>
+          </View>
+        </Animated.View>
         {/* Modal */}
         <Modal visible={showHeightPicker} transparent animationType="slide">
           <View
@@ -241,23 +291,26 @@ const HomeJobScreen = () => {
         </Modal>
       </View>
       {heightCm && (
-        <View>
-          <View style={{ marginTop: 10, marginHorizontal: 20, marginLeft: 30 }}>
+        <Animated.View layout={_layout} entering={_entering}>
+          <View style={{ marginTop: 10, marginLeft: responsiveWidth(8) }}>
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 10,
-                marginTop: 25,
+                marginTop: responsiveHeight(2.5), //25
               }}
             >
               <Image
                 source={require('../assets/Images/location.png')}
-                style={{ height: 30, width: 30 }}
+                style={{
+                  height: responsiveHeight(3), //30
+                  width: responsiveWidth(6),
+                }}
               />
               <Text
                 style={{
-                  fontSize: 25,
+                  fontSize: responsiveFontSize(2.8), //25
 
                   fontWeight: '500',
                 }}
@@ -277,10 +330,10 @@ const HomeJobScreen = () => {
               paddingleft={15}
               fontSize={18}
               style={{
-                width: 360,
-                height: 55,
-                marginLeft: 35,
-                marginTop: 25,
+                width: responsiveWidth(85), //360
+                height: responsiveHeight(6), //55
+                marginTop: responsiveHeight(2.5), //25
+                marginLeft: responsiveWidth(8), //30
                 paddingLeft: 15,
                 backgroundColor:
                   activeInput === 'hometown' ? '#FFFFFF' : '#F7F6FF',
@@ -293,27 +346,29 @@ const HomeJobScreen = () => {
               }}
             />
           </View>
-        </View>
+        </Animated.View>
       )}
       {heightCm && hometown && (
-        <View>
-          <View style={{ marginTop: 10, marginHorizontal: 20, marginLeft: 30 }}>
+        <Animated.View layout={_layout} entering={_entering}>
+          <View style={{ marginTop: 10, marginLeft: responsiveWidth(8) }}>
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 10,
-                marginTop: 25,
+                marginTop: responsiveHeight(2.5), //25
               }}
             >
               <Image
                 source={require('../assets/Images/suitcase.png')}
-                style={{ height: 30, width: 30 }}
+                style={{
+                  height: responsiveHeight(3), //30
+                  width: responsiveWidth(6),
+                }}
               />
               <Text
                 style={{
-                  fontSize: 25,
-
+                  fontSize: responsiveFontSize(2.8), //25
                   fontWeight: '500',
                 }}
               >
@@ -333,10 +388,10 @@ const HomeJobScreen = () => {
               paddingleft={15}
               fontSize={18}
               style={{
-                width: 360,
-                height: 55,
-                marginLeft: 35,
-                marginTop: 25,
+                width: responsiveWidth(85), //360
+                height: responsiveHeight(6), //55
+                marginTop: responsiveHeight(2.5), //25
+                marginLeft: responsiveWidth(8), //30
                 paddingLeft: 15,
                 backgroundColor:
                   activeInput === 'jobtittle' ? '#FFFFFF' : '#F7F6FF',
@@ -350,47 +405,53 @@ const HomeJobScreen = () => {
               }}
             />
           </View>
-        </View>
+        </Animated.View>
       )}
-      <Pressable
-        onPress={handleNextHeight}
-        // disabled={!isLifeStyleValid}
-        style={({ pressed }) => ({
-          transform: [{ scale: pressed ? 0.96 : 1 }],
-          // opacity: isLifeStyleValid ? 1 : 0.6,
-
-          backgroundColor: '#ff0090ff',
-
-          padding: 15,
-          margin: 20,
-
-          borderRadius: 35,
-          borderStyle: 'solid',
-          borderColor: '#ff00aaff',
-          borderWidth: 2,
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: {
-            width: 0,
-            height: 5,
-          },
-          shadowOpacity: 0.5,
-          shadowRadius: 4.65,
-
-          elevation: 6,
-        })}
+      <Animated.View
+        layout={_layout}
+        style={{ alignItems: 'center', justifyContent: 'center' }}
       >
-        <Text
-          style={{
-            color: 'white',
-            fontSize: 18,
-            fontWeight: 'bold',
-            textAlign: 'center',
-          }}
+        <Pressable
+          onPress={handleNextHeight}
+          // disabled={!isLifeStyleValid}
+          style={({ pressed }) => ({
+            transform: [{ scale: pressed ? 0.96 : 1 }],
+            // opacity: isLifeStyleValid ? 1 : 0.6,
+
+            backgroundColor: '#ff0090ff',
+
+            width: responsiveWidth(85),
+            paddingVertical: 10,
+            marginTop: 10,
+
+            borderRadius: 35,
+            borderStyle: 'solid',
+            borderColor: '#ff00aaff',
+            borderWidth: 2,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: {
+              width: 0,
+              height: 5,
+            },
+            shadowOpacity: 0.5,
+            shadowRadius: 4.65,
+
+            elevation: 6,
+          })}
         >
-          Continue
-        </Text>
-      </Pressable>
+          <Text
+            style={{
+              color: 'white',
+              fontSize: 18,
+              fontWeight: 'bold',
+              textAlign: 'center',
+            }}
+          >
+            Continue
+          </Text>
+        </Pressable>
+      </Animated.View>
     </SafeAreaView>
   );
 };

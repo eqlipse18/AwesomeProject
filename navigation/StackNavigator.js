@@ -16,6 +16,8 @@ import GoalsScreen from '../screens/GoalsScreen';
 import LifeStyleScreen from '../screens/LifestyleScreen';
 import HomeJobScreen from '../screens/HomeJobScreen';
 import PhotoScreen from '../screens/PhotoScreen';
+import HobbyScreen from '../screens/HobbyScreen';
+import PreFinalScreen from '../screens/PreFinalScreen';
 
 import { NavigationContainer } from '@react-navigation/native';
 
@@ -55,14 +57,14 @@ const StackNavigator = () => {
         <Stack.Screen name="LifeStyle" component={LifeStyleScreen} />
         <Stack.Screen name="HomeJob" component={HomeJobScreen} />
         <Stack.Screen name="Photo" component={PhotoScreen} />
+        <Stack.Screen name="Hobby" component={HobbyScreen} />
+        <Stack.Screen name="Final" component={PreFinalScreen} />
+        <Stack.Screen name="Home" component={HomeScreen} />
         {/* <Stack.Screen name="Name" component={NameScreen} />
        
-        <Stack.Screen name="JobTitle" component={JobTitleScreen} />
-        <Stack.Screen name="Photo" component={PhotoScreen} />
         <Stack.Screen name="Prompt" component={PromptScreen} />
         <Stack.Screen name="ShowPrompts" component={ShowPrompts} />
         <Stack.Screen name="WritePrompt" component={WritePrompt} />
-        <Stack.Screen name="Final" component={PreFinalScreen} /> */}
         {/* <Stack.Screen name="Location" component={LocationScreen} /> */}
       </Stack.Navigator>
     );
