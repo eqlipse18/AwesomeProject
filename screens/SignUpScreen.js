@@ -9,6 +9,7 @@ import {
   Pressable,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -46,6 +47,7 @@ const SignUpScreen = () => {
   const [showconfirmPassword, setConfirmShowPassword] = useState(false);
   // const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const [activeInput, setActiveInput] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   // const CARD_WIDTH = screenWidth * 1;
   // const CARD_HEIGHT = screenHeight * 1;
@@ -87,88 +89,6 @@ const SignUpScreen = () => {
       }
     });
   }, []);
-
-  //  const handleSendOtp = async () => {
-  //     if (!email) {
-  //       console.log('Missing email !');
-  //       return;
-  //     }
-  //     console.log('Sending OTP to:', email); // <-- Add this
-  //     console.log({email, password});
-
-  //     try {
-  //       const response = await axios.post(`${BASE_URL}/sendOtp`, {
-  //         email,
-  //         password,
-  //       });
-  //       console.log('OTP Response:', response.data.message);
-  //       navigation.navigate('Otp', {email});
-  //     } catch (error) {
-  //       console.log('Error sending OTP:', error);
-  //       // alert(error.response?.data?.error || error.message);
-  //       console.log('Axios error:', error.message); // <- add this
-  //       console.log('Error message:', error.message);
-  //       console.log('Error config:', error.config);
-  //       console.log('Error sending OTP:', error.response?.data || error.message);
-  //     }
-  //   };
-  const handleSendOtp = async (email, password) => {
-    if (!email) {
-      console.log('Missing email!');
-      return;
-    }
-    console.log('Sending OTP to:', email); // <-- Add this
-    console.log({ email, password });
-
-    try {
-      const response = await axios.post(`${BASE_URL}/sendOtp`, {
-        email,
-        password,
-      });
-
-      console.log('OTP Response:', response.data.message);
-
-      // ✅ navigate ONLY after success
-      navigation.navigate('Otp', { email, password });
-    } catch (error) {
-      console.log('Error sending OTP:', error.response?.data || error.message);
-    }
-  };
-
-  // const handleNextOtpFormik = values => {
-  //   // Only store email & password (not confirmPassword)
-  //   const dataToSave = {
-  //     email: values.email,
-  //     password: values.password,
-  //   };
-
-  //   console.log('--- Saving Email & Password ---');
-  //   console.log(dataToSave);
-
-  //   saveRegistrationProgress('Email', dataToSave).then(() => {
-  //     console.log('Data saved successfully, navigating to OTP screen');
-  //   });
-
-  //   // ✅ Navigate and pass only email & password
-  //   navigation.navigate('Otp', {
-  //     email: values.email,
-  //     password: values.password,
-  //   });
-  // };
-  const handleNextOtpFormik = async values => {
-    const dataToSave = {
-      email: values.email,
-      password: values.password,
-    };
-    console.log('--- Saving Email & Password ---');
-    console.log(dataToSave);
-    await saveRegistrationProgress('Email', dataToSave);
-
-    console.log('Data saved successfully');
-
-    // ✅ call OTP sender
-    handleSendOtp(values.email, values.password);
-  };
 
   const SignupSchema = Yup.object().shape({
     // firstName: Yup.string()
@@ -259,14 +179,63 @@ const SignUpScreen = () => {
           />
 
           {/* ===== CARD ===== */}
+
           <Formik
             enableReinitialize={true} // ✅ Important for getting updated initialValues from AsyncStorage
             initialValues={initialValues}
             validationSchema={SignupSchema}
             validateOnMount={true}
-            onSubmit={values => {
-              Alert.alert(JSON.stringify(values));
-              handleNextOtpFormik(values);
+            onSubmit={async (values, { setFieldError }) => {
+              // Save registration progress
+              const dataToSave = {
+                email: values.email,
+                password: values.password,
+              };
+              console.log('--- Saving Email & Password ---');
+              console.log(dataToSave);
+
+              await saveRegistrationProgress('Email', dataToSave);
+              console.log('Data saved successfully, navigating to OTP screen');
+
+              // Call backend
+              try {
+                setLoading(true);
+                const response = await axios.post(`${BASE_URL}/sendOtp`, {
+                  email: values.email,
+                  password: values.password,
+                });
+
+                if (response.data.unconfirmed) {
+                  // user exists but not confirmed → navigate to OTP screen
+                  navigation.navigate('Otp', {
+                    email: values.email,
+                    password: values.password,
+                  });
+                } else {
+                  // new user → navigate to OTP screen
+                  navigation.navigate('Otp', {
+                    email: values.email,
+                    password: values.password,
+                  });
+                }
+              } catch (error) {
+                const backendError = error.response?.data?.error;
+
+                if (
+                  backendError === 'User already exists and confirmed' ||
+                  backendError.includes('UsernameExistsException')
+                ) {
+                  // ✅ This will now show the error under the email field
+                  setFieldError('email', 'User already exists Please login.');
+                } else {
+                  console.log(
+                    'Other backend error:',
+                    backendError || error.message,
+                  );
+                }
+              } finally {
+                setLoading(false);
+              }
             }}
           >
             {({
@@ -559,14 +528,23 @@ const SignUpScreen = () => {
                     </View>
                     {/* Sign Up */}
                     <Pressable
-                      onPress={handleSubmit}
-                      disabled={!isValid}
+                      onPress={() => {
+                        if (!isValid) return;
+                        setLoading(true);
+                        try {
+                          handleSubmit(); // ✅ no await needed
+                        } catch (e) {
+                          console.log('Signup error:', e);
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      disabled={!isValid || loading}
                       style={({ pressed }) => ({
                         transform: [{ scale: pressed ? 0.96 : 1 }],
                         opacity: pressed ? 0.85 : 1,
-                        marginTop: responsiveHeight(12), //100
+                        marginTop: responsiveHeight(12),
                         width: responsiveWidth(60),
-                        // height: 50,
                         paddingVertical: 11,
                         borderRadius: 25,
                         backgroundColor: isValid ? '#FF0059' : '#b35777',
@@ -574,15 +552,19 @@ const SignUpScreen = () => {
                         justifyContent: 'center',
                       })}
                     >
-                      <Text
-                        style={{
-                          color: 'white',
-                          fontSize: responsiveFontSize(2.3),
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        Sign Up
-                      </Text>
+                      {loading ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Text
+                          style={{
+                            color: 'white',
+                            fontSize: responsiveFontSize(2.3),
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          Sign Up
+                        </Text>
+                      )}
                     </Pressable>
                     <View
                       style={{

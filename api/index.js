@@ -101,36 +101,6 @@ app.post('/s3-delete', async (req, res) => {
   }
 });
 
-//--> endpoint for sendotp and store email
-// app.post('/sendOtp', async (req, res) => {
-//   const { email, password } = req.body;
-//   console.log('EMAIL >>>', email);
-//   console.log('PASSWORD >>>', password);
-
-//   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-//     return res.status(400).json({ error: 'Invalid email format' });
-//   }
-
-//   const signUpParams = {
-//     ClientId: '3gbksse66jn6m1dsquv52t9mut',
-//     Username: email,
-//     Password: password,
-//     UserAttributes: [{ Name: 'email', Value: email }],
-//   };
-//   try {
-//     const command = new SignUpCommand(signUpParams);
-//     await cognitoClient.send(command);
-//     // Send success response to frontend
-//     console.log('OTP sent successfully!');
-//     return res.status(200).json({ message: 'OTP sent successfully!' });
-//   } catch (error) {
-//     console.log('Error sending OTP:', error);
-//     return res
-//       .status(400)
-//       .json({ error: error.message || 'Failed to send OTP, Please try again' });
-//   }
-// });
-
 app.post('/sendOtp', async (req, res) => {
   const { email, password } = req.body;
 
