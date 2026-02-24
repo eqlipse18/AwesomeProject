@@ -6,9 +6,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   responsiveFontSize,
   responsiveHeight,
@@ -24,14 +24,35 @@ import Animated, {
   FadeInDown,
   LinearTransition,
 } from 'react-native-reanimated';
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
 
 const LifestyleScreen = () => {
   const [drink, setDrink] = useState('');
   const [smoke, setSmoke] = useState('');
   const [isLifeStyleValid, setIsLifeStyleValid] = useState(false);
-  const usenavigation = useNavigation();
+  const navigation = useNavigation();
+
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('LifeStyle').then(progressData => {
+        if (progressData) {
+          setDrink(progressData.drink || '');
+          setSmoke(progressData.smoke || '');
+        }
+      });
+    }, []),
+  );
+
   const handleNextHomeJob = () => {
-    usenavigation.navigate('HomeJob');
+    if (drink.trim() !== '' && smoke.trim() !== '') {
+      console.log('drink:', drink);
+      console.log('smoke:', smoke);
+      saveRegistrationProgress('LifeStyle', { drink, smoke });
+    }
+    navigation.navigate('HomeJob');
   };
 
   useEffect(() => {

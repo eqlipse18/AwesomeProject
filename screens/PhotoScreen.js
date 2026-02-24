@@ -7,32 +7,77 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PermissionsAndroid } from 'react-native';
 import ImageCropPicker from 'react-native-image-crop-picker';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   responsiveFontSize,
   responsiveHeight,
   responsiveWidth,
 } from 'react-native-responsive-dimensions';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  withDelay,
-  Easing,
   FadeInDown,
   LinearTransition,
 } from 'react-native-reanimated';
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
+
+import axios from 'axios';
+import { BASE_URL } from '../urls/url';
 
 const PhotoScreen = () => {
-  const usenavigation = useNavigation();
-  const handleNextHobby = () => {
-    usenavigation.navigate('Hobby');
+  const navigation = useNavigation();
+
+  const [loading, setLoading] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('imageUrls').then(progressData => {
+        if (progressData) {
+          // setImageUrls(progressData.imageUrls || '');
+          setImageUrls(progressData.imageUrls || ['', '', '', '', '', '']);
+        }
+      });
+    }, []),
+  );
+
+  const handleNextHobby = async () => {
+    try {
+      setLoading(true);
+      console.log('HANDLE NEXT STARTED');
+
+      const finalUrls = [];
+
+      for (let slot of imageSlots) {
+        if (slot.status === 'new') {
+          const uploadedUrl = await uploadToS3(slot.localPath);
+          finalUrls.push(uploadedUrl);
+        }
+
+        if (slot.status === 'existing') {
+          finalUrls.push(slot.s3Url);
+        }
+
+        if (slot.status === 'deleted' && slot.s3Url) {
+          await axios.post(`${BASE_URL}/s3-delete`, {
+            imageUrl: slot.s3Url,
+          });
+        }
+      }
+
+      await saveRegistrationProgress('imageUrls', { imageUrls: finalUrls });
+      navigation.navigate('Hobby');
+    } catch (e) {
+      console.log('UPLOAD FAILED', e);
+      alert('Upload failed');
+    } finally {
+      setLoading(false);
+    }
   };
+
   const requestStoragePermission = async () => {
     if (Platform.OS === 'android') {
       try {
@@ -60,77 +105,134 @@ const PhotoScreen = () => {
     return true; // iOS ke liye
   };
 
-  const [imageUrls, setImageUrls] = React.useState(['', '', '', '', '', '']);
-  const [imageUrl, setImageUrl] = useState('');
+  // const [imageUrls, setImageUrls] = React.useState(['', '', '', '', '', '']);
+  // const [imageUrl, setImageUrl] = useState('');
 
-  const images = Array.isArray(imageUrls) ? imageUrls : [];
-  const handleAddImage = () => {
-    const cleanUrl = imageUrl.trim();
+  // const images = Array.isArray(imageUrls) ? imageUrls : [];
+  // const handleAddImage = () => {
+  //   const cleanUrl = imageUrl.trim();
 
-    if (!/^https?:\/\/.+\.(jpg|jpeg|png|webp)$/i.test(cleanUrl)) {
-      alert('Enter valid image URL');
-      return;
-    }
+  //   if (!/^https?:\/\/.+\.(jpg|jpeg|png|webp)$/i.test(cleanUrl)) {
+  //     alert('Enter valid image URL');
+  //     return;
+  //   }
 
-    const index = imageUrls.findIndex(url => url === '');
+  //   const index = imageUrls.findIndex(url => url === '');
 
-    if (index !== -1 && imageUrl.trim() !== '') {
-      const updated = [...imageUrls];
-      updated[index] = imageUrl.trim();
+  //   if (index !== -1 && imageUrl.trim() !== '') {
+  //     const updated = [...imageUrls];
+  //     updated[index] = imageUrl.trim();
 
-      setImageUrls(updated);
-      setImageUrl('');
-    }
-  };
+  //     setImageUrls(updated);
+  //     setImageUrl('');
+  //   }
+  // };
+  const [imageSlots, setImageSlots] = useState([
+    { localPath: null, s3Url: null, status: 'empty' },
+    { localPath: null, s3Url: null, status: 'empty' },
+    { localPath: null, s3Url: null, status: 'empty' },
+    { localPath: null, s3Url: null, status: 'empty' },
+    { localPath: null, s3Url: null, status: 'empty' },
+    { localPath: null, s3Url: null, status: 'empty' },
+  ]);
+
   const pickAndCropImage = async index => {
     const hasPermission = await requestStoragePermission();
     if (!hasPermission) return;
 
-    if (
-      imageUrls.filter(img => img !== '').length >= 6 &&
-      imageUrls[index] === ''
-    ) {
-      alert('Maximum 6 images allowed');
-      return;
-    }
     try {
       const image = await ImageCropPicker.openPicker({
         width: 400,
-        height: 550,
+        height: 500,
         cropping: true,
-        compressImageQuality: 0.8,
+        compressImageQuality: 0.95,
         mediaType: 'photo',
-        includeExif: true,
         forceJpg: true,
       });
 
-      const updated = [...imageUrls];
-      updated[index] = image.path;
-      setImageUrls(updated);
+      const updated = [...imageSlots];
+      updated[index] = {
+        localPath: image.path,
+        s3Url: null,
+        status: 'new',
+      };
+
+      setImageSlots(updated);
     } catch (e) {
-      console.log('image pick cancelled or failed', e);
+      console.log('pick failed', e);
     }
   };
-  const previewOrRecrop = async (index, currentImage) => {
+
+  const uploadToS3 = async (localPath, retries = 2) => {
     try {
-      const image = await ImageCropPicker.openCropper({
-        path: currentImage,
-        width: 300,
-        height: 300,
-        mediaType: 'photo',
+      // 1️⃣ presigned url
+      const res = await axios.post(`${BASE_URL}/s3-upload-url`, {
+        fileType: 'image/jpeg',
       });
 
-      const updated = [...imageUrls];
-      updated[index] = image.path;
-      setImageUrls(updated);
-    } catch (e) {
-      console.log('crop cancelled', e);
+      const { uploadUrl, publicUrl } = res.data;
+
+      // 2️⃣ blob
+      const response = await fetch(localPath);
+      const blob = await response.blob();
+
+      // 3️⃣ PUT upload
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: blob,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error('PUT failed');
+      }
+
+      return publicUrl;
+    } catch (err) {
+      if (retries > 0) {
+        console.log('Retrying upload...', retries);
+        return uploadToS3(localPath, retries - 1);
+      }
+      throw err;
+    }
+  };
+
+  const previewOrRecrop = async index => {
+    try {
+      const slot = imageSlots[index];
+      if (!slot?.localPath) return;
+
+      const image = await ImageCropPicker.openCropper({
+        path: slot.localPath,
+        width: 400,
+        height: 500,
+      });
+
+      const updated = [...imageSlots];
+      updated[index] = {
+        localPath: image.path,
+        s3Url: null,
+        status: 'new',
+      };
+      setImageSlots(updated);
+    } catch {
+      console.log('crop cancelled');
     }
   };
   const removeImage = index => {
-    const updated = [...imageUrls];
-    updated[index] = '';
-    setImageUrls(updated);
+    const updated = [...imageSlots];
+
+    if (updated[index].s3Url) {
+      updated[index].status = 'deleted';
+    } else {
+      updated[index] = {
+        localPath: null,
+        s3Url: null,
+        status: 'empty',
+      };
+    }
+
+    setImageSlots(updated);
   };
 
   const _damping = 15;
@@ -190,12 +292,12 @@ const PhotoScreen = () => {
       </Animated.View>
       <View style={{ marginTop: responsiveHeight(2), margin: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
-          {imageUrls?.slice(0, 3).map((url, index) => (
+          {imageSlots.slice(0, 3).map((slot, index) => (
             <Pressable
               key={index}
               style={{
                 borderColor: '#581845',
-                borderWidth: url ? 0 : 2,
+                borderWidth: slot.localPath || slot.s3Url ? 0 : 2,
                 flex: 1,
                 justifyContent: 'center',
                 borderStyle: 'dotted',
@@ -206,19 +308,16 @@ const PhotoScreen = () => {
                 marginRight: responsiveWidth(3.5), //15
               }}
               onPress={() =>
-                url ? previewOrRecrop(index, url) : pickAndCropImage(index)
+                slot.localPath || slot.s3Url
+                  ? previewOrRecrop(index)
+                  : pickAndCropImage(index)
               }
             >
-              {url ? (
+              {slot.localPath || slot.s3Url ? (
                 <>
                   <Image
-                    source={{ uri: url }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 10,
-                      resizeMode: 'cover',
-                    }}
+                    source={{ uri: slot.localPath || slot.s3Url }}
+                    style={{ width: '100%', height: '100%', borderRadius: 10 }}
                   />
                   <Pressable
                     onPress={() => removeImage(index)}
@@ -265,12 +364,12 @@ const PhotoScreen = () => {
       </View>
       <View style={{ marginTop: 20, margin: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          {imageUrls?.slice(3, 6).map((url, index) => (
+          {imageSlots.slice(3, 6).map((slot, index) => (
             <Pressable
               key={index}
               style={{
                 borderColor: '#581845',
-                borderWidth: url ? 0 : 2,
+                borderWidth: slot.localPath || slot.s3Url ? 0 : 2,
                 flex: 1,
                 justifyContent: 'center',
                 borderStyle: 'dotted',
@@ -282,23 +381,19 @@ const PhotoScreen = () => {
                 marginRight: responsiveWidth(3.5), //15
               }}
               onPress={() =>
-                url
-                  ? previewOrRecrop(index + 3, url)
-                  : pickAndCropImage(index + 3)
+                slot.status === 'empty'
+                  ? pickAndCropImage(index + 3)
+                  : previewOrRecrop(index + 3)
               }
             >
-              {url ? (
+              {slot.localPath || slot.s3Url ? (
                 <>
                   <Image
-                    source={{ uri: url }}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      borderRadius: 10,
-                      resizeMode: 'cover',
-                    }}
+                    source={{ uri: slot.localPath || slot.s3Url }}
+                    style={{ width: '100%', height: '100%', borderRadius: 10 }}
                   />
                   <Pressable
+                    key={index}
                     onPress={() => removeImage(index + 3)}
                     style={{
                       position: 'absolute',

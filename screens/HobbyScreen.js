@@ -7,9 +7,9 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import {
   responsiveFontSize,
@@ -17,21 +17,43 @@ import {
   responsiveWidth,
 } from 'react-native-responsive-dimensions';
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  withDelay,
-  Easing,
   FadeInDown,
   LinearTransition,
 } from 'react-native-reanimated';
+
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
+// const HobbyScreen = () => {
+//   const usenavigation = useNavigation();
+//   const handleNextFinal = () => {
+//     usenavigation.navigate('Final');
+//   };
 const HobbyScreen = () => {
-  const usenavigation = useNavigation();
-  const handleNextFinal = () => {
-    usenavigation.navigate('Final');
-  };
+  const navigation = useNavigation();
   const [selectedHobbies, setSelectedHobbies] = useState([]);
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('hobbies').then(progressData => {
+        if (progressData) {
+          setSelectedHobbies(progressData.hobbies || []);
+        }
+      });
+    }, []),
+  );
+  // if (selectedHobbies.length > 0) {
+  //   console.log('Selected Hobbies:', selectedHobbies);
+  //   saveRegistrationProgress('Hobbies', { hobbies: selectedHobbies });
+  // }
+  // navigation.navigate('Final');
+  const handleNextFinal = () => {
+    if (selectedHobbies.length > 0) {
+      saveRegistrationProgress('hobbies', { hobbies: selectedHobbies });
+    }
+    console.log('hobby:', selectedHobbies);
+    navigation.navigate('Final');
+  };
   const hobbies = [
     '🚴‍♂️ Cycling',
     '🥾 Hiking',
@@ -264,7 +286,6 @@ const HobbyScreen = () => {
     </SafeAreaView>
   );
 };
-
 export default HobbyScreen;
 
 const styles = StyleSheet.create({});

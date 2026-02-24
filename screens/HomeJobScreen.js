@@ -9,9 +9,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   responsiveFontSize,
   responsiveHeight,
@@ -27,19 +27,53 @@ import Animated, {
   FadeInDown,
   LinearTransition,
 } from 'react-native-reanimated';
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
 
 const HomeJobScreen = () => {
-  const usenavigation = useNavigation();
+  const navigation = useNavigation();
+
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('HomeJob').then(progressData => {
+        if (progressData) {
+          setUserHeight(progressData.height || ''); // restore
+          setHomeTown(progressData.hometown || '');
+          setJobTittle(progressData.jobtittle || '');
+        }
+      });
+    }, []),
+  );
+
   const handleNextHeight = () => {
-    usenavigation.navigate('Photo');
+    if (
+      userHeight.trim() !== '' ||
+      hometown.trim() !== '' ||
+      jobtittle.trim() !== ''
+    ) {
+      const dataToSave = {
+        height: userHeight, // single value
+        hometown,
+        jobtittle,
+      };
+
+      saveRegistrationProgress('HomeJob', dataToSave);
+
+      console.log('Saved Data:', dataToSave);
+      navigation.navigate('Photo');
+    }
   };
+
   const [hometown, setHomeTown] = useState('');
   const [jobtittle, setJobTittle] = useState('');
   const [activeInput, setActiveInput] = useState(null);
 
-  const [heightCm, setHeightCm] = useState(null);
+  const [heightCm, setHeightCm] = useState('');
   const [showHeightPicker, setShowHeightPicker] = useState(false);
   const [unit, setUnit] = useState('ft'); // 'ft' or 'cm'
+  const [userHeight, setUserHeight] = useState(''); // string
 
   const cmToFeet = cm => {
     const totalInches = Math.round(cm / 2.54);
@@ -157,15 +191,17 @@ const HomeJobScreen = () => {
               <Text
                 style={{
                   fontSize: 18,
-                  color: heightCm ? '#4d4d4d' : '#959494ff',
+                  color: userHeight ? '#4d4d4d' : '#959494ff', // ✅ use userHeight
                   fontWeight: '500',
                 }}
               >
-                {heightCm
-                  ? unit === 'cm'
-                    ? `${heightCm} cm`
-                    : `${cmToFeet(heightCm).feet}' ${cmToFeet(heightCm).inch}"`
-                  : 'Height'}
+                {/* {heightCm
+                    ? unit === 'cm'
+                      ? `${heightCm} cm`
+                      : `${cmToFeet(heightCm).feet}' ${cmToFeet(heightCm).inch}"`
+                    : 'Height'} */}
+                {userHeight ? userHeight : 'Height'}{' '}
+                {/* ✅ show userHeight or placeholder */}
               </Text>
             </Pressable>
           </View>
@@ -231,14 +267,17 @@ const HomeJobScreen = () => {
                   ? Array.from({ length: 61 }, (_, i) => 140 + i).map(h => (
                       <Pressable
                         key={h}
-                        onPress={() => setHeightCm(h)}
+                        onPress={() => setUserHeight(`${h} cm`)} // for cm
                         style={{ paddingVertical: 12 }}
                       >
                         <Text
                           style={{
                             fontSize: 18,
                             textAlign: 'center',
-                            color: heightCm === h ? '#ff0090ff' : '#4d4d4d',
+                            color:
+                              userHeight === `${h} cm`
+                                ? '#ff0090ff'
+                                : '#4d4d4d',
                           }}
                         >
                           {h} cm
@@ -251,7 +290,7 @@ const HomeJobScreen = () => {
                         return (
                           <Pressable
                             key={`${ft}-${i}`}
-                            onPress={() => setHeightCm(cm)}
+                            onPress={() => setUserHeight(`${ft}' ${i}"`)} // for ft->cm conversion
                             style={{ paddingVertical: 12 }}
                           >
                             <Text
@@ -259,7 +298,9 @@ const HomeJobScreen = () => {
                                 fontSize: 18,
                                 textAlign: 'center',
                                 color:
-                                  heightCm === cm ? '#ff0090ff' : '#4d4d4d',
+                                  userHeight === `${ft}' ${i}"`
+                                    ? '#ff0090ff'
+                                    : '#4d4d4d',
                               }}
                             >
                               {ft}' {i}"
@@ -290,7 +331,7 @@ const HomeJobScreen = () => {
           </View>
         </Modal>
       </View>
-      {heightCm && (
+      {userHeight && (
         <Animated.View layout={_layout} entering={_entering}>
           <View style={{ marginTop: 10, marginLeft: responsiveWidth(8) }}>
             <View
@@ -348,7 +389,7 @@ const HomeJobScreen = () => {
           </View>
         </Animated.View>
       )}
-      {heightCm && hometown && (
+      {userHeight && hometown && (
         <Animated.View layout={_layout} entering={_entering}>
           <View style={{ marginTop: 10, marginLeft: responsiveWidth(8) }}>
             <View

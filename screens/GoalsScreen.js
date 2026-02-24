@@ -6,9 +6,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 
 import {
   responsiveFontSize,
@@ -25,12 +25,31 @@ import Animated, {
   FadeInDown,
   LinearTransition,
 } from 'react-native-reanimated';
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
 
 const GoalsScreen = () => {
   const [goals, setGoals] = useState('');
-  const usenavigation = useNavigation();
+  const navigation = useNavigation();
+
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('Goals').then(progressData => {
+        if (progressData) {
+          setGoals(progressData.goals || '');
+        }
+      });
+    }, []),
+  );
+
   const handleNextLifeStyle = () => {
-    usenavigation.navigate('LifeStyle');
+    if (goals.trim() !== '') {
+      console.log('Goals:', goals);
+      saveRegistrationProgress('Goals', { goals });
+    }
+    navigation.navigate('LifeStyle');
   };
   const _damping = 15;
   const _stiffness = 300;

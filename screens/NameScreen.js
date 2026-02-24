@@ -1,8 +1,15 @@
-import { StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
-import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  Pressable,
+  Platform,
+} from 'react-native';
+import React, { useCallback, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   responsiveFontSize,
   responsiveHeight,
@@ -11,23 +18,38 @@ import {
 } from 'react-native-responsive-dimensions';
 
 import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  withDelay,
-  Easing,
   FadeInDown,
   LinearTransition,
 } from 'react-native-reanimated';
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
+
 
 const NameScreen = () => {
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
   const [activeInput, setActiveInput] = useState(null);
 
+  // console.log(AsyncStorage);
   const navigation = useNavigation();
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('Name').then(progressData => {
+        if (progressData) {
+          setFirstName(progressData.firstName || '');
+          setLastName(progressData.lastName || '');
+        }
+      });
+    }, []),
+  );
+
   const handleNextSetup = () => {
+    if (firstName.trim() !== '' || lastName.trim() !== '') {
+      const fullName = `${firstName} ${lastName}`.trim();
+      saveRegistrationProgress('Name', { firstName, lastName, fullName });
+    }
     navigation.navigate('Setup');
   };
 

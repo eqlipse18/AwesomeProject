@@ -8,9 +8,9 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -39,17 +39,25 @@ import {
   responsiveHeight,
   responsiveWidth,
 } from 'react-native-responsive-dimensions';
+import {
+  getRegistrationProgress,
+  saveRegistrationProgress,
+} from '../utils/registrationUtils';
 
 export default function SetupProfileScreen() {
   const [gender, setGender] = useState('');
   const [nonbinary, setNonbinary] = useState('');
 
   const navigation = useNavigation();
+
   const [day, setDay] = useState('');
   const [month, setMonth] = useState('');
   const [year, setYear] = useState('');
   const monthRef = useRef(null);
   const yearRef = useRef(null);
+  const [age, setAge] = useState('null');
+  const [datingPreferences, setDatingPreferences] = useState([]);
+  const [isAutoPreference, setIsAutoPreference] = useState(true);
 
   const [dayError, setDayError] = useState(false);
   const [monthError, setMonthError] = useState(false);
@@ -79,7 +87,7 @@ export default function SetupProfileScreen() {
     .delay(350)
     .damping(_damping1)
     .stiffness(_stiffness);
-    const _layout = LinearTransition.springify();
+  const _layout = LinearTransition.springify();
   // const _enteringt = FadeInDown.springify()
   //   .damping(_damping)
   //   .stiffness(_stiffness);
@@ -198,8 +206,17 @@ export default function SetupProfileScreen() {
     // Combine both
     if (dobValid && genderValid) {
       setIsDOBValid(true);
+      //age calculation
+      const calculatedAge = calculateAge(
+        parseInt(day),
+        parseInt(month),
+        parseInt(year),
+      );
+
+      setAge(calculatedAge);
     } else {
       setIsDOBValid(false);
+      setAge(null);
     }
   }, [day, month, year, dayError, monthError, yearError, gender, nonbinary]);
 
@@ -292,8 +309,118 @@ export default function SetupProfileScreen() {
     }
   };
 
-  const handleNextGoals = () => {
-    navigation.navigate('Goals');
+  const calculateAge = (d, m, y) => {
+    const today = new Date();
+    const birthDate = new Date(y, m - 1, d);
+
+    let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+
+    if (
+      monthDiff < 0 ||
+      (monthDiff === 0 && today.getDate() < birthDate.getDate())
+    ) {
+      calculatedAge--;
+    }
+
+    return calculatedAge;
+  };
+
+  // const handleNextGoals = () => {
+  //   navigation.navigate('Goals');
+  // };
+
+  useFocusEffect(
+    useCallback(() => {
+      getRegistrationProgress('profileSetup').then(progressData => {
+        if (progressData) {
+          const { gender, nonbinary, dateOfBirth, age } = progressData;
+
+          if (dateOfBirth) {
+            const [dayValue, monthValue, yearValue] = dateOfBirth.split('/');
+
+            setDay(dayValue);
+            setMonth(monthValue);
+            setYear(yearValue);
+          }
+
+          setGender(gender || '');
+          setNonbinary(nonbinary || '');
+          setAge(age || null);
+        }
+      });
+    }, []),
+  );
+
+  const handleNextGoals = async () => {
+    if (
+      day.trim() !== '' &&
+      month.trim() !== '' &&
+      year.trim() !== '' &&
+      gender !== '' &&
+      age !== null
+    ) {
+      const dataToSave = {
+        gender,
+        nonbinary,
+        dateOfBirth: `${day}/${month}/${year}`,
+        age,
+        datingPreferences,
+      };
+      //  DEBUG LOGS
+      console.log('--- Saving Profile Setup Data ---');
+      console.log('Gender:', gender);
+      console.log('NonBinary:', nonbinary);
+      console.log('DOB:', `${day}/${month}/${year}`);
+      console.log('Age:', age);
+      console.log('prefernces:', datingPreferences);
+      console.log('Full Object:', dataToSave);
+
+      await saveRegistrationProgress('profileSetup', dataToSave);
+    } else {
+      console.log('Validation failed — setupProfile data not saved');
+      console.log({
+        day,
+        month,
+        year,
+        gender,
+        age,
+      });
+    }
+
+    navigation.navigate('Goals'); // ya next screen jo hai
+  };
+
+  useEffect(() => {
+    if (!isAutoPreference) return; // user ne manual change kiya hai for reedit
+
+    if (gender === 'Male') {
+      setDatingPreferences(['Women']);
+    } else if (gender === 'Female') {
+      setDatingPreferences(['Men']);
+    } else if (gender === 'Non-Binary') {
+      setDatingPreferences(['EveryOne']);
+    }
+  }, [gender, isAutoPreference]);
+
+  //--> call this for redit of
+  const chooseOption = option => {
+    setIsAutoPreference(false); // ✅ user manual mode me chala gaya
+
+    if (option === 'EveryOne') {
+      setDatingPreferences(['EveryOne']);
+    } else {
+      setDatingPreferences(prev => {
+        const filtered = prev.filter(item => item !== 'EveryOne');
+
+        if (filtered.includes(option)) {
+          return filtered.filter(item => item !== option);
+        } else {
+          return [...filtered, option];
+        }
+      });
+    }
   };
 
   return (
