@@ -22,6 +22,7 @@ import {
   responsiveWidth,
   responsiveFontSize,
 } from 'react-native-responsive-dimensions';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 const WelcomeScreen = () => {
   const navigation = useNavigation();
@@ -30,6 +31,22 @@ const WelcomeScreen = () => {
   };
   const handleNextSignIn = () => {
     navigation.navigate('SignIn');
+  };
+  const handleGoogleLogin = async () => {
+    try {
+      await GoogleSignin.hasPlayServices();
+
+      const userInfo = await GoogleSignin.signIn();
+
+      const idToken = userInfo.idToken;
+
+      console.log('Google ID Token:', idToken);
+
+      // send to backend
+      await exchangeGoogleToken(idToken);
+    } catch (error) {
+      console.log('Google login error:', error);
+    }
   };
   return (
     <SafeAreaView
@@ -132,6 +149,7 @@ const WelcomeScreen = () => {
           <Animated.View entering={FadeIn.duration(300).delay(100)}>
             <Animated.View entering={FadeInUp.duration(700).delay(200)}>
               <Pressable
+                onPress={handleGoogleLogin}
                 style={({ pressed }) => ({
                   transform: [{ scale: pressed ? 0.96 : 1 }],
                   opacity: pressed ? 0.85 : 1,

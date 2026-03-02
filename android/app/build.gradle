@@ -82,6 +82,8 @@ android {
         applicationId "com.awesomeproject"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+         minSdkVersion 24
+        targetSdkVersion 36
         versionCode 1
         versionName "1.0"
     }
