@@ -21,6 +21,7 @@ import Animated, {
 
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import { AuthContext } from '../AuthContex';
 
 const SignInScreen = () => {
   const { setToken, setProfileComplete } = useContext(AuthContext);

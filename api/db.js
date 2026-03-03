@@ -1,6 +1,11 @@
 import 'dotenv/config';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
 
 // ---------- DynamoDB ----------
@@ -23,6 +28,6 @@ const s3Client = new S3Client({
   },
 });
 
-export { docClient, s3Client, PutCommand };
+export { docClient, s3Client, PutCommand, GetCommand, QueryCommand };
 
 // export { docClient, PutCommand, GetCommand, QueryCommand }; diplicate email wale k liye

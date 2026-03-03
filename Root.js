@@ -11,7 +11,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import AppStatusBar from './components/AppStatusBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from './urls/url';
-
+import { configureGoogleSignIn } from './utils/googleAuth';
 export default function Root() {
   const { setProfileComplete } = useContext(AuthContext);
   const [showSplash, setShowSplash] = useState(true);
@@ -66,6 +66,7 @@ export default function Root() {
 
   useEffect(() => {
     SplashScreen.hide();
+    configureGoogleSignIn();
 
     if (Platform.OS === 'android') {
       changeNavigationBarColor('#FF001E', true);

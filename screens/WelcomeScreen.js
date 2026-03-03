@@ -5,6 +5,8 @@ import {
   View,
   Platform,
   Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import React, { useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,32 +24,68 @@ import {
   responsiveWidth,
   responsiveFontSize,
 } from 'react-native-responsive-dimensions';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { signInWithGoogle } from '../utils/googleAuth'; // ← ADD
+import axios from 'axios';
+import { BASE_URL } from '../urls/url';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const WelcomeScreen = () => {
   const navigation = useNavigation();
-  const handleNext = () => {
-    navigation.navigate('SignUp');
-  };
-  const handleNextSignIn = () => {
-    navigation.navigate('SignIn');
-  };
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const handleNext = () => navigation.navigate('SignUp');
+  const handleNextSignIn = () => navigation.navigate('SignIn');
+
   const handleGoogleLogin = async () => {
     try {
-      await GoogleSignin.hasPlayServices();
+      setGoogleLoading(true);
 
-      const userInfo = await GoogleSignin.signIn();
+      const result = await signInWithGoogle();
 
-      const idToken = userInfo.idToken;
+      if (!result.success) {
+        Alert.alert('Google Sign-In Failed', result.error);
+        return;
+      }
 
-      console.log('Google ID Token:', idToken);
+      const { idToken, user } = result;
+      console.log('Google User:', user);
+      console.log('ID Token:', idToken);
 
-      // send to backend
-      await exchangeGoogleToken(idToken);
+      // Send idToken to YOUR backend to verify and get JWT
+      const response = await axios.post(`${BASE_URL}/google-signin`, {
+        idToken,
+        email: user.email,
+        name: user.name,
+        photo: user.photo,
+        googleId: user.id,
+      });
+
+      if (response.status === 200) {
+        const { token, userId, isNewUser } = response.data;
+
+        // Save token
+        await AsyncStorage.setItem('token', token);
+        await AsyncStorage.setItem('userId', userId);
+
+        if (isNewUser) {
+          // New user → go through onboarding
+          navigation.navigate('Name');
+        } else {
+          // Existing user → go home
+          navigation.navigate('Home');
+        }
+      }
     } catch (error) {
-      console.log('Google login error:', error);
+      console.log('Google Login Error:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.error || 'Google Sign-In failed. Try again.',
+      );
+    } finally {
+      setGoogleLoading(false);
     }
   };
+
   return (
     <SafeAreaView
       style={{
@@ -57,18 +95,6 @@ const WelcomeScreen = () => {
       }}
     >
       <AppStatusBar style="dark-content" />
-      {/* <LinearGradient
-        colors={['#fe73ad', '#ffffff']}
-        start={{ x: 1, y: 1 }}
-        end={{ x: 2, y: 0 }}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-        }}
-      /> */}
       <Image
         style={StyleSheet.absoluteFillObject}
         resizeMode="cover"
@@ -86,6 +112,7 @@ const WelcomeScreen = () => {
           }}
         />
       </View>
+
       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
         <Text
           style={{
@@ -98,73 +125,73 @@ const WelcomeScreen = () => {
           New to Flame Dating ?
         </Text>
       </View>
-      <>
-        <View style={{ marginTop: 'auto', alignItems: 'center' }}>
-          <Animated.View entering={FadeIn.duration(300).delay(100)}>
-            <Animated.View entering={FadeInUp.duration(600)}>
-              <Pressable
-                onPress={handleNext}
-                style={({ pressed }) => ({
-                  transform: [{ scale: pressed ? 0.96 : 1 }],
-                  opacity: pressed ? 0.85 : 1,
-                  backgroundColor: '#FF0059',
-                  width: responsiveWidth(90),
-                  paddingVertical: 10,
-                  borderRadius: 35,
-                  alignItems: 'center',
+
+      <View style={{ marginTop: 'auto', alignItems: 'center' }}>
+        <Animated.View entering={FadeIn.duration(300).delay(100)}>
+          <Animated.View entering={FadeInUp.duration(600)}>
+            <Pressable
+              onPress={handleNext}
+              style={({ pressed }) => ({
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+                opacity: pressed ? 0.85 : 1,
+                backgroundColor: '#FF0059',
+                width: responsiveWidth(90),
+                paddingVertical: 10,
+                borderRadius: 35,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: '#fc86abff',
+              })}
+            >
+              <View
+                style={{
                   justifyContent: 'center',
-                  borderWidth: 1,
-                  borderColor: '#fc86abff',
-                })}
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  gap: 17,
+                }}
               >
-                <View
+                <Image
+                  style={{ height: 23, width: 23, tintColor: 'white' }}
+                  source={require('../assets/Images/email.png')}
+                />
+                <Text
                   style={{
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    flexDirection: 'row',
-                    gap: 17,
+                    fontSize: responsiveFontSize(2.1),
+                    color: 'white',
+                    fontWeight: 'bold',
                   }}
                 >
-                  <Image
-                    style={{
-                      height: 23,
-                      width: 23,
-                      tintColor: 'white',
-                    }}
-                    source={require('../assets/Images/email.png')}
-                  />
-                  <Text
-                    style={{
-                      fontSize: responsiveFontSize(2.1),
-                      color: 'white',
-                      fontWeight: 'bold',
-                    }}
-                  >
-                    Sign up using Email
-                  </Text>
-                </View>
-              </Pressable>
-            </Animated.View>
+                  Sign up using Email
+                </Text>
+              </View>
+            </Pressable>
           </Animated.View>
-          <Animated.View entering={FadeIn.duration(300).delay(100)}>
-            <Animated.View entering={FadeInUp.duration(700).delay(200)}>
-              <Pressable
-                onPress={handleGoogleLogin}
-                style={({ pressed }) => ({
-                  transform: [{ scale: pressed ? 0.96 : 1 }],
-                  opacity: pressed ? 0.85 : 1,
+        </Animated.View>
 
-                  width: responsiveWidth(90),
-                  paddingVertical: 10,
-                  borderRadius: 35,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginVertical: 10,
-                  borderWidth: 1,
-                  borderColor: 'pink',
-                  backgroundColor: 'white',
-                })}
-              >
+        <Animated.View entering={FadeIn.duration(300).delay(100)}>
+          <Animated.View entering={FadeInUp.duration(700).delay(200)}>
+            <Pressable
+              onPress={handleGoogleLogin}
+              disabled={googleLoading}
+              style={({ pressed }) => ({
+                transform: [{ scale: pressed ? 0.96 : 1 }],
+                opacity: googleLoading ? 0.7 : pressed ? 0.85 : 1,
+                width: responsiveWidth(90),
+                paddingVertical: 10,
+                borderRadius: 35,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginVertical: 10,
+                borderWidth: 1,
+                borderColor: 'pink',
+                backgroundColor: 'white',
+              })}
+            >
+              {googleLoading ? (
+                <ActivityIndicator size="small" color="#FF0059" />
+              ) : (
                 <View
                   style={{
                     justifyContent: 'center',
@@ -187,18 +214,17 @@ const WelcomeScreen = () => {
                     Sign up using Google
                   </Text>
                 </View>
-              </Pressable>
-            </Animated.View>
+              )}
+            </Pressable>
           </Animated.View>
-        </View>
-      </>
+        </Animated.View>
+      </View>
 
       <View
         style={{
           flexDirection: 'row',
           justifyContent: 'center',
           alignItems: 'center',
-
           marginBottom: responsiveHeight(6),
           gap: 10,
         }}
@@ -206,7 +232,7 @@ const WelcomeScreen = () => {
         <Animated.View entering={SlideInLeft.duration(500).delay(50)}>
           <Text
             style={{
-              fontSize: responsiveFontSize(1.7), //17
+              fontSize: responsiveFontSize(1.7),
               color: '#585858ff',
               fontWeight: '400',
             }}
@@ -220,7 +246,6 @@ const WelcomeScreen = () => {
             style={({ pressed }) => ({
               transform: [{ scale: pressed ? 0.96 : 1 }],
               opacity: pressed ? 0.85 : 1,
-              // paddingHorizontal: 15,
               paddingVertical: 8,
               borderRadius: 25,
               width: responsiveWidth(24),
@@ -233,7 +258,7 @@ const WelcomeScreen = () => {
           >
             <Text
               style={{
-                fontSize: responsiveFontSize(1.8), //16
+                fontSize: responsiveFontSize(1.8),
                 color: 'black',
                 fontWeight: 'bold',
               }}

@@ -6,18 +6,22 @@ import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
-import { s3Client } from './db.js';
+import { PutCommand, QueryCommand, s3Client } from './db.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
+  AdminCreateUserCommand,
   AdminGetUserCommand,
+  AdminLinkProviderForUserCommand,
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
   InitiateAuthCommand,
+  ListUsersCommand,
   ResendConfirmationCodeCommand,
   SignUpCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
+import { OAuth2Client } from 'google-auth-library';
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -226,3 +230,90 @@ app.post('/confirmSignup', async (req, res) => {
     });
   }
 });
+
+const googleClient = new OAuth2Client();
+const USER_POOL_ID = 'ap-south-1_GXlmQsjSF'; // flamedevapp pool id
+
+app.post('/google-signin', async (req, res) => {
+  try {
+    const { idToken, email, name, photo } = req.body;
+
+    // Step 1: Verify Google token
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience:
+        '236630957782-3bcls107c8qeth7cbuj3a861rdsgrj5a.apps.googleusercontent.com', // Same as webClientId in googleAuth.js
+    });
+    const payload = ticket.getPayload();
+    const googleSub = payload.sub; // Google user ID
+
+    // Step 2: Check karo user Cognito mein hai ya nahi
+    const listResult = await cognitoClient.send(
+      new ListUsersCommand({
+        UserPoolId: USER_POOL_ID,
+        Filter: `email = "${email}"`,
+      }),
+    );
+
+    let cognitoUser;
+    let isNewUser = false;
+
+    if (listResult.Users.length === 0) {
+      // Step 3a: New user — Cognito mein create karo
+      const createResult = await cognitoClient.send(
+        new AdminCreateUserCommand({
+          UserPoolId: USER_POOL_ID,
+          Username: email,
+          UserAttributes: [
+            { Name: 'email', Value: email },
+            { Name: 'email_verified', Value: 'true' },
+            { Name: 'given_name', Value: name?.split(' ')[0] || '' },
+            { Name: 'family_name', Value: name?.split(' ')[1] || '' },
+          ],
+          MessageAction: 'SUPPRESS', // Password email mat bhejo
+        }),
+      );
+
+      // Step 3b: Google identity link karo Cognito user se
+      await cognitoClient.send(
+        new AdminLinkProviderForUserCommand({
+          UserPoolId: USER_POOL_ID,
+          DestinationUser: {
+            ProviderName: 'Cognito',
+            ProviderAttributeValue: email,
+          },
+          SourceUser: {
+            ProviderName: 'Google',
+            ProviderAttributeName: 'Cognito_Subject',
+            ProviderAttributeValue: googleSub,
+          },
+        }),
+      );
+
+      cognitoUser = createResult.User;
+      isNewUser = true;
+    } else {
+      cognitoUser = listResult.Users[0];
+    }
+
+    // Step 4: JWT banao
+    const userId = cognitoUser.Username;
+    const token = jwt.sign({ userId, email }, process.env.JWT_SECRET, {
+      expiresIn: '30d',
+    });
+
+    res.json({ token, userId, isNewUser, email, name });
+  } catch (error) {
+    console.log('Google signin error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// // ### Flow Yeh Hai
+// // ```
+// App → Google Sign-In popup
+//     → idToken milta hai
+//     → Backend ko bhejo
+//     → Backend Google verify karta hai
+//     → Cognito mein user create + Google link
+//     → JWT return
+//     → User "flamedevapp" pool mein dikh jaayega ✅
