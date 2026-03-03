@@ -8,7 +8,7 @@ import {
   Platform,
   Easing,
 } from 'react-native';
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useContext } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useRoute } from '@react-navigation/native';
@@ -21,6 +21,8 @@ import {
 } from 'react-native-responsive-dimensions';
 import axios from 'axios';
 import { BASE_URL } from '../urls/url';
+import { AuthContext } from '../AuthContex';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const OtpSrcreen = () => {
   const [otp, setOtp] = React.useState(['', '', '', '', '', '']);
@@ -37,41 +39,57 @@ const OtpSrcreen = () => {
   const inputs = useRef([]);
   const route = useRoute();
   const email = route.params?.email;
+  const { setToken, setProfileComplete } = useContext(AuthContext);
   const navigation = useNavigation();
 
   const handleConfirmSignUp = async () => {
-    console.log(' otp working and entered ');
+    console.log('otp working and entered');
     const otpCode = otp.join('');
-    if (!email || !otpCode) {
-      return;
-    }
+
+    if (!email || !otpCode) return;
+
     try {
-      setVerifying(true); //  start loader
+      setVerifying(true);
+
       const response = await axios.post(`${BASE_URL}/confirmSignUp`, {
         email,
         otpCode,
+        password: route.params?.password,
       });
-      if (response.status == 200) {
-        console.log('response', response);
 
-        navigation.navigate('Name');
+      if (response.status === 200) {
+        const { token, isProfileComplete } = response.data;
+
+        // 1 Save to storage
+        await AsyncStorage.setItem('token', token);
+        await AsyncStorage.setItem(
+          'profileComplete',
+          JSON.stringify(isProfileComplete),
+        );
+
+        // 2️ Update context
+        setToken(token);
+        setProfileComplete(isProfileComplete);
+
+        //  REMOVE THIS:
+        // navigation.navigate('Name');
       }
     } catch (error) {
       console.log('error confirming signup', error);
-      setIsError(true);
-      triggerShake(); //  SHAKE
 
-      //  wrong OTP case
-      // optional reset after shake
+      setIsError(true);
+      triggerShake();
+
       setTimeout(() => {
         setIsError(false);
         setOtp(['', '', '', '', '', '']);
         inputs.current[0]?.focus();
       }, 300);
     } finally {
-      setVerifying(false); // ✅ stop loader
+      setVerifying(false);
     }
   };
+
   useEffect(() => {
     if (Platform.OS === 'android') {
       changeNavigationBarColor('#ffffffff', false);

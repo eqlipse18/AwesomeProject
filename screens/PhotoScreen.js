@@ -6,8 +6,9 @@ import {
   Text,
   TextInput,
   View,
+  ActivityIndicator,
 } from 'react-native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PermissionsAndroid } from 'react-native';
 import ImageCropPicker from 'react-native-image-crop-picker';
@@ -25,14 +26,16 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import axios from 'axios';
 import { BASE_URL } from '../urls/url';
 
 const PhotoScreen = () => {
   const navigation = useNavigation();
-
+  const [imageError, setImageError] = useState('');
   const [loading, setLoading] = useState(false);
+
   useFocusEffect(
     useCallback(() => {
       getRegistrationProgress('imageUrls').then(progressData => {
@@ -44,35 +47,94 @@ const PhotoScreen = () => {
     }, []),
   );
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', e => {
+      if (!loading) return;
+
+      e.preventDefault();
+    });
+
+    return unsubscribe;
+  }, [loading]);
+
   const handleNextHobby = async () => {
     try {
+      if (loading) return;
       setLoading(true);
-      console.log('HANDLE NEXT STARTED');
 
       const finalUrls = [];
+      const imagesToDelete = [];
 
-      for (let slot of imageSlots) {
-        if (slot.status === 'new') {
-          const uploadedUrl = await uploadToS3(slot.localPath);
-          finalUrls.push(uploadedUrl);
-        }
+      // ✅ 1. Load previous session uploads (persistent)
+      let uploadedThisSession = JSON.parse(
+        (await AsyncStorage.getItem('uploadedThisSession')) || '[]',
+      );
 
-        if (slot.status === 'existing') {
-          finalUrls.push(slot.s3Url);
-        }
+      // ✅ 2. Identify new and deleted slots
+      const newSlots = imageSlots.filter(s => s.status === 'new');
+      const deletedSlots = imageSlots.filter(
+        s => s.status === 'deleted' && s.s3Url,
+      );
 
-        if (slot.status === 'deleted' && slot.s3Url) {
-          await axios.post(`${BASE_URL}/s3-delete`, {
-            imageUrl: slot.s3Url,
-          });
-        }
+      deletedSlots.forEach(s => imagesToDelete.push(s.s3Url));
+
+      // ✅ 3. Parallel upload new images
+      if (newSlots.length > 0) {
+        const uploadedUrls = await Promise.all(
+          newSlots.map(s => uploadToS3(s.localPath)),
+        );
+
+        uploadedThisSession.push(...uploadedUrls); // track persistently
+        finalUrls.push(...uploadedUrls);
+
+        // Save uploaded session to AsyncStorage in case user goes back
+        await AsyncStorage.setItem(
+          'uploadedThisSession',
+          JSON.stringify(uploadedThisSession),
+        );
       }
 
+      //  4. Add existing images to finalUrls
+      imageSlots.forEach(s => {
+        if (s.status === 'existing') {
+          finalUrls.push(s.s3Url);
+        }
+      });
+
+      //  5. Save DB / registration progress
       await saveRegistrationProgress('imageUrls', { imageUrls: finalUrls });
+
+      //  6. Delete old images (after DB save)
+      if (imagesToDelete.length > 0) {
+        await Promise.all(
+          imagesToDelete.map(url =>
+            axios.post(`${BASE_URL}/s3-delete`, { imageUrl: url }),
+          ),
+        );
+      }
+
+      //  7. Cleanup persistent session storage
+      await AsyncStorage.removeItem('uploadedThisSession');
+
+      //  8. Navigate to next screen
       navigation.navigate('Hobby');
-    } catch (e) {
-      console.log('UPLOAD FAILED', e);
-      alert('Upload failed');
+    } catch (error) {
+      console.log('Upload failed:', error);
+
+      //  Cleanup all uploaded images this session
+      const uploadedThisSession = JSON.parse(
+        (await AsyncStorage.getItem('uploadedThisSession')) || '[]',
+      );
+      if (uploadedThisSession.length > 0) {
+        await Promise.all(
+          uploadedThisSession.map(url =>
+            axios.post(`${BASE_URL}/s3-delete`, { imageUrl: url }),
+          ),
+        );
+        await AsyncStorage.removeItem('uploadedThisSession'); // reset storage
+      }
+
+      alert('Upload failed. All temporary uploads removed.');
     } finally {
       setLoading(false);
     }
@@ -105,28 +167,6 @@ const PhotoScreen = () => {
     return true; // iOS ke liye
   };
 
-  // const [imageUrls, setImageUrls] = React.useState(['', '', '', '', '', '']);
-  // const [imageUrl, setImageUrl] = useState('');
-
-  // const images = Array.isArray(imageUrls) ? imageUrls : [];
-  // const handleAddImage = () => {
-  //   const cleanUrl = imageUrl.trim();
-
-  //   if (!/^https?:\/\/.+\.(jpg|jpeg|png|webp)$/i.test(cleanUrl)) {
-  //     alert('Enter valid image URL');
-  //     return;
-  //   }
-
-  //   const index = imageUrls.findIndex(url => url === '');
-
-  //   if (index !== -1 && imageUrl.trim() !== '') {
-  //     const updated = [...imageUrls];
-  //     updated[index] = imageUrl.trim();
-
-  //     setImageUrls(updated);
-  //     setImageUrl('');
-  //   }
-  // };
   const [imageSlots, setImageSlots] = useState([
     { localPath: null, s3Url: null, status: 'empty' },
     { localPath: null, s3Url: null, status: 'empty' },
@@ -136,6 +176,19 @@ const PhotoScreen = () => {
     { localPath: null, s3Url: null, status: 'empty' },
   ]);
 
+  const selectedImagesCount = (imageSlots ?? []).filter(
+    s => s.status === 'new' || s.status === 'existing',
+  ).length;
+
+  const handlePressNext = () => {
+    if (selectedImagesCount < 2) {
+      setImageError('Upload at least 2 images'); // red message
+      return;
+    }
+    setImageError('');
+    handleNextHobby(); // call the main upload function
+  };
+
   const pickAndCropImage = async index => {
     const hasPermission = await requestStoragePermission();
     if (!hasPermission) return;
@@ -143,9 +196,14 @@ const PhotoScreen = () => {
     try {
       const image = await ImageCropPicker.openPicker({
         width: 400,
-        height: 500,
+        height: 600,
         cropping: true,
-        compressImageQuality: 0.95,
+        // compressImageQuality: 0.95,
+        compressImageQuality: 0.95, // 1 = 100%, no compression
+        compressImageMaxWidth: 2000, // optional, keep high resolution
+        compressImageMaxHeight: 2000,
+        cropping: false, // no crop
+        includeBase64: false,
         mediaType: 'photo',
         forceJpg: true,
       });
@@ -165,18 +223,18 @@ const PhotoScreen = () => {
 
   const uploadToS3 = async (localPath, retries = 2) => {
     try {
-      // 1️⃣ presigned url
+      // 1️ presigned url
       const res = await axios.post(`${BASE_URL}/s3-upload-url`, {
         fileType: 'image/jpeg',
       });
 
       const { uploadUrl, publicUrl } = res.data;
 
-      // 2️⃣ blob
+      // 2️ blob
       const response = await fetch(localPath);
       const blob = await response.blob();
 
-      // 3️⃣ PUT upload
+      // 3️ PUT upload
       const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'image/jpeg' },
@@ -215,8 +273,8 @@ const PhotoScreen = () => {
         status: 'new',
       };
       setImageSlots(updated);
-    } catch {
-      console.log('crop cancelled');
+    } catch (err) {
+      console.log('crop cancelled', err);
     }
   };
   const removeImage = index => {
@@ -515,23 +573,35 @@ const PhotoScreen = () => {
         layout={_layout}
         style={{ alignItems: 'center', justifyContent: 'center' }}
       >
+        {imageError !== '' && (
+          <Text
+            style={{
+              color: 'red',
+              fontWeight: 'bold',
+              textAlign: 'center',
+              marginBottom: 6,
+            }}
+          >
+            {imageError}
+          </Text>
+        )}
+
         <Pressable
-          onPress={handleNextHobby}
-          // disabled={!isLifeStyleValid}
+          onPress={handlePressNext}
+          disabled={loading} // disable if less than 2 images or uploading
           style={({ pressed }) => ({
             transform: [{ scale: pressed ? 0.96 : 1 }],
-            // opacity: isLifeStyleValid ? 1 : 0.6,
-
+            opacity: loading || selectedImagesCount < 2 ? 0.7 : 1,
             backgroundColor: '#ff0090ff',
             width: responsiveWidth(85),
             paddingVertical: 10,
             marginTop: 10,
-
             borderRadius: 35,
             borderStyle: 'solid',
             borderColor: '#ff00aaff',
             borderWidth: 2,
             alignItems: 'center',
+            justifyContent: 'center',
             shadowColor: '#000',
             shadowOffset: {
               width: 0,
@@ -539,20 +609,30 @@ const PhotoScreen = () => {
             },
             shadowOpacity: 0.5,
             shadowRadius: 4.65,
-
             elevation: 6,
           })}
         >
-          <Text
-            style={{
-              color: 'white',
-              fontSize: 18,
-              fontWeight: 'bold',
-              textAlign: 'center',
-            }}
-          >
-            Add Media To Profile
-          </Text>
+          {loading ? (
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+            >
+              <ActivityIndicator color="#fff" />
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>
+                Uploading...
+              </Text>
+            </View>
+          ) : (
+            <Text
+              style={{
+                color: 'white',
+                fontSize: 18,
+                fontWeight: 'bold',
+                textAlign: 'center',
+              }}
+            >
+              Add Media To Profile
+            </Text>
+          )}
         </Pressable>
       </Animated.View>
     </SafeAreaView>

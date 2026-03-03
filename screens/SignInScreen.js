@@ -8,7 +8,7 @@ import {
   TextInput,
   Pressable,
 } from 'react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
@@ -23,6 +23,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 
 const SignInScreen = () => {
+  const { setToken, setProfileComplete } = useContext(AuthContext);
   const navigation = useNavigation();
   const handleNextSignUp = () => {
     navigation.navigate('SignUp');
@@ -47,6 +48,20 @@ const SignInScreen = () => {
       }
     };
   }, []);
+
+  const handleLogin = async () => {
+    const res = await axios.post(`${BASE_URL}/login`, body);
+
+    await AsyncStorage.setItem('token', res.data.token);
+    await AsyncStorage.setItem(
+      'profileComplete',
+      JSON.stringify(res.data.isProfileComplete),
+    );
+
+    setToken(res.data.token);
+    setProfileComplete(res.data.isProfileComplete);
+  };
+
   return (
     <SafeAreaView
       style={{

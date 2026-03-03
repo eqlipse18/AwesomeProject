@@ -14,6 +14,7 @@ import {
   AdminGetUserCommand,
   CognitoIdentityProviderClient,
   ConfirmSignUpCommand,
+  InitiateAuthCommand,
   ResendConfirmationCodeCommand,
   SignUpCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
@@ -187,23 +188,39 @@ app.post('/resendOtp', async (req, res) => {
 //initialize the endpoint for confirming the signup
 // to verify the otp
 app.post('/confirmSignup', async (req, res) => {
-  const { email, otpCode } = req.body; // ✅ SAME NAME
-
-  const confirmParams = {
-    ClientId: '3gbksse66jn6m1dsquv52t9mut',
-    Username: email,
-    ConfirmationCode: otpCode,
-  };
+  const { email, otpCode, password } = req.body;
 
   try {
-    const command = new ConfirmSignUpCommand(confirmParams);
-    await cognitoClient.send(command);
+    // 1️⃣ Confirm user
+    const confirmCommand = new ConfirmSignUpCommand({
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      Username: email,
+      ConfirmationCode: otpCode,
+    });
+
+    await cognitoClient.send(confirmCommand);
+
+    // 2️⃣ Login user to get token
+    const loginCommand = new InitiateAuthCommand({
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      AuthParameters: {
+        USERNAME: email,
+        PASSWORD: password,
+      },
+    });
+
+    const loginResponse = await cognitoClient.send(loginCommand);
+
+    const token = loginResponse.AuthenticationResult.IdToken;
 
     return res.status(200).json({
       message: 'OTP verified successfully',
+      token,
+      isProfileComplete: false,
     });
   } catch (error) {
-    console.log('error confirming signup', error);
+    console.log('error otp confirming signup', error);
     return res.status(400).json({
       error: error.message,
     });
