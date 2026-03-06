@@ -22,6 +22,7 @@ import {
   SignUpCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { OAuth2Client } from 'google-auth-library';
+import { sendOTPEmail } from './email.js';
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -106,14 +107,78 @@ app.post('/s3-delete', async (req, res) => {
   }
 });
 
+// app.post('/sendOtp', async (req, res) => {
+//   const { email, password } = req.body;
+
+//   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+//     return res.status(400).json({ error: 'Invalid email format' });
+//   }
+
+//   const signUpParams = {
+//     ClientId: '3gbksse66jn6m1dsquv52t9mut',
+//     Username: email,
+//     Password: password,
+//     UserAttributes: [{ Name: 'email', Value: email }],
+//   };
+
+//   try {
+//     const command = new SignUpCommand(signUpParams);
+//     await cognitoClient.send(command);
+
+//     return res.status(200).json({ message: 'OTP sent successfully!' });
+//   } catch (error) {
+//     console.log('Error sending OTP:', error);
+
+//     // handle special Cognito errors
+//     if (error.name === 'UsernameExistsException') {
+//       try {
+//         // check if user is confirmed
+//         const userParams = {
+//           UserPoolId: 'ap-south-1_GXlmQsjSF',
+//           Username: email,
+//         };
+//         const { UserStatus } = await cognitoClient.send(
+//           new AdminGetUserCommand(userParams),
+//         );
+
+//         if (UserStatus === 'CONFIRMED') {
+//           return res
+//             .status(409)
+//             .json({ error: 'User already exists and confirmed' });
+//         } else if (UserStatus === 'UNCONFIRMED') {
+//           // user exists but not confirmed → send OTP again
+//           const resendParams = {
+//             ClientId: '3gbksse66jn6m1dsquv52t9mut',
+//             Username: email,
+//           };
+//           await cognitoClient.send(
+//             new ResendConfirmationCodeCommand(resendParams),
+//           );
+
+//           return res.status(200).json({
+//             message: 'User exists but not confirmed, OTP resent',
+//             unconfirmed: true,
+//           });
+//         }
+//       } catch (e) {
+//         console.log('Error checking user status:', e);
+//         return res.status(500).json({ error: 'Failed to check user status' });
+//       }
+//     }
+
+//     return res
+//       .status(400)
+//       .json({ error: error.message || 'Failed to send OTP, please try again' });
+//   }
+// });
+
 app.post('/sendOtp', async (req, res) => {
   const { email, password } = req.body;
-
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'Invalid email format' });
   }
 
-  const signUpParams = {
+  const params = {
     ClientId: '3gbksse66jn6m1dsquv52t9mut',
     Username: email,
     Password: password,
@@ -121,53 +186,36 @@ app.post('/sendOtp', async (req, res) => {
   };
 
   try {
-    const command = new SignUpCommand(signUpParams);
-    await cognitoClient.send(command);
+    await cognitoClient.send(new SignUpCommand(params));
 
-    return res.status(200).json({ message: 'OTP sent successfully!' });
+    return res.status(200).json({
+      message: 'OTP sent successfully',
+    });
   } catch (error) {
-    console.log('Error sending OTP:', error);
-
-    // handle special Cognito errors
+    // user already exists
     if (error.name === 'UsernameExistsException') {
       try {
-        // check if user is confirmed
-        const userParams = {
-          UserPoolId: 'ap-south-1_GXlmQsjSF',
-          Username: email,
-        };
-        const { UserStatus } = await cognitoClient.send(
-          new AdminGetUserCommand(userParams),
-        );
-
-        if (UserStatus === 'CONFIRMED') {
-          return res
-            .status(409)
-            .json({ error: 'User already exists and confirmed' });
-        } else if (UserStatus === 'UNCONFIRMED') {
-          // user exists but not confirmed → send OTP again
-          const resendParams = {
+        await cognitoClient.send(
+          new ResendConfirmationCodeCommand({
             ClientId: '3gbksse66jn6m1dsquv52t9mut',
             Username: email,
-          };
-          await cognitoClient.send(
-            new ResendConfirmationCodeCommand(resendParams),
-          );
+          }),
+        );
 
-          return res.status(200).json({
-            message: 'User exists but not confirmed, OTP resent',
-            unconfirmed: true,
-          });
-        }
-      } catch (e) {
-        console.log('Error checking user status:', e);
-        return res.status(500).json({ error: 'Failed to check user status' });
+        return res.status(200).json({
+          message: 'User exists, OTP resent',
+          unconfirmed: true,
+        });
+      } catch (resendError) {
+        return res.status(400).json({
+          error: resendError.message,
+        });
       }
     }
 
-    return res
-      .status(400)
-      .json({ error: error.message || 'Failed to send OTP, please try again' });
+    return res.status(400).json({
+      error: error.message,
+    });
   }
 });
 
@@ -228,6 +276,18 @@ app.post('/confirmSignup', async (req, res) => {
     return res.status(400).json({
       error: error.message,
     });
+  }
+});
+
+app.post('/send-otp', async (req, res) => {
+  const { email } = req.body;
+  const otpCode = Math.floor(100000 + Math.random() * 900000); // 6 digit OTP
+
+  try {
+    await sendOTPEmail(email, otpCode);
+    res.json({ success: true, message: 'OTP sent to email.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to send OTP.' });
   }
 });
 

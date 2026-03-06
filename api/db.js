@@ -7,6 +7,7 @@ import {
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
+import { SESClient } from '@aws-sdk/client-ses';
 
 // ---------- DynamoDB ----------
 const dynamoClient = new DynamoDBClient({
@@ -28,6 +29,14 @@ const s3Client = new S3Client({
   },
 });
 
-export { docClient, s3Client, PutCommand, GetCommand, QueryCommand };
+const sesClient = new SESClient({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+export { docClient, s3Client, sesClient, PutCommand, GetCommand, QueryCommand };
 
 // export { docClient, PutCommand, GetCommand, QueryCommand }; diplicate email wale k liye
