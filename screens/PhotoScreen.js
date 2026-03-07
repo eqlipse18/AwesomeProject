@@ -35,18 +35,23 @@ const PhotoScreen = () => {
   const navigation = useNavigation();
   const [imageError, setImageError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [deletedUrls, setDeletedUrls] = useState([]);
 
   useFocusEffect(
     useCallback(() => {
       getRegistrationProgress('imageUrls').then(progressData => {
-        if (progressData) {
-          // setImageUrls(progressData.imageUrls || '');
-          setImageUrls(progressData.imageUrls || ['', '', '', '', '', '']);
+        if (progressData?.imageUrls) {
+          // URL strings ko slot objects mein convert karo
+          const restoredSlots = progressData.imageUrls.map(url =>
+            url
+              ? { localPath: null, s3Url: url, status: 'existing' }
+              : { localPath: null, s3Url: null, status: 'empty' },
+          );
+          setImageSlots(restoredSlots); //  imageUrls nahi, imageSlots set karo
         }
       });
     }, []),
   );
-
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', e => {
       if (!loading) return;
@@ -63,65 +68,58 @@ const PhotoScreen = () => {
       setLoading(true);
 
       const finalUrls = [];
-      const imagesToDelete = [];
 
-      // ✅ 1. Load previous session uploads (persistent)
+      // ✅ 1. Load previous session uploads (for cleanup on error)
       let uploadedThisSession = JSON.parse(
         (await AsyncStorage.getItem('uploadedThisSession')) || '[]',
       );
 
-      // ✅ 2. Identify new and deleted slots
+      // ✅ 2. Upload new images
       const newSlots = imageSlots.filter(s => s.status === 'new');
-      const deletedSlots = imageSlots.filter(
-        s => s.status === 'deleted' && s.s3Url,
-      );
 
-      deletedSlots.forEach(s => imagesToDelete.push(s.s3Url));
-
-      // ✅ 3. Parallel upload new images
       if (newSlots.length > 0) {
         const uploadedUrls = await Promise.all(
           newSlots.map(s => uploadToS3(s.localPath)),
         );
 
-        uploadedThisSession.push(...uploadedUrls); // track persistently
+        uploadedThisSession.push(...uploadedUrls);
         finalUrls.push(...uploadedUrls);
 
-        // Save uploaded session to AsyncStorage in case user goes back
         await AsyncStorage.setItem(
           'uploadedThisSession',
           JSON.stringify(uploadedThisSession),
         );
       }
 
-      //  4. Add existing images to finalUrls
+      // ✅ 3. Add existing (restored from storage) images
       imageSlots.forEach(s => {
         if (s.status === 'existing') {
           finalUrls.push(s.s3Url);
         }
       });
 
-      //  5. Save DB / registration progress
+      // ✅ 4. Save to registration progress
       await saveRegistrationProgress('imageUrls', { imageUrls: finalUrls });
 
-      //  6. Delete old images (after DB save)
-      if (imagesToDelete.length > 0) {
+      // ✅ 5. Delete removed S3 images (using deletedUrls state)
+      if (deletedUrls.length > 0) {
         await Promise.all(
-          imagesToDelete.map(url =>
+          deletedUrls.map(url =>
             axios.post(`${BASE_URL}/s3-delete`, { imageUrl: url }),
           ),
         );
+        setDeletedUrls([]); // clear after delete
       }
 
-      //  7. Cleanup persistent session storage
+      // ✅ 6. Cleanup session storage
       await AsyncStorage.removeItem('uploadedThisSession');
 
-      //  8. Navigate to next screen
+      // ✅ 7. Navigate
       navigation.navigate('Hobby');
     } catch (error) {
       console.log('Upload failed:', error);
 
-      //  Cleanup all uploaded images this session
+      // Cleanup all uploaded images this session
       const uploadedThisSession = JSON.parse(
         (await AsyncStorage.getItem('uploadedThisSession')) || '[]',
       );
@@ -131,7 +129,7 @@ const PhotoScreen = () => {
             axios.post(`${BASE_URL}/s3-delete`, { imageUrl: url }),
           ),
         );
-        await AsyncStorage.removeItem('uploadedThisSession'); // reset storage
+        await AsyncStorage.removeItem('uploadedThisSession');
       }
 
       alert('Upload failed. All temporary uploads removed.');
@@ -256,12 +254,13 @@ const PhotoScreen = () => {
   };
 
   const previewOrRecrop = async index => {
-    try {
-      const slot = imageSlots[index];
-      if (!slot?.localPath) return;
+    const slot = imageSlots[index];
+    const pathToUse = slot?.localPath || slot?.s3Url;
+    if (!pathToUse) return; // ✅ localPath ya s3Url, koi bhi ho
 
+    try {
       const image = await ImageCropPicker.openCropper({
-        path: slot.localPath,
+        path: pathToUse, // ✅ S3 URL bhi work karega
         width: 400,
         height: 500,
       });
@@ -279,17 +278,10 @@ const PhotoScreen = () => {
   };
   const removeImage = index => {
     const updated = [...imageSlots];
-
     if (updated[index].s3Url) {
-      updated[index].status = 'deleted';
-    } else {
-      updated[index] = {
-        localPath: null,
-        s3Url: null,
-        status: 'empty',
-      };
+      setDeletedUrls(prev => [...prev, updated[index].s3Url]); // S3 delete ke liye save
     }
-
+    updated[index] = { localPath: null, s3Url: null, status: 'empty' }; // slot clear
     setImageSlots(updated);
   };
 
@@ -355,23 +347,23 @@ const PhotoScreen = () => {
               key={index}
               style={{
                 borderColor: '#581845',
-                borderWidth: slot.localPath || slot.s3Url ? 0 : 2,
+                borderWidth: slot.status === 'empty' ? 2 : 0, // ✅ status se check
                 flex: 1,
                 justifyContent: 'center',
                 borderStyle: 'dotted',
                 borderRadius: 15,
                 alignItems: 'center',
-                height: responsiveHeight(12.5), //115
-                marginLeft: responsiveWidth(3.5), //15
-                marginRight: responsiveWidth(3.5), //15
+                height: responsiveHeight(12.5),
+                marginLeft: responsiveWidth(3.5),
+                marginRight: responsiveWidth(3.5),
               }}
               onPress={() =>
-                slot.localPath || slot.s3Url
-                  ? previewOrRecrop(index)
-                  : pickAndCropImage(index)
+                slot.status === 'empty' // ✅ consistent check
+                  ? pickAndCropImage(index)
+                  : previewOrRecrop(index)
               }
             >
-              {slot.localPath || slot.s3Url ? (
+              {slot.status !== 'empty' ? (
                 <>
                   <Image
                     source={{ uri: slot.localPath || slot.s3Url }}
@@ -381,15 +373,12 @@ const PhotoScreen = () => {
                     onPress={() => removeImage(index)}
                     style={{
                       position: 'absolute',
-                      alignItems: 'center',
                       top: -10,
                       right: -10,
                       width: 28,
                       height: 28,
-
                       backgroundColor: 'rgba(255, 0, 34, 0.96)',
                       borderRadius: 15,
-
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}
@@ -409,7 +398,7 @@ const PhotoScreen = () => {
               ) : (
                 <Image
                   style={{
-                    height: responsiveHeight(3.5), //35
+                    height: responsiveHeight(3.5),
                     width: responsiveWidth(6.5),
                     opacity: 0.8,
                   }}
@@ -427,43 +416,38 @@ const PhotoScreen = () => {
               key={index}
               style={{
                 borderColor: '#581845',
-                borderWidth: slot.localPath || slot.s3Url ? 0 : 2,
+                borderWidth: slot.status === 'empty' ? 2 : 0, // ✅ status se check
                 flex: 1,
                 justifyContent: 'center',
                 borderStyle: 'dotted',
                 borderRadius: 15,
-
                 alignItems: 'center',
-                height: responsiveHeight(12.5), //115
-                marginLeft: responsiveWidth(3.5), //15
-                marginRight: responsiveWidth(3.5), //15
+                height: responsiveHeight(12.5),
+                marginLeft: responsiveWidth(3.5),
+                marginRight: responsiveWidth(3.5),
               }}
               onPress={() =>
-                slot.status === 'empty'
+                slot.status === 'empty' // ✅ consistent check
                   ? pickAndCropImage(index + 3)
                   : previewOrRecrop(index + 3)
               }
             >
-              {slot.localPath || slot.s3Url ? (
+              {slot.status !== 'empty' ? (
                 <>
                   <Image
                     source={{ uri: slot.localPath || slot.s3Url }}
                     style={{ width: '100%', height: '100%', borderRadius: 10 }}
                   />
                   <Pressable
-                    key={index}
                     onPress={() => removeImage(index + 3)}
                     style={{
                       position: 'absolute',
-                      alignItems: 'center',
                       top: -10,
                       right: -10,
                       width: 28,
                       height: 28,
-
                       backgroundColor: 'rgba(255, 0, 34, 0.96)',
                       borderRadius: 15,
-
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}
@@ -483,7 +467,7 @@ const PhotoScreen = () => {
               ) : (
                 <Image
                   style={{
-                    height: responsiveHeight(3.5), //35
+                    height: responsiveHeight(3.5),
                     width: responsiveWidth(6.5),
                     opacity: 0.8,
                   }}
@@ -515,59 +499,6 @@ const PhotoScreen = () => {
             Add four to six Photos
           </Text>
         </View>
-        {/* <View style={{ marginTop: 25, marginLeft: 15 }}>
-          <Text style={{ color: '#581845' }}>
-            Add pictue and Video from instagram and tiktok
-          </Text>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 5,
-              marginTop: 10,
-              backgroundColor: '#Dcdcdc',
-              borderRadius: 15,
-              paddingLeft: 6,
-              marginRight: 10,
-              paddingHorizontal: 6,
-            }}
-          >
-            <Image
-              style={{
-                height: 25,
-                width: 25,
-              }}
-              source={require('../assets/Images/instagram.png')}
-            />
-            <TextInput
-              value={imageUrl}
-              onChangeText={text => setImageUrl(text)}
-              placeholder="Paste image url From Instagram"
-              placeholderTextColor={'#595959ff'}
-              multiline={false}
-              style={{
-                color: 'black',
-                marginVertical: 10,
-                flex: 1,
-              }}
-            />
-          </View>
-
-          <View
-            style={{
-              padding: 10,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text
-              style={{ fontSize: 16, color: '#565656' }}
-              onPress={handleAddImage}
-            >
-              Add image
-            </Text>
-          </View>
-        </View> */}
       </View>
       <Animated.View
         layout={_layout}

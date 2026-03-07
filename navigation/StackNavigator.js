@@ -30,9 +30,8 @@ const Tab = createBottomTabNavigator();
 function BottomTabs() {
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
+      initialRouteName="Home"
+      screenOptions={{ headerShown: false }}
       tabBar={props => <CustomTabBar {...props} />}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
@@ -45,12 +44,8 @@ function BottomTabs() {
 
 function AppStack() {
   return (
-    <Stack.Navigator>
-      <Stack.Screen
-        name="Main"
-        component={BottomTabs}
-        options={{ headerShown: false }}
-      />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Tabs" component={BottomTabs} />
     </Stack.Navigator>
   );
 }
