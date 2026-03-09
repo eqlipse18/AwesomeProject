@@ -7,6 +7,7 @@ import {
   Dimensions,
   TextInput,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import React, { useContext, useEffect, useState } from 'react';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
@@ -22,6 +23,11 @@ import Animated, {
 import LinearGradient from 'react-native-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { AuthContext } from '../AuthContex';
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BASE_URL } from '../urls/url';
+
+import { responsiveFontSize } from 'react-native-responsive-dimensions';
 
 const SignInScreen = () => {
   const { setToken, setProfileComplete } = useContext(AuthContext);
@@ -35,6 +41,7 @@ const SignInScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const CARD_WIDTH = screenWidth * 1;
   const CARD_HEIGHT = screenHeight * 1;
@@ -51,18 +58,25 @@ const SignInScreen = () => {
   }, []);
 
   const handleLogin = async () => {
-    const res = await axios.post(`${BASE_URL}/login`, body);
+    try {
+      const res = await axios.post(`${BASE_URL}/login`, {
+        email: email,
+        password,
+      });
+      // Store Cognito IdToken (this is what swipeRoutes expects)
+      await AsyncStorage.setItem('token', res.data.token);
+      await AsyncStorage.setItem(
+        'profileComplete',
+        JSON.stringify(res.data.isProfileComplete),
+      );
 
-    await AsyncStorage.setItem('token', res.data.token);
-    await AsyncStorage.setItem(
-      'profileComplete',
-      JSON.stringify(res.data.isProfileComplete),
-    );
-
-    setToken(res.data.token);
-    setProfileComplete(res.data.isProfileComplete);
+      setToken(res.data.token);
+      setProfileComplete(res.data.isProfileComplete);
+    } catch (error) {
+      console.error('Login failed:', error);
+      // Show error to user
+    }
   };
-
   return (
     <SafeAreaView
       style={{
@@ -224,6 +238,17 @@ const SignInScreen = () => {
             </Pressable>
           </View>
           <Pressable
+            onPress={() => {
+              if (loading) return;
+              setLoading(true);
+              try {
+                handleLogin(); //
+              } catch (e) {
+                console.log('Signup error:', e);
+              } finally {
+                setLoading(false);
+              }
+            }}
             style={({ pressed }) => ({
               transform: [{ scale: pressed ? 0.96 : 1 }],
               opacity: pressed ? 0.85 : 1,
@@ -236,9 +261,19 @@ const SignInScreen = () => {
               justifyContent: 'center',
             })}
           >
-            <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold' }}>
-              Sign In
-            </Text>
+            {loading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text
+                style={{
+                  color: 'white',
+                  fontSize: responsiveFontSize(2.3),
+                  fontWeight: 'bold',
+                }}
+              >
+                Sign Up
+              </Text>
+            )}
           </Pressable>
           <View style={{ width: 330, alignItems: 'center', marginTop: 10 }}>
             <Text style={{ color: '#292828ff', fontWeight: '500' }}>OR</Text>

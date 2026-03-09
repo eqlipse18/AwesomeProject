@@ -5,6 +5,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
 import { SESClient } from '@aws-sdk/client-ses';
@@ -37,6 +38,14 @@ const sesClient = new SESClient({
   },
 });
 
-export { docClient, s3Client, sesClient, PutCommand, GetCommand, QueryCommand };
+export {
+  docClient,
+  s3Client,
+  sesClient,
+  PutCommand,
+  GetCommand,
+  QueryCommand,
+  BatchGetCommand,
+};
 
 // export { docClient, PutCommand, GetCommand, QueryCommand }; diplicate email wale k liye

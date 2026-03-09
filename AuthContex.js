@@ -30,6 +30,10 @@ const AuthProvider = ({ children }) => {
           setUserId(decodedToken.sub);
 
           if (storedProfileComplete !== null) {
+            console.log(
+              '[AuthContext] storedProfileComplete:',
+              storedProfileComplete,
+            ); // ← ADD THIS
             setProfileComplete(JSON.parse(storedProfileComplete));
           }
         }

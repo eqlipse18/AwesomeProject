@@ -6,7 +6,13 @@ import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
-import { PutCommand, QueryCommand, s3Client } from './db.js';
+import {
+  docClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  s3Client,
+} from './db.js';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -24,6 +30,7 @@ import {
 import { OAuth2Client } from 'google-auth-library';
 import { sendOTPEmail } from './email.js';
 import registerRouter from './registerRoute.js';
+import swipeRouter from './swipeRoutes.js';
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -227,6 +234,67 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
+//--> login endpoint -->
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // 1️⃣ Authenticate with Cognito
+    const authCommand = new InitiateAuthCommand({
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      AuthParameters: {
+        USERNAME: email,
+        PASSWORD: password,
+      },
+    });
+
+    const authResult = await cognitoClient.send(authCommand);
+    const { IdToken, AccessToken, RefreshToken } =
+      authResult.AuthenticationResult;
+
+    // 2️⃣ Get user profile from DynamoDB
+    const userResult = await docClient.send(
+      new QueryCommand({
+        TableName: 'Users', // ✅ Capital U
+        IndexName: 'email-index',
+        KeyConditionExpression: 'email = :emailValue',
+        ExpressionAttributeValues: {
+          ':emailValue': email, // ✅ Correct format
+        },
+      }),
+    );
+
+    const userId = userResult.Items[0].userId;
+
+    // 2️⃣ Get full user profile by userId (uses main table)
+    const fullUserResult = await docClient.send(
+      new GetCommand({
+        TableName: 'Users',
+        Key: { userId }, // ← Direct lookup!
+      }),
+    );
+
+    const user = fullUserResult.Item;
+    const isProfileComplete = user.isProfileComplete || false;
+    return res.status(200).json({
+      success: true,
+      token: IdToken, // ✅ Use Cognito token!
+      idToken: IdToken,
+      accessToken: AccessToken,
+      refreshToken: RefreshToken,
+      userId,
+      isProfileComplete, // ✅ Add this
+    });
+  } catch (error) {
+    console.error('[/login] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Login failed',
+    });
+  }
+});
+
 const googleClient = new OAuth2Client();
 const USER_POOL_ID = 'ap-south-1_GXlmQsjSF'; // flamedevapp pool id
 
@@ -316,3 +384,11 @@ app.post('/google-signin', async (req, res) => {
 
 //--->using the routes
 app.use('/', registerRouter);
+//--> using the swiperoute for endpoints --->\\
+/*
+ * 1. GET /feed - Fetch paginated feed of users to swipe on
+ * 2. POST /swipe - Record a swipe (like/superlike/pass) and detect matches
+ * 3. GET /matches - Get current user's confirmed matches
+ *
+ */
+app.use('/', swipeRouter);
