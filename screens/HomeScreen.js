@@ -1,21 +1,11 @@
 /**
- * HomeScreen - Production Version
+ * HomeScreen - SIMPLIFIED VERSION
  *
- * Fully integrated swipe stack with:
- * - Real feed from backend
- * - Like/Pass/Superlike support
- * - Match detection and notifications
- * - Error handling and loading states
- * - Proper authentication
+ * Uses userId from AuthContext (no JWT decoding needed!)
+ * Gets userId from login response in AuthContext
  */
 
-import React, {
-  useCallback,
-  useContext,
-  useRef,
-  useState,
-  useMemo,
-} from 'react';
+import React, { useCallback, useContext, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -29,14 +19,18 @@ import {
 import { LinearGradient } from 'react-native-linear-gradient';
 import { SwipeableStack } from '../src/components/swipe/SwipeableStackEnhanced';
 import { useSwipeStack, useMatches } from '../src/hooks/useSwipeStackHook';
+import { MatchModal } from '../src/components/swipe/MatchModal';
 import { AuthContext } from '../AuthContex';
+import { useNavigation } from '@react-navigation/native';
+import axios from 'axios';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const API_BASE_URL = 'http://192.168.100.154:9000';
 
-/**
- * Card Component
- * Displays a single profile card
- */
+// ════════════════════════════════════════════════════════════════════════════
+// CARD COMPONENT
+// ════════════════════════════════════════════════════════════════════════════
+
 const ProfileCard = ({ user }) => {
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
@@ -53,7 +47,6 @@ const ProfileCard = ({ user }) => {
 
   return (
     <View style={styles.cardContainer}>
-      {/* Image with loading/error handling */}
       {user.image && !imageError ? (
         <>
           <Image
@@ -61,10 +54,7 @@ const ProfileCard = ({ user }) => {
             style={styles.cardImage}
             onLoadStart={() => setImageLoading(true)}
             onLoadEnd={() => setImageLoading(false)}
-            onError={e => {
-              console.log('[ProfileCard] Image error:', user.image);
-              setImageError(true);
-            }}
+            onError={() => setImageError(true)}
           />
           {imageLoading && (
             <View style={styles.imageLoadingOverlay}>
@@ -78,37 +68,33 @@ const ProfileCard = ({ user }) => {
         </View>
       )}
 
-      {/* Gradient overlay at bottom */}
       <LinearGradient
         colors={['transparent', 'rgba(0, 0, 0, 0.85)']}
         style={styles.gradient}
       />
 
-      {/* Profile info */}
       <View style={styles.profileInfo}>
         <View style={styles.nameAgeContainer}>
           <Text style={styles.name}>{user.name}</Text>
           <Text style={styles.age}>{user.age}</Text>
         </View>
-
         <Text style={styles.hometown}>
           📍 {user.hometown || 'Location not set'}
         </Text>
-
         <Text style={styles.goals} numberOfLines={2} ellipsizeMode="tail">
           {user.goals || 'No goals set'}
         </Text>
       </View>
 
-      {/* Card shadow */}
       <View style={styles.cardShadow} />
     </View>
   );
 };
 
-/**
- * Overlay Components
- */
+// ════════════════════════════════════════════════════════════════════════════
+// OVERLAYS
+// ════════════════════════════════════════════════════════════════════════════
+
 const LikeOverlay = () => (
   <View style={[styles.overlay, styles.likeOverlay]}>
     <Text style={styles.overlayText}>❤️</Text>
@@ -130,36 +116,10 @@ const SuperlikeOverlay = () => (
   </View>
 );
 
-/**
- * Match Notification Component
- */
-const MatchNotification = ({ user, onDismiss, type }) => {
-  return (
-    <View style={styles.matchNotificationContainer}>
-      <View style={styles.matchNotificationContent}>
-        <Text style={styles.matchNotificationEmoji}>
-          {type === 'superlike' ? '⭐' : '💕'}
-        </Text>
-        <Text style={styles.matchNotificationTitle}>It's a Match!</Text>
-        <Text style={styles.matchNotificationSubtitle}>
-          You and {user.name} liked each other
-          {type === 'superlike' ? ' with superlike!' : '!'}
-        </Text>
+// ════════════════════════════════════════════════════════════════════════════
+// EMPTY STATE
+// ════════════════════════════════════════════════════════════════════════════
 
-        <TouchableOpacity
-          style={styles.matchNotificationButton}
-          onPress={onDismiss}
-        >
-          <Text style={styles.matchNotificationButtonText}>Keep Swiping</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-/**
- * Empty State Component
- */
 const EmptyState = ({ onReset, error }) => (
   <View style={styles.emptyStateContainer}>
     <Text style={styles.emptyStateEmoji}>🎉</Text>
@@ -169,9 +129,7 @@ const EmptyState = ({ onReset, error }) => (
         ? 'Something went wrong. Please try again.'
         : "You've seen all available profiles. Check back later!"}
     </Text>
-
     {error && <Text style={styles.errorText}>{error}</Text>}
-
     <TouchableOpacity style={styles.emptyStateButton} onPress={onReset}>
       <Text style={styles.emptyStateButtonText}>
         {error ? 'Retry' : 'Refresh Feed'}
@@ -180,15 +138,17 @@ const EmptyState = ({ onReset, error }) => (
   </View>
 );
 
-/**
- * Action Button Component
- */
+// ════════════════════════════════════════════════════════════════════════════
+// ACTION BUTTON
+// ════════════════════════════════════════════════════════════════════════════
+
 const ActionButton = ({
   icon,
   label,
   onPress,
   color = '#FFF',
   size = 'medium',
+  disabled = false,
 }) => {
   const sizeStyle = size === 'small' ? styles.buttonSmall : styles.buttonMedium;
 
@@ -197,6 +157,7 @@ const ActionButton = ({
       style={[styles.actionButton, sizeStyle, { borderColor: color }]}
       onPress={onPress}
       activeOpacity={0.7}
+      disabled={disabled}
     >
       <Text
         style={[
@@ -213,43 +174,98 @@ const ActionButton = ({
   );
 };
 
-/**
- * Main HomeScreen Component
- */
+// ════════════════════════════════════════════════════════════════════════════
+// FETCH USER PROFILE HELPER
+// ════════════════════════════════════════════════════════════════════════════
+
+const fetchUserProfile = async (userId, token) => {
+  try {
+    console.log('[fetchUserProfile] Fetching for userId:', userId);
+
+    const axiosInstance = axios.create({
+      baseURL: API_BASE_URL,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 8000,
+    });
+
+    const response = await axiosInstance.post('/get-user-by-id', { userId });
+
+    console.log('[fetchUserProfile] Response:', response.data);
+
+    if (response.data.success && response.data.user) {
+      const user = response.data.user;
+      return {
+        name: user.firstName || user.name,
+        age: user.ageForSort || user.age,
+        image: user.imageUrls?.[0] || user.image,
+      };
+    } else {
+      console.error('[fetchUserProfile] Invalid response:', response.data);
+      return null;
+    }
+  } catch (error) {
+    console.error('[fetchUserProfile] Error:', error.message);
+    return null;
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// MAIN HOMESCREEN
+// ════════════════════════════════════════════════════════════════════════════
+
 const HomeScreen = () => {
-  const { token } = useContext(AuthContext);
+  // Get token AND userId from context (no decoding needed!)
+  const { token, userId } = useContext(AuthContext);
+  const navigation = useNavigation();
+
+  // Refs
   const stackRef = useRef(null);
+
+  // State
   const [isEmpty, setIsEmpty] = useState(false);
   const [localError, setLocalError] = useState(null);
+  const [matchedUsers, setMatchedUsers] = useState(null);
 
-  // Swipe stack hook with initial filters
+  // Custom hooks
   const swipeStack = useSwipeStack({
     token,
     filters: {
       minAge: 18,
       maxAge: 60,
       gender: 'Everyone',
-      // Add hometown if needed: hometown: 'Kathmandu'
     },
   });
 
-  // Matches hook
-  const matches = useMatches({ token });
+  // ════════════════════════════════════════════════════════════════════════════
+  // HANDLERS
+  // ════════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Handle swipe completion from card
-   */
   const handleSwipeComplete = useCallback(
     async (direction, user, index) => {
       if (!user) return;
 
+      // Block swipes if modal is visible
+      if (matchedUsers) {
+        console.log('[HomeScreen] Modal visible - blocking swipe');
+        return;
+      }
+
       try {
-        // Map swipe direction to backend type
         const typeMap = {
           left: 'pass',
           right: 'like',
           up: 'superlike',
         };
+
+        console.log(
+          '[HomeScreen] Processing swipe:',
+          typeMap[direction],
+          'on:',
+          user.name,
+        );
 
         const result = await swipeStack.handleSwipe(
           user.userId,
@@ -258,42 +274,78 @@ const HomeScreen = () => {
 
         if (!result.success) {
           setLocalError(result.error || 'Failed to process swipe');
-          console.error('[HomeScreen] Swipe failed:', result.error);
+        } else if (result.match) {
+          console.log('[HomeScreen] 🔥🔥🔥 MATCH DETECTED! 🔥🔥🔥');
+          console.log('[HomeScreen] loggedInUserId:', userId);
+          console.log('[HomeScreen] matchedUserId:', user.userId);
+
+          // Fetch BOTH user profiles INSTANTLY
+          if (userId) {
+            console.log('[HomeScreen] Fetching both profiles...');
+
+            const [loggedInUserData, matchedUserData] = await Promise.all([
+              fetchUserProfile(userId, token),
+              fetchUserProfile(user.userId, token),
+            ]);
+
+            console.log('[HomeScreen] Logged-in user:', loggedInUserData);
+            console.log('[HomeScreen] Matched user:', matchedUserData);
+
+            if (loggedInUserData && matchedUserData) {
+              // Show modal IMMEDIATELY!
+              setMatchedUsers({
+                user1: loggedInUserData,
+                user2: matchedUserData,
+              });
+
+              console.log('[HomeScreen] Modal shown:', {
+                user1: loggedInUserData.name,
+                user2: matchedUserData.name,
+              });
+            } else {
+              setLocalError('Failed to load match profiles');
+            }
+          } else {
+            console.error('[HomeScreen] userId not available!');
+            setLocalError('User ID not found in context');
+          }
         }
       } catch (err) {
         setLocalError(err.message || 'Unknown error');
         console.error('[HomeScreen] Swipe error:', err);
       }
     },
-    [swipeStack],
+    [swipeStack, userId, token, matchedUsers],
   );
 
-  /**
-   * Handle empty state
-   */
   const handleEmpty = useCallback(() => {
     setIsEmpty(true);
   }, []);
 
-  /**
-   * Reset feed
-   */
   const handleReset = useCallback(async () => {
     setIsEmpty(false);
     setLocalError(null);
     await swipeStack.refetchFeed();
   }, [swipeStack]);
 
-  /**
-   * Get matched user data for notification
-   */
-  const getMatchedUser = useCallback(() => {
-    if (!swipeStack.matchData || !swipeStack.feed.length) return null;
-    // Find the matched user in the feed using likedId
-    return swipeStack.feed.find(u => u.userId === swipeStack.matchData.likedId);
-  }, [swipeStack.matchData, swipeStack.feed]);
+  const handleKeepSwiping = useCallback(() => {
+    console.log('[HomeScreen] Keep swiping clicked');
+    setMatchedUsers(null);
+  }, []);
 
-  // Show loading state if initializing
+  const handleLetsChat = useCallback(() => {
+    console.log('[HomeScreen] Lets chat clicked');
+    setMatchedUsers(null);
+    navigation.navigate('Chat', {
+      matchId: null,
+      userName: matchedUsers?.user2?.name || 'Match',
+    });
+  }, [matchedUsers, navigation]);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════════════════════════════════════
+
   if (!swipeStack.isInitialized && swipeStack.loading) {
     return (
       <View style={styles.container}>
@@ -306,7 +358,6 @@ const HomeScreen = () => {
     );
   }
 
-  // Show empty state
   if (isEmpty || swipeStack.feed.length === 0) {
     return (
       <View style={styles.container}>
@@ -319,13 +370,12 @@ const HomeScreen = () => {
     );
   }
 
-  const matchedUser = getMatchedUser();
+  const isModalVisible = matchedUsers !== null;
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#FF0059" />
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Discover</Text>
         <Text style={styles.headerSubtitle}>
@@ -333,65 +383,62 @@ const HomeScreen = () => {
         </Text>
       </View>
 
-      {/* Swipe Stack */}
-      <SwipeableStack
-        ref={stackRef}
-        data={swipeStack.feed}
-        keyExtractor={item => item.userId}
-        renderCard={item => <ProfileCard user={item} />}
-        onSwipeRight={(item, index) =>
-          handleSwipeComplete('right', item, index)
-        }
-        onSwipeLeft={(item, index) => handleSwipeComplete('left', item, index)}
-        onSwipeUp={(item, index) => handleSwipeComplete('up', item, index)}
-        onEmpty={handleEmpty}
-        swipeThreshold={SCREEN_WIDTH * 0.25}
-        velocityThreshold={800}
-        maxRotation={12}
-        renderLeftOverlay={() => <PassOverlay />}
-        renderRightOverlay={() => <LikeOverlay />}
-        renderSuperlikeOverlay={() => <SuperlikeOverlay />}
-        containerStyle={styles.stackContainer}
-      />
+      {/* Stack */}
+      <View style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}>
+        <SwipeableStack
+          ref={stackRef}
+          data={swipeStack.feed}
+          keyExtractor={item => item.userId}
+          renderCard={item => <ProfileCard user={item} />}
+          onSwipeRight={(item, index) =>
+            handleSwipeComplete('right', item, index)
+          }
+          onSwipeLeft={(item, index) =>
+            handleSwipeComplete('left', item, index)
+          }
+          onSwipeUp={(item, index) => handleSwipeComplete('up', item, index)}
+          onEmpty={handleEmpty}
+          swipeThreshold={SCREEN_WIDTH * 0.25}
+          velocityThreshold={800}
+          maxRotation={12}
+          renderLeftOverlay={() => <PassOverlay />}
+          renderRightOverlay={() => <LikeOverlay />}
+          renderSuperlikeOverlay={() => <SuperlikeOverlay />}
+          containerStyle={styles.stackContainer}
+        />
+      </View>
 
-      {/* Action Buttons */}
-      <View style={styles.buttonsContainer}>
+      {/* Buttons */}
+      <View
+        style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
+      >
         <ActionButton
           icon="↩"
           onPress={() => stackRef.current?.undo()}
           color="#666"
           size="small"
+          disabled={isModalVisible}
         />
-
         <ActionButton
           icon="✕"
           onPress={() => stackRef.current?.swipeLeft()}
           color="#EF4444"
+          disabled={isModalVisible}
         />
-
         <ActionButton
           icon="♥"
           onPress={() => stackRef.current?.swipeRight()}
           color="#EC4899"
+          disabled={isModalVisible}
         />
-
         <ActionButton
           icon="⭐"
           onPress={() => stackRef.current?.swipeUp()}
           color="#FFB800"
+          disabled={isModalVisible}
         />
       </View>
 
-      {/* Match Notification */}
-      {swipeStack.showMatchNotification && matchedUser && (
-        <MatchNotification
-          user={matchedUser}
-          type={swipeStack.matchData?.type}
-          onDismiss={swipeStack.dismissMatch}
-        />
-      )}
-
-      {/* Error Toast */}
       {localError && (
         <View style={styles.errorToast}>
           <Text style={styles.errorToastText}>{localError}</Text>
@@ -400,22 +447,29 @@ const HomeScreen = () => {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* MATCH MODAL */}
+      <MatchModal
+        visible={isModalVisible}
+        user1={matchedUsers?.user1}
+        user2={matchedUsers?.user2}
+        onKeepSwiping={handleKeepSwiping}
+        onLetsChat={handleLetsChat}
+      />
     </View>
   );
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// Styles
+// STYLES
 // ════════════════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
-  // Container
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
 
-  // Header
   header: {
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -424,27 +478,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
+
   headerTitle: {
     fontSize: 32,
     fontWeight: '800',
     color: '#1E293B',
     marginBottom: 4,
   },
+
   headerSubtitle: {
     fontSize: 14,
     color: '#64748B',
   },
 
-  // Stack Container
   stackContainer: {
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 20,
-    paddingBottom: 120, // ← ADD THIS for tab bar space
+    paddingBottom: 120,
     backgroundColor: 'white',
   },
 
-  // Card
   cardContainer: {
     width: '100%',
     height: '100%',
@@ -457,12 +511,14 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
+
   cardImage: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
+
   gradient: {
     position: 'absolute',
     bottom: 0,
@@ -470,6 +526,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: '50%',
   },
+
   profileInfo: {
     position: 'absolute',
     bottom: 0,
@@ -478,32 +535,38 @@ const styles = StyleSheet.create({
     padding: 24,
     zIndex: 5,
   },
+
   nameAgeContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
     marginBottom: 8,
   },
+
   name: {
     fontSize: 28,
     fontWeight: '700',
     color: '#FFF',
     marginRight: 8,
   },
+
   age: {
     fontSize: 24,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.8)',
   },
+
   hometown: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.9)',
     marginBottom: 8,
   },
+
   goals: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.85)',
     lineHeight: 20,
   },
+
   cardShadow: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 24,
@@ -513,6 +576,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+
   imageLoadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -524,26 +588,29 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     zIndex: 15,
   },
+
   imageFallback: {
     backgroundColor: '#F0F0F0',
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   fallbackText: {
     fontSize: 48,
   },
+
   loadingCard: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F0F0F0',
   },
+
   noDataText: {
     fontSize: 16,
     color: '#999',
   },
 
-  // Overlays
   overlay: {
     borderWidth: 4,
     borderRadius: 8,
@@ -552,41 +619,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
+
   likeOverlay: {
     borderColor: '#EC4899',
     transform: [{ rotate: '-20deg' }],
   },
+
   passOverlay: {
     borderColor: '#EF4444',
     transform: [{ rotate: '20deg' }],
   },
+
   superlikeOverlay: {
     borderColor: '#FFB800',
     backgroundColor: 'rgba(255, 184, 0, 0.15)',
   },
+
   overlayText: {
     fontSize: 40,
     marginBottom: 4,
   },
+
   overlayLabel: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FFF',
   },
 
-  // Buttons
   buttonsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 20,
     paddingHorizontal: 16,
-    paddingBottom: 110, // ← ADD THIS to account for CustomTabBar
+    paddingBottom: 110,
     gap: 12,
     backgroundColor: '#FFF',
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
+
   actionButton: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -599,34 +671,39 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+
   buttonSmall: {
     width: 48,
     height: 48,
   },
+
   buttonMedium: {
     width: 64,
     height: 64,
   },
+
   actionButtonIcon: {
     fontWeight: '700',
   },
+
   actionButtonLabel: {
     fontSize: 10,
     fontWeight: '600',
     marginTop: 2,
   },
 
-  // Empty State
   emptyStateContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
   },
+
   emptyStateEmoji: {
     fontSize: 64,
     marginBottom: 16,
   },
+
   emptyStateTitle: {
     fontSize: 28,
     fontWeight: '700',
@@ -634,6 +711,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textAlign: 'center',
   },
+
   emptyStateMessage: {
     fontSize: 16,
     color: '#64748B',
@@ -641,24 +719,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
   },
+
   emptyStateButton: {
     backgroundColor: '#FF0059',
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 12,
   },
+
   emptyStateButtonText: {
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
   },
 
-  // Loading
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   loadingText: {
     fontSize: 16,
     color: '#FF0059',
@@ -666,52 +746,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Match Notification
-  matchNotificationContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 1000,
-  },
-  matchNotificationContent: {
-    backgroundColor: '#FFF',
-    borderRadius: 20,
-    paddingHorizontal: 32,
-    paddingVertical: 40,
-    alignItems: 'center',
-    marginHorizontal: 24,
-  },
-  matchNotificationEmoji: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  matchNotificationTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 8,
-  },
-  matchNotificationSubtitle: {
-    fontSize: 16,
-    color: '#64748B',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 24,
-  },
-  matchNotificationButton: {
-    backgroundColor: '#FF0059',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 10,
-  },
-  matchNotificationButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  // Error Toast
   errorToast: {
     position: 'absolute',
     bottom: 20,
@@ -726,19 +760,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 999,
   },
+
   errorToastText: {
     color: '#FFF',
     fontSize: 14,
     fontWeight: '600',
     flex: 1,
   },
+
   errorToastClose: {
     color: '#FFF',
     fontSize: 18,
     fontWeight: '700',
   },
 
-  // Error Text
   errorText: {
     fontSize: 12,
     color: '#EF4444',

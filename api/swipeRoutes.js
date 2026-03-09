@@ -526,4 +526,88 @@ router.get('/matches', authenticate, async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// GET /user-profile - Get logged-in user's profile data
+// ════════════════════════════════════════════════════════════════════════════
+
+router.get('/user-profile', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    // Fetch user from Users table
+    const userResponse = await docClient.send(
+      new GetCommand({
+        TableName: 'Users',
+        Key: { userId },
+        ProjectionExpression:
+          'userId, firstName, lastName, ageForSort, imageUrls, gender, hometown, goals, datingPreferences',
+      }),
+    );
+
+    if (!userResponse.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: userResponse.Item,
+    });
+  } catch (error) {
+    console.error('[/user-profile] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user profile',
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// POST /get-user-by-id - Get user profile by userId
+// ════════════════════════════════════════════════════════════════════════════
+
+router.post('/get-user-by-id', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
+    }
+
+    console.log('[/get-user-by-id] Fetching user:', userId);
+
+    const response = await docClient.send(
+      new GetCommand({
+        TableName: 'Users',
+        Key: { userId },
+        ProjectionExpression:
+          'userId, firstName, lastName, ageForSort, imageUrls, gender, hometown, goals',
+      }),
+    );
+
+    if (!response.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: response.Item,
+    });
+  } catch (error) {
+    console.error('[/get-user-by-id] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user',
+    });
+  }
+});
+
 export default router;
