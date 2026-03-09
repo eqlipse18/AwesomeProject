@@ -13,8 +13,9 @@ import { useCallback, useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 // Configure your API base URL here
-// const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://192.168.100.154:9000';
-const API_BASE_URL = 'http://192.168.100.154:9000';
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL || 'http://192.168.100.154:9000';
+
 // Create axios instance with auth header
 const createApiClient = token => {
   return axios.create({
@@ -200,6 +201,7 @@ export function useSwipeStack({ token, filters = {} }) {
       if (response.data.match) {
         setMatchData({
           matchId: response.data.matchId,
+          likedId: likedId, // ← Store the user we liked!
           type, // The type of swipe that created the match
         });
         setShowMatchNotification(true);
@@ -214,6 +216,7 @@ export function useSwipeStack({ token, filters = {} }) {
         success: true,
         match: response.data.match,
         matchId: response.data.matchId,
+        likedId: likedId,
       };
     } catch (err) {
       const errorMsg =

@@ -38,7 +38,6 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
  * Displays a single profile card
  */
 const ProfileCard = ({ user }) => {
-  console.log('[ProfileCard] User data:', user);
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
 
@@ -50,9 +49,6 @@ const ProfileCard = ({ user }) => {
         </View>
       </View>
     );
-  }
-  if (!user.image) {
-    console.log('[ProfileCard] NO IMAGE URL!', user); // ← ADD THIS
   }
 
   return (
@@ -293,8 +289,8 @@ const HomeScreen = () => {
    */
   const getMatchedUser = useCallback(() => {
     if (!swipeStack.matchData || !swipeStack.feed.length) return null;
-    // Find the matched user in the feed
-    return swipeStack.feed.find(u => u.userId === swipeStack.matchData.matchId);
+    // Find the matched user in the feed using likedId
+    return swipeStack.feed.find(u => u.userId === swipeStack.matchData.likedId);
   }, [swipeStack.matchData, swipeStack.feed]);
 
   // Show loading state if initializing

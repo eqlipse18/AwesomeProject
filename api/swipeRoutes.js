@@ -1,6 +1,10 @@
 /**
- * Swipe Routes for In Flame
- * FIXED VERSION - No reserved keyword issues
+ * Swipe Routes for In Flame - GENDER FIX
+ *
+ * KEY FIX:
+ * - Now reads logged-in user's datingPreferences
+ * - Shows ONLY genders user prefers
+ * - Ignores query parameter gender filter
  */
 
 import express from 'express';
@@ -17,7 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 const router = express.Router();
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET /feed - Fetch paginated discover feed
+// GET /feed - Fetch paginated discover feed (FIXED GENDER FILTERING)
 // ════════════════════════════════════════════════════════════════════════════
 
 router.get('/feed', authenticate, async (req, res) => {
@@ -26,7 +30,6 @@ router.get('/feed', authenticate, async (req, res) => {
     const {
       minAge = 18,
       maxAge = 60,
-      gender = 'Everyone',
       hometown,
       limit = 10,
       cursor,
@@ -51,7 +54,47 @@ router.get('/feed', authenticate, async (req, res) => {
       });
     }
 
-    // ── 2. Fetch already-swiped users ──
+    // ── 2. CRITICAL: Fetch logged-in user's DATING PREFERENCES ──
+    const loggedInUserResponse = await docClient.send(
+      new GetCommand({
+        TableName: 'Users',
+        Key: { userId },
+        ProjectionExpression: 'gender, datingPreferences',
+      }),
+    );
+
+    if (!loggedInUserResponse.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    const loggedInUserGender = loggedInUserResponse.Item.gender; // "Male" or "Female"
+    const datingPreferences = loggedInUserResponse.Item.datingPreferences || []; // ["Men"] or ["Women"]
+
+    // ── 3. Determine what genders to show ──
+    let gendersToShow = [];
+
+    if (datingPreferences.includes('Men')) {
+      gendersToShow.push('Male');
+    }
+    if (datingPreferences.includes('Women')) {
+      gendersToShow.push('Female');
+    }
+
+    // Fallback: if no preferences set, show opposite gender
+    if (gendersToShow.length === 0) {
+      gendersToShow = loggedInUserGender === 'Male' ? ['Female'] : ['Male'];
+    }
+
+    console.log(
+      `[/feed] User ${userId} (${loggedInUserGender}) wants: ${datingPreferences.join(
+        ', ',
+      )} → Showing: ${gendersToShow.join(', ')}`,
+    );
+
+    // ── 4. Fetch already-swiped users ──
     const likedUsersResponse = await docClient.send(
       new QueryCommand({
         TableName: 'flame-Likes',
@@ -68,102 +111,93 @@ router.get('/feed', authenticate, async (req, res) => {
       likedUsersResponse.Items.map(item => item.likedId),
     );
 
-    // ── 3. Build feed query ──
-    let queryParams;
+    // ── 5. Build query based on location ──
+    let allResults = [];
 
-    if (hometown) {
-      // Query by hometown + age
-      queryParams = {
-        TableName: 'Users',
-        IndexName: 'hometown-age-index',
-        KeyConditionExpression:
-          'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge',
-        FilterExpression:
-          'isActive = :isActiveVal AND #gender IN (:gender1, :gender2) AND userId <> :userId',
-        ProjectionExpression:
-          'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
-        ExpressionAttributeNames: {
-          '#gender': 'gender',
-        },
-        ExpressionAttributeValues: {
-          ':hometown': hometown,
-          ':minAge': parsedMinAge,
-          ':maxAge': parsedMaxAge,
-          ':isActiveVal': true,
-          ':gender1': gender === 'Everyone' ? 'Female' : gender,
-          ':gender2': gender === 'Everyone' ? 'Male' : gender,
-          ':userId': userId,
-        },
-        Limit: parsedLimit + 20,
-      };
-    } else {
-      // Query by gender + age (no location filter)
-      queryParams = {
-        TableName: 'Users',
-        IndexName: 'gender-age-index',
-        KeyConditionExpression:
-          'gender = :gender AND ageForSort BETWEEN :minAge AND :maxAge',
-        FilterExpression: 'isActive = :isActiveVal AND userId <> :userId',
-        ProjectionExpression:
-          'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
-        ExpressionAttributeValues: {
-          ':gender': gender === 'Everyone' ? 'Female' : gender,
-          ':minAge': parsedMinAge,
-          ':maxAge': parsedMaxAge,
-          ':isActiveVal': true,
-          ':userId': userId,
-        },
-        Limit: parsedLimit + 20,
-      };
-    }
+    // Query for EACH gender preference
+    for (const gender of gendersToShow) {
+      let queryParams;
 
-    // Add pagination cursor if provided
-    if (cursor) {
-      try {
-        const decodedCursor = JSON.parse(
-          Buffer.from(cursor, 'base64').toString(),
-        );
-        queryParams.ExclusiveStartKey = decodedCursor;
-      } catch (e) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid cursor',
-        });
+      if (hometown) {
+        queryParams = {
+          TableName: 'Users',
+          IndexName: 'hometown-age-index',
+          KeyConditionExpression:
+            'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge',
+          FilterExpression:
+            'isActive = :isActiveVal AND #gender = :genderVal AND userId <> :userId',
+          ProjectionExpression:
+            'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
+          ExpressionAttributeNames: {
+            '#gender': 'gender',
+          },
+          ExpressionAttributeValues: {
+            ':hometown': hometown,
+            ':minAge': parsedMinAge,
+            ':maxAge': parsedMaxAge,
+            ':isActiveVal': true,
+            ':genderVal': gender,
+            ':userId': userId,
+          },
+          Limit: parsedLimit + 20,
+        };
+      } else {
+        queryParams = {
+          TableName: 'Users',
+          IndexName: 'gender-age-index',
+          KeyConditionExpression:
+            'gender = :genderVal AND ageForSort BETWEEN :minAge AND :maxAge',
+          FilterExpression: 'isActive = :isActiveVal AND userId <> :userId',
+          ProjectionExpression:
+            'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
+          ExpressionAttributeValues: {
+            ':genderVal': gender,
+            ':minAge': parsedMinAge,
+            ':maxAge': parsedMaxAge,
+            ':isActiveVal': true,
+            ':userId': userId,
+          },
+          Limit: parsedLimit + 20,
+        };
       }
+
+      // Add cursor if this is the first gender being queried
+      if (cursor && gender === gendersToShow[0]) {
+        try {
+          const decodedCursor = JSON.parse(
+            Buffer.from(cursor, 'base64').toString(),
+          );
+          queryParams.ExclusiveStartKey = decodedCursor;
+        } catch (e) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invalid cursor',
+          });
+        }
+      }
+
+      const response = await docClient.send(new QueryCommand(queryParams));
+      allResults = allResults.concat(response.Items || []);
     }
 
-    // ── 4. Execute query ──
-    const response = await docClient.send(new QueryCommand(queryParams));
-
-    // ── 5. Filter out already-swiped users ──
-    let filteredUsers = response.Items.filter(
+    // ── 6. Filter out already-swiped users ──
+    let filteredUsers = allResults.filter(
       user => !alreadySwiped.has(user.userId),
     );
-
-    // ── 6. If "Everyone", also query Men ──
-    if (gender === 'Everyone' && filteredUsers.length < parsedLimit) {
-      const menParams = {
-        ...queryParams,
-        ExpressionAttributeValues: {
-          ...queryParams.ExpressionAttributeValues,
-          ':gender': 'Men',
-        },
-      };
-      const menResponse = await docClient.send(new QueryCommand(menParams));
-      const menFiltered = menResponse.Items.filter(
-        user => !alreadySwiped.has(user.userId),
-      );
-      filteredUsers = [...filteredUsers, ...menFiltered];
-    }
 
     // ── 7. Slice to requested limit and generate next cursor ──
     const hasMore = filteredUsers.length > parsedLimit;
     const users = filteredUsers.slice(0, parsedLimit);
 
     let nextCursor = null;
-    if (hasMore && response.LastEvaluatedKey) {
+    if (hasMore && users.length > 0) {
+      // Use last user's sort key as cursor
+      const lastUser = users[users.length - 1];
       nextCursor = Buffer.from(
-        JSON.stringify(response.LastEvaluatedKey),
+        JSON.stringify({
+          gender: lastUser.gender,
+          ageForSort: lastUser.ageForSort,
+        }),
       ).toString('base64');
     }
 
@@ -426,7 +460,7 @@ router.get('/matches', authenticate, async (req, res) => {
     // ── 3. Batch fetch other user's data ──
     const otherUserIds = paginatedMatches.map(m => m.otherUserId);
 
-    // If no matches, return empty array (don't call BatchGetCommand with empty keys)
+    // If no matches, return empty array
     if (otherUserIds.length === 0) {
       return res.status(200).json({
         success: true,
