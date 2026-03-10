@@ -1,11 +1,20 @@
 /**
- * HomeScreen - SIMPLIFIED VERSION
+ * HomeScreen - ULTIMATE SMOOTH VERSION
  *
- * Uses userId from AuthContext (no JWT decoding needed!)
- * Gets userId from login response in AuthContext
+ * Features:
+ * - Scan animation plays until cards ready
+ * - Scan fades OUT + Card fades IN simultaneously
+ * - Smooth connected transition
+ * - NOT time-dependent, dependent on actual loading
  */
 
-import React, { useCallback, useContext, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  useEffect,
+} from 'react';
 import {
   View,
   Text,
@@ -17,6 +26,13 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'react-native-linear-gradient';
+import LottieView from 'lottie-react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { SwipeableStack } from '../src/components/swipe/SwipeableStackEnhanced';
 import { useSwipeStack, useMatches } from '../src/hooks/useSwipeStackHook';
 import { MatchModal } from '../src/components/swipe/MatchModal';
@@ -28,12 +44,42 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const API_BASE_URL = 'http://192.168.100.154:9000';
 
 // ════════════════════════════════════════════════════════════════════════════
-// CARD COMPONENT
+// SCAN LOADING OVERLAY - ANIMATED
 // ════════════════════════════════════════════════════════════════════════════
 
-const ProfileCard = ({ user }) => {
-  const [imageLoading, setImageLoading] = useState(true);
+const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeOutOpacity.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.scanOverlayContainer, animatedStyle]}>
+      {/* Scan animation */}
+      <View style={styles.scanAnimationWrapper}>
+        <LottieView
+          source={require('../assets/animations/Scan.json')}
+          autoPlay
+          loop={true}
+          style={styles.scanAnimation}
+        />
+      </View>
+
+      {/* Mild text below */}
+      <Text style={styles.scanText}>Scanning nearby users...</Text>
+    </Animated.View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROFILE CARD - ANIMATED FADE IN
+// ════════════════════════════════════════════════════════════════════════════
+
+const ProfileCard = ({ user, cardFadeInOpacity }) => {
   const [imageError, setImageError] = useState(false);
+
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: cardFadeInOpacity.value,
+  }));
 
   if (!user) {
     return (
@@ -46,22 +92,13 @@ const ProfileCard = ({ user }) => {
   }
 
   return (
-    <View style={styles.cardContainer}>
+    <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
       {user.image && !imageError ? (
-        <>
-          <Image
-            source={{ uri: user.image }}
-            style={styles.cardImage}
-            onLoadStart={() => setImageLoading(true)}
-            onLoadEnd={() => setImageLoading(false)}
-            onError={() => setImageError(true)}
-          />
-          {imageLoading && (
-            <View style={styles.imageLoadingOverlay}>
-              <ActivityIndicator size="large" color="#FF0059" />
-            </View>
-          )}
-        </>
+        <Image
+          source={{ uri: user.image }}
+          style={styles.cardImage}
+          onError={() => setImageError(true)}
+        />
       ) : (
         <View style={[styles.cardImage, styles.imageFallback]}>
           <Text style={styles.fallbackText}>📷</Text>
@@ -87,6 +124,26 @@ const ProfileCard = ({ user }) => {
       </View>
 
       <View style={styles.cardShadow} />
+    </Animated.View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// CUSTOM CARD RENDERER WITH ANIMATION PROPS
+// ════════════════════════════════════════════════════════════════════════════
+
+const AnimatedCardRenderer = ({
+  item,
+  index,
+  cardFadeInOpacity,
+  isFirstCard,
+}) => {
+  return (
+    <View style={{ flex: 1, width: '100%', height: '100%' }}>
+      <ProfileCard
+        user={item}
+        cardFadeInOpacity={isFirstCard ? cardFadeInOpacity : undefined}
+      />
     </View>
   );
 };
@@ -175,13 +232,11 @@ const ActionButton = ({
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// FETCH USER PROFILE HELPER
+// FETCH USER PROFILE
 // ════════════════════════════════════════════════════════════════════════════
 
 const fetchUserProfile = async (userId, token) => {
   try {
-    console.log('[fetchUserProfile] Fetching for userId:', userId);
-
     const axiosInstance = axios.create({
       baseURL: API_BASE_URL,
       headers: {
@@ -193,8 +248,6 @@ const fetchUserProfile = async (userId, token) => {
 
     const response = await axiosInstance.post('/get-user-by-id', { userId });
 
-    console.log('[fetchUserProfile] Response:', response.data);
-
     if (response.data.success && response.data.user) {
       const user = response.data.user;
       return {
@@ -202,10 +255,8 @@ const fetchUserProfile = async (userId, token) => {
         age: user.ageForSort || user.age,
         image: user.imageUrls?.[0] || user.image,
       };
-    } else {
-      console.error('[fetchUserProfile] Invalid response:', response.data);
-      return null;
     }
+    return null;
   } catch (error) {
     console.error('[fetchUserProfile] Error:', error.message);
     return null;
@@ -217,17 +268,21 @@ const fetchUserProfile = async (userId, token) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 const HomeScreen = () => {
-  // Get token AND userId from context (no decoding needed!)
   const { token, userId } = useContext(AuthContext);
   const navigation = useNavigation();
 
-  // Refs
   const stackRef = useRef(null);
 
   // State
   const [isEmpty, setIsEmpty] = useState(false);
   const [localError, setLocalError] = useState(null);
   const [matchedUsers, setMatchedUsers] = useState(null);
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  const currentCardIndex = useRef(0);
+
+  // Animation shared values
+  const scanFadeOutOpacity = useSharedValue(1);
+  const cardFadeInOpacity = useSharedValue(0);
 
   // Custom hooks
   const swipeStack = useSwipeStack({
@@ -240,6 +295,49 @@ const HomeScreen = () => {
   });
 
   // ════════════════════════════════════════════════════════════════════════════
+  // SHOW SCAN AND ANIMATE TRANSITION WHEN LOADING COMPLETES
+  // ════════════════════════════════════════════════════════════════════════════
+
+  useEffect(() => {
+    if (swipeStack.isInitialLoading && swipeStack.loading) {
+      // Show scan overlay
+      setShowLoadingOverlay(true);
+      scanFadeOutOpacity.value = 1;
+      cardFadeInOpacity.value = 0;
+
+      console.log('[HomeScreen] Showing scan overlay...');
+    } else if (
+      !swipeStack.isInitialLoading &&
+      showLoadingOverlay &&
+      swipeStack.feed.length > 0
+    ) {
+      // Loading complete, animate transition
+      console.log('[HomeScreen] Loading complete! Animating transition...');
+
+      // Scan fades OUT + Card fades IN simultaneously (600ms)
+      scanFadeOutOpacity.value = withTiming(0, {
+        duration: 600,
+        easing: Easing.inOut(Easing.ease),
+      });
+
+      cardFadeInOpacity.value = withTiming(1, {
+        duration: 600,
+        easing: Easing.inOut(Easing.ease),
+      });
+
+      // Hide overlay after animation
+      setTimeout(() => {
+        setShowLoadingOverlay(false);
+      }, 600);
+    }
+  }, [
+    swipeStack.isInitialLoading,
+    swipeStack.loading,
+    swipeStack.feed.length,
+    showLoadingOverlay,
+  ]);
+
+  // ════════════════════════════════════════════════════════════════════════════
   // HANDLERS
   // ════════════════════════════════════════════════════════════════════════════
 
@@ -247,25 +345,20 @@ const HomeScreen = () => {
     async (direction, user, index) => {
       if (!user) return;
 
-      // Block swipes if modal is visible
       if (matchedUsers) {
-        console.log('[HomeScreen] Modal visible - blocking swipe');
         return;
       }
 
       try {
+        currentCardIndex.current = index + 1;
+
         const typeMap = {
           left: 'pass',
           right: 'like',
           up: 'superlike',
         };
 
-        console.log(
-          '[HomeScreen] Processing swipe:',
-          typeMap[direction],
-          'on:',
-          user.name,
-        );
+        console.log('[HomeScreen] Swiped:', typeMap[direction], 'Card:', index);
 
         const result = await swipeStack.handleSwipe(
           user.userId,
@@ -275,39 +368,24 @@ const HomeScreen = () => {
         if (!result.success) {
           setLocalError(result.error || 'Failed to process swipe');
         } else if (result.match) {
-          console.log('[HomeScreen] 🔥🔥🔥 MATCH DETECTED! 🔥🔥🔥');
-          console.log('[HomeScreen] loggedInUserId:', userId);
-          console.log('[HomeScreen] matchedUserId:', user.userId);
+          console.log('[HomeScreen] 🔥 MATCH! 🔥');
 
-          // Fetch BOTH user profiles INSTANTLY
           if (userId) {
-            console.log('[HomeScreen] Fetching both profiles...');
-
             const [loggedInUserData, matchedUserData] = await Promise.all([
               fetchUserProfile(userId, token),
               fetchUserProfile(user.userId, token),
             ]);
 
-            console.log('[HomeScreen] Logged-in user:', loggedInUserData);
-            console.log('[HomeScreen] Matched user:', matchedUserData);
-
             if (loggedInUserData && matchedUserData) {
-              // Show modal IMMEDIATELY!
               setMatchedUsers({
                 user1: loggedInUserData,
                 user2: matchedUserData,
-              });
-
-              console.log('[HomeScreen] Modal shown:', {
-                user1: loggedInUserData.name,
-                user2: matchedUserData.name,
               });
             } else {
               setLocalError('Failed to load match profiles');
             }
           } else {
-            console.error('[HomeScreen] userId not available!');
-            setLocalError('User ID not found in context');
+            setLocalError('User ID not found');
           }
         }
       } catch (err) {
@@ -325,16 +403,15 @@ const HomeScreen = () => {
   const handleReset = useCallback(async () => {
     setIsEmpty(false);
     setLocalError(null);
+    currentCardIndex.current = 0;
     await swipeStack.refetchFeed();
   }, [swipeStack]);
 
   const handleKeepSwiping = useCallback(() => {
-    console.log('[HomeScreen] Keep swiping clicked');
     setMatchedUsers(null);
   }, []);
 
   const handleLetsChat = useCallback(() => {
-    console.log('[HomeScreen] Lets chat clicked');
     setMatchedUsers(null);
     navigation.navigate('Chat', {
       matchId: null,
@@ -346,14 +423,15 @@ const HomeScreen = () => {
   // RENDER
   // ════════════════════════════════════════════════════════════════════════════
 
-  if (!swipeStack.isInitialized && swipeStack.loading) {
+  // Initial loading state
+  if (swipeStack.isInitialLoading && swipeStack.loading) {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#FF0059" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF0059" />
-          <Text style={styles.loadingText}>Finding profiles...</Text>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Discover</Text>
         </View>
+        <View style={styles.stackContainer} />
       </View>
     );
   }
@@ -383,13 +461,15 @@ const HomeScreen = () => {
         </Text>
       </View>
 
-      {/* Stack */}
+      {/* Swipe Stack */}
       <View style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}>
         <SwipeableStack
           ref={stackRef}
           data={swipeStack.feed}
           keyExtractor={item => item.userId}
-          renderCard={item => <ProfileCard user={item} />}
+          renderCard={item => (
+            <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />
+          )}
           onSwipeRight={(item, index) =>
             handleSwipeComplete('right', item, index)
           }
@@ -405,10 +485,16 @@ const HomeScreen = () => {
           renderRightOverlay={() => <LikeOverlay />}
           renderSuperlikeOverlay={() => <SuperlikeOverlay />}
           containerStyle={styles.stackContainer}
+          disabled={isModalVisible}
         />
+
+        {/* Scan Animation Overlay (only while loading) */}
+        {showLoadingOverlay && (
+          <ScanLoadingOverlay fadeOutOpacity={scanFadeOutOpacity} />
+        )}
       </View>
 
-      {/* Buttons */}
+      {/* Action Buttons */}
       <View
         style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
       >
@@ -439,6 +525,7 @@ const HomeScreen = () => {
         />
       </View>
 
+      {/* Error Toast */}
       {localError && (
         <View style={styles.errorToast}>
           <Text style={styles.errorToastText}>{localError}</Text>
@@ -448,7 +535,7 @@ const HomeScreen = () => {
         </View>
       )}
 
-      {/* MATCH MODAL */}
+      {/* Match Modal */}
       <MatchModal
         visible={isModalVisible}
         user1={matchedUsers?.user1}
@@ -499,6 +586,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
   },
 
+  // Scan Loading Overlay
+  scanOverlayContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+    pointerEvents: 'none',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+  },
+
+  scanAnimationWrapper: {
+    width: SCREEN_WIDTH - 32,
+    height: (SCREEN_WIDTH - 32) * 1.3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+
+  scanAnimation: {
+    width: '100%',
+    height: '100%',
+  },
+
+  scanText: {
+    fontSize: 14,
+    color: '#666',
+    opacity: 0.6,
+    fontWeight: '500',
+  },
+
+  // Card
   cardContainer: {
     width: '100%',
     height: '100%',
@@ -575,18 +697,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-  },
-
-  imageLoadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    zIndex: 15,
   },
 
   imageFallback: {
@@ -730,19 +840,6 @@ const styles = StyleSheet.create({
   emptyStateButtonText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '600',
-  },
-
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  loadingText: {
-    fontSize: 16,
-    color: '#FF0059',
-    marginTop: 16,
     fontWeight: '600',
   },
 

@@ -1,22 +1,20 @@
 /**
- * useSwipeStack Hook - Frontend Integration
+ * useSwipeStack Hook - FINAL OPTIMIZED VERSION
  *
- * Manages:
- * - Fetching feed from backend
- * - Sending swipes (like/superlike/pass)
- * - Detecting matches
- * - Pagination and caching
- * - Error handling
+ * Features:
+ * - Load 20 cards initially
+ * - Silent background load at card 12 (10 more cards)
+ * - Repeat every 10 cards
+ * - ZERO visible loading during swipes
+ * - Smart pagination
  */
 
 import { useCallback, useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-// Configure your API base URL here
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || 'http://192.168.100.154:9000';
 
-// Create axios instance with auth header
 const createApiClient = token => {
   return axios.create({
     baseURL: API_BASE_URL,
@@ -29,18 +27,8 @@ const createApiClient = token => {
 };
 
 /**
- * Custom Hook for Swipeable Stack with Backend Integration
- *
- * Usage:
- * const swipeStack = useSwipeStack({
- *   token: userToken,
- *   filters: { minAge: 18, maxAge: 35, gender: 'Women', hometown: 'Kathmandu' }
- * });
- *
- * // In component:
- * swipeStack.handleSwipe(userId, 'like')  // or 'superlike' or 'pass'
- * swipeStack.refetchFeed()                // refresh feed
- * swipeStack.loadMore()                   // pagination
+ * Custom Hook for Swipeable Stack
+ * Smart pagination: 20 initial, then 10 more at card 12, repeats every 10
  */
 export function useSwipeStack({ token, filters = {} }) {
   // State management
@@ -48,16 +36,18 @@ export function useSwipeStack({ token, filters = {} }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [nextCursor, setNextCursor] = useState(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   // Match notifications
   const [matchData, setMatchData] = useState(null);
   const [showMatchNotification, setShowMatchNotification] = useState(false);
 
-  // Track loaded users to prevent duplicates
+  // Track state
   const loadedUserIds = useRef(new Set());
   const apiClient = useRef(null);
+  const isLoadingMore = useRef(false);
+  const currentIndex = useRef(0);
 
-  // Initialize API client when token changes
   useEffect(() => {
     if (token) {
       apiClient.current = createApiClient(token);
@@ -66,23 +56,36 @@ export function useSwipeStack({ token, filters = {} }) {
 
   /**
    * Fetch feed from backend
+   * @param {string} cursor - Pagination cursor (null for initial load)
+   * @param {boolean} isInitial - Is this the initial 20-card load?
    */
   const fetchFeed = useCallback(
-    async (cursor = null) => {
+    async (cursor = null, isInitial = false) => {
       if (!apiClient.current) {
         setError('Not authenticated');
         return;
       }
 
       try {
-        setLoading(true);
+        // Only show loading on initial fetch
+        if (isInitial) {
+          setLoading(true);
+        }
+
         setError(null);
 
+        const limit = isInitial ? 20 : 10; // 20 for initial, 10 for pagination
+
         const params = {
-          limit: 10,
+          limit,
           ...filters,
           ...(cursor && { cursor }),
         };
+
+        console.log('[useSwipeStack] Fetching', limit, 'cards...', {
+          isInitial,
+          cursor,
+        });
 
         const response = await apiClient.current.get('/feed', { params });
 
@@ -92,7 +95,7 @@ export function useSwipeStack({ token, filters = {} }) {
 
         const newUsers = response.data.users || [];
 
-        // Only add users we haven't loaded yet
+        // Filter out duplicates
         const uniqueUsers = newUsers.filter(
           user => !loadedUserIds.current.has(user.userId),
         );
@@ -102,16 +105,21 @@ export function useSwipeStack({ token, filters = {} }) {
 
         // Update feed
         setFeed(prev => {
-          // If no cursor (first load), replace entire feed
-          if (!cursor) {
-            return uniqueUsers;
-          }
-          // Otherwise, append to existing feed
-          return [...prev, ...uniqueUsers];
+          const updated = !cursor ? uniqueUsers : [...prev, ...uniqueUsers];
+          console.log(
+            '[useSwipeStack] Feed updated. Total cards:',
+            updated.length,
+          );
+          return updated;
         });
 
         // Store next cursor for pagination
         setNextCursor(response.data.nextCursor || null);
+
+        // Mark initial load complete
+        if (isInitial) {
+          setIsInitialLoading(false);
+        }
 
         return {
           success: true,
@@ -121,7 +129,7 @@ export function useSwipeStack({ token, filters = {} }) {
         const errorMsg =
           err.response?.data?.error || err.message || 'Unknown error';
         setError(errorMsg);
-        console.error('[useSwipeStack] Feed fetch error:', errorMsg);
+        console.error('[useSwipeStack] Fetch error:', errorMsg);
         return {
           success: false,
           error: errorMsg,
@@ -134,101 +142,122 @@ export function useSwipeStack({ token, filters = {} }) {
   );
 
   /**
-   * Initial feed load on mount
+   * Initial load - 20 cards with loading indicator
    */
   useEffect(() => {
     if (token && feed.length === 0) {
-      fetchFeed();
+      fetchFeed(null, true); // isInitial = true
     }
-    // Don't include fetchFeed in deps to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   /**
-   * Refetch feed (reset pagination)
+   * Silent background load when reaching card 12, 22, 32, etc.
+   */
+  const checkAndLoadMore = useCallback(
+    index => {
+      currentIndex.current = index;
+
+      // Check if we need to load more (at card 12, 22, 32, etc.)
+      const shouldLoadMore =
+        (index === 12 || (index - 2) % 10 === 0) && // Card 12, then every 10 after
+        !isLoadingMore.current && // Not already loading
+        nextCursor; // Has more cursor
+
+      if (shouldLoadMore) {
+        console.log('[useSwipeStack] 📦 Silent loading at card', index + 1);
+        isLoadingMore.current = true;
+
+        // Load in background (no loading indicator)
+        fetchFeed(nextCursor, false).finally(() => {
+          isLoadingMore.current = false;
+        });
+      }
+    },
+    [nextCursor, fetchFeed],
+  );
+
+  /**
+   * Refetch feed (reset)
    */
   const refetchFeed = useCallback(async () => {
     loadedUserIds.current.clear();
     setFeed([]);
     setNextCursor(null);
-    return fetchFeed();
+    setIsInitialLoading(true);
+    currentIndex.current = 0;
+    return fetchFeed(null, true);
   }, [fetchFeed]);
 
   /**
-   * Load more users (pagination)
+   * Handle swipe - check if need to load more
    */
-  const loadMore = useCallback(async () => {
-    if (!nextCursor || loading) {
-      return { success: false, error: 'No more users or already loading' };
-    }
-    return fetchFeed(nextCursor);
-  }, [nextCursor, loading, fetchFeed]);
-
-  /**
-   * Handle a swipe action
-   * Sends to backend and detects matches
-   */
-  const handleSwipe = useCallback(async (likedId, type) => {
-    if (!apiClient.current) {
-      setError('Not authenticated');
-      return {
-        success: false,
-        error: 'Not authenticated',
-      };
-    }
-
-    if (!['like', 'superlike', 'pass'].includes(type)) {
-      setError('Invalid swipe type');
-      return {
-        success: false,
-        error: 'Invalid swipe type',
-      };
-    }
-
-    try {
-      setError(null);
-
-      const response = await apiClient.current.post('/swipe', {
-        likedId,
-        type,
-      });
-
-      if (!response.data.success) {
-        throw new Error(response.data.error || 'Failed to process swipe');
+  const handleSwipe = useCallback(
+    async (likedId, type) => {
+      if (!apiClient.current) {
+        setError('Not authenticated');
+        return {
+          success: false,
+          error: 'Not authenticated',
+        };
       }
 
-      // Check if match detected
-      if (response.data.match) {
-        setMatchData({
-          matchId: response.data.matchId,
-          likedId: likedId, // ← Store the user we liked!
-          type, // The type of swipe that created the match
+      if (!['like', 'superlike', 'pass'].includes(type)) {
+        setError('Invalid swipe type');
+        return {
+          success: false,
+          error: 'Invalid swipe type',
+        };
+      }
+
+      try {
+        setError(null);
+
+        const response = await apiClient.current.post('/swipe', {
+          likedId,
+          type,
         });
-        setShowMatchNotification(true);
 
-        // Auto-hide notification after 4 seconds
-        setTimeout(() => {
-          setShowMatchNotification(false);
-        }, 4000);
+        if (!response.data.success) {
+          throw new Error(response.data.error || 'Failed to process swipe');
+        }
+
+        // After swipe, check if we need to load more (for next index)
+        checkAndLoadMore(currentIndex.current + 1);
+
+        // Match detected
+        if (response.data.match) {
+          setMatchData({
+            matchId: response.data.matchId,
+            likedId: likedId,
+            type,
+          });
+          setShowMatchNotification(true);
+
+          setTimeout(() => {
+            setShowMatchNotification(false);
+          }, 4000);
+        }
+
+        return {
+          success: true,
+          match: response.data.match,
+          matchId: response.data.matchId,
+          likedId: likedId,
+        };
+      } catch (err) {
+        const errorMsg =
+          err.response?.data?.error || err.message || 'Unknown error';
+        setError(errorMsg);
+        console.error('[useSwipeStack] Swipe error:', errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
       }
-
-      return {
-        success: true,
-        match: response.data.match,
-        matchId: response.data.matchId,
-        likedId: likedId,
-      };
-    } catch (err) {
-      const errorMsg =
-        err.response?.data?.error || err.message || 'Unknown error';
-      setError(errorMsg);
-      console.error('[useSwipeStack] Swipe error:', errorMsg);
-      return {
-        success: false,
-        error: errorMsg,
-      };
-    }
-  }, []);
+    },
+    [checkAndLoadMore],
+  );
 
   /**
    * Dismiss match notification
@@ -239,11 +268,10 @@ export function useSwipeStack({ token, filters = {} }) {
   }, []);
 
   /**
-   * Update filter and refetch
+   * Update filters and refetch
    */
   const updateFilters = useCallback(
     newFilters => {
-      // Filters will be used on next fetch
       return refetchFeed();
     },
     [refetchFeed],
@@ -252,16 +280,17 @@ export function useSwipeStack({ token, filters = {} }) {
   return {
     // Data
     feed,
-    loading,
+    loading, // Only true during initial load
     error,
+    isInitialLoading, // Better for UI check
     hasMore: !!nextCursor,
 
     // Actions
     fetchFeed,
     refetchFeed,
-    loadMore,
     handleSwipe,
     updateFilters,
+    checkAndLoadMore,
 
     // Match notifications
     matchData,
@@ -270,7 +299,7 @@ export function useSwipeStack({ token, filters = {} }) {
 
     // Utils
     feedLength: feed.length,
-    isInitialized: feed.length > 0 || loading,
+    isInitialized: feed.length > 0,
   };
 }
 
