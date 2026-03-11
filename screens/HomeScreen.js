@@ -39,6 +39,11 @@ import { MatchModal } from '../src/components/swipe/MatchModal';
 import { AuthContext } from '../AuthContex';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
+import AppStatusBar from '../components/AppStatusBar';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const API_BASE_URL = 'http://192.168.100.154:9000';
@@ -122,8 +127,6 @@ const ProfileCard = ({ user, cardFadeInOpacity }) => {
           {user.goals || 'No goals set'}
         </Text>
       </View>
-
-      <View style={styles.cardShadow} />
     </Animated.View>
   );
 };
@@ -162,14 +165,16 @@ const LikeOverlay = () => (
 const PassOverlay = () => (
   <View style={[styles.overlay, styles.passOverlay]}>
     <Text style={styles.overlayText}>✕</Text>
-    <Text style={styles.overlayLabel}>PASS</Text>
+    <Text style={styles.overlayLabelpass}>PASS</Text>
   </View>
 );
 
 const SuperlikeOverlay = () => (
-  <View style={[styles.overlay, styles.superlikeOverlay]}>
-    <Text style={styles.overlayText}>⭐</Text>
-    <Text style={styles.overlayLabel}>SUPERLIKE!</Text>
+  <View style={{ alignItems: 'baseline', justifyContent: 'center' }}>
+    <View style={[styles.overlay, styles.superlikeOverlay]}>
+      <Text style={styles.overlayText}>⭐</Text>
+      <Text style={styles.overlayLabel}>SUPERLIKE!</Text>
+    </View>
   </View>
 );
 
@@ -451,99 +456,100 @@ const HomeScreen = () => {
   const isModalVisible = matchedUsers !== null;
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#FF0059" />
-
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Discover</Text>
-        <Text style={styles.headerSubtitle}>
-          {swipeStack.feedLength} profiles available
-        </Text>
-      </View>
-
-      {/* Swipe Stack */}
-      <View style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}>
-        <SwipeableStack
-          ref={stackRef}
-          data={swipeStack.feed}
-          keyExtractor={item => item.userId}
-          renderCard={item => (
-            <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />
-          )}
-          onSwipeRight={(item, index) =>
-            handleSwipeComplete('right', item, index)
-          }
-          onSwipeLeft={(item, index) =>
-            handleSwipeComplete('left', item, index)
-          }
-          onSwipeUp={(item, index) => handleSwipeComplete('up', item, index)}
-          onEmpty={handleEmpty}
-          swipeThreshold={SCREEN_WIDTH * 0.25}
-          velocityThreshold={800}
-          maxRotation={12}
-          renderLeftOverlay={() => <PassOverlay />}
-          renderRightOverlay={() => <LikeOverlay />}
-          renderSuperlikeOverlay={() => <SuperlikeOverlay />}
-          containerStyle={styles.stackContainer}
-          disabled={isModalVisible}
-        />
-
-        {/* Scan Animation Overlay (only while loading) */}
-        {showLoadingOverlay && (
-          <ScanLoadingOverlay fadeOutOpacity={scanFadeOutOpacity} />
-        )}
-      </View>
-
-      {/* Action Buttons */}
-      <View
-        style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
-      >
-        <ActionButton
-          icon="↩"
-          onPress={() => stackRef.current?.undo()}
-          color="#666"
-          size="small"
-          disabled={isModalVisible}
-        />
-        <ActionButton
-          icon="✕"
-          onPress={() => stackRef.current?.swipeLeft()}
-          color="#EF4444"
-          disabled={isModalVisible}
-        />
-        <ActionButton
-          icon="♥"
-          onPress={() => stackRef.current?.swipeRight()}
-          color="#EC4899"
-          disabled={isModalVisible}
-        />
-        <ActionButton
-          icon="⭐"
-          onPress={() => stackRef.current?.swipeUp()}
-          color="#FFB800"
-          disabled={isModalVisible}
-        />
-      </View>
-
-      {/* Error Toast */}
-      {localError && (
-        <View style={styles.errorToast}>
-          <Text style={styles.errorToastText}>{localError}</Text>
-          <TouchableOpacity onPress={() => setLocalError(null)}>
-            <Text style={styles.errorToastClose}>✕</Text>
-          </TouchableOpacity>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="white" />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Flames</Text>
+          <Text style={styles.headerSubtitle}>
+            {swipeStack.feedLength} profiles available
+          </Text>
         </View>
-      )}
 
-      {/* Match Modal */}
-      <MatchModal
-        visible={isModalVisible}
-        user1={matchedUsers?.user1}
-        user2={matchedUsers?.user2}
-        onKeepSwiping={handleKeepSwiping}
-        onLetsChat={handleLetsChat}
-      />
-    </View>
+        {/* Swipe Stack */}
+        <View style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}>
+          <SwipeableStack
+            ref={stackRef}
+            data={swipeStack.feed}
+            keyExtractor={item => item.userId}
+            renderCard={item => (
+              <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />
+            )}
+            onSwipeRight={(item, index) =>
+              handleSwipeComplete('right', item, index)
+            }
+            onSwipeLeft={(item, index) =>
+              handleSwipeComplete('left', item, index)
+            }
+            onSwipeUp={(item, index) => handleSwipeComplete('up', item, index)}
+            onEmpty={handleEmpty}
+            swipeThreshold={SCREEN_WIDTH * 0.25}
+            velocityThreshold={800}
+            maxRotation={12}
+            renderLeftOverlay={() => <PassOverlay />}
+            renderRightOverlay={() => <LikeOverlay />}
+            renderSuperlikeOverlay={() => <SuperlikeOverlay />}
+            containerStyle={styles.stackContainer}
+            disabled={isModalVisible}
+          />
+
+          {/* Scan Animation Overlay (only while loading) */}
+          {showLoadingOverlay && (
+            <ScanLoadingOverlay fadeOutOpacity={scanFadeOutOpacity} />
+          )}
+        </View>
+
+        {/* Action Buttons */}
+        <View
+          style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
+        >
+          <ActionButton
+            icon="↩"
+            onPress={() => stackRef.current?.undo()}
+            color="#666"
+            size="small"
+            disabled={isModalVisible}
+          />
+          <ActionButton
+            icon="✕"
+            onPress={() => stackRef.current?.swipeLeft()}
+            color="#EF4444"
+            disabled={isModalVisible}
+          />
+          <ActionButton
+            icon="♥"
+            onPress={() => stackRef.current?.swipeRight()}
+            color="#EC4899"
+            disabled={isModalVisible}
+          />
+          <ActionButton
+            icon="⭐"
+            onPress={() => stackRef.current?.swipeUp()}
+            color="#FFB800"
+            disabled={isModalVisible}
+          />
+        </View>
+
+        {/* Error Toast */}
+        {localError && (
+          <View style={styles.errorToast}>
+            <Text style={styles.errorToastText}>{localError}</Text>
+            <TouchableOpacity onPress={() => setLocalError(null)}>
+              <Text style={styles.errorToastClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Match Modal */}
+        <MatchModal
+          visible={isModalVisible}
+          user1={matchedUsers?.user1}
+          user2={matchedUsers?.user2}
+          onKeepSwiping={handleKeepSwiping}
+          onLetsChat={handleLetsChat}
+        />
+      </View>
+    </SafeAreaView>
   );
 };
 
@@ -559,18 +565,17 @@ const styles = StyleSheet.create({
 
   header: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 5,
     paddingBottom: 12,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    backgroundColor: '#ffffff',
   },
 
   headerTitle: {
+    fontFamily: 'Nunito-Light',
     fontSize: 32,
     fontWeight: '800',
-    color: '#1E293B',
-    marginBottom: 4,
+    color: '#ff0059',
+    marginBottom: 2,
   },
 
   headerSubtitle: {
@@ -580,9 +585,9 @@ const styles = StyleSheet.create({
 
   stackContainer: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 120,
+    paddingHorizontal: 15,
+
+    paddingBottom: 10,
     backgroundColor: 'white',
   },
 
@@ -624,14 +629,14 @@ const styles = StyleSheet.create({
   cardContainer: {
     width: '100%',
     height: '100%',
-    borderRadius: 24,
+    borderRadius: 30,
     overflow: 'hidden',
-    backgroundColor: '#FFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    backgroundColor: '#ffffff',
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: 8 },
+    // shadowOpacity: 0.15,
+    // shadowRadius: 12,
+    // elevation: 8,
   },
 
   cardImage: {
@@ -646,7 +651,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: '50%',
+    height: '35%',
   },
 
   profileInfo: {
@@ -691,10 +696,10 @@ const styles = StyleSheet.create({
 
   cardShadow: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 24,
+    borderRadius: 30,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 1,
     shadowRadius: 8,
     elevation: 4,
   },
@@ -722,12 +727,12 @@ const styles = StyleSheet.create({
   },
 
   overlay: {
-    borderWidth: 4,
-    borderRadius: 8,
+    borderWidth: 1,
+    borderRadius: 30,
     paddingHorizontal: 12,
     paddingVertical: 8,
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.82)',
   },
 
   likeOverlay: {
@@ -736,13 +741,15 @@ const styles = StyleSheet.create({
   },
 
   passOverlay: {
-    borderColor: '#EF4444',
+    borderColor: '#ffffff',
     transform: [{ rotate: '20deg' }],
+    backgroundColor: 'rgba(255, 74, 74, 0.82)',
   },
 
   superlikeOverlay: {
     borderColor: '#FFB800',
-    backgroundColor: 'rgba(255, 184, 0, 0.15)',
+    backgroundColor: '#ffb700af',
+    alignSelf: 'center',
   },
 
   overlayText: {
@@ -753,7 +760,12 @@ const styles = StyleSheet.create({
   overlayLabel: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFF',
+    color: '#EC4899',
+  },
+  overlayLabelpass: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
   },
 
   buttonsContainer: {
