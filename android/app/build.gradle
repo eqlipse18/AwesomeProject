@@ -126,3 +126,6 @@ dependencies {
 configurations.all {
     exclude group: 'com.android.support'
 }
+
+// vector icons fonts ← yahan add kar
+apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")

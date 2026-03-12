@@ -31,6 +31,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { sendOTPEmail } from './email.js';
 import registerRouter from './registerRoute.js';
 import swipeRouter from './swipeRoutes.js';
+import subscriptionRoutes from './subscriptionRoutes.js';
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -392,3 +393,4 @@ app.use('/', registerRouter);
  *
  */
 app.use('/', swipeRouter);
+app.use('/', subscriptionRoutes);

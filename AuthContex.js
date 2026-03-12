@@ -13,6 +13,7 @@ const AuthProvider = ({ children }) => {
   const [authLoading, setAuthLoading] = useState(true); // loading flag
   const [userInfo, setUserInfo] = useState(null);
   const [authUser, setAuthUser] = useState(null);
+  const [subscription, setSubscription] = useState(null);
 
   // ════════════════════════════════════════════════════════════════════════════
   // FETCH STORED TOKEN & USERID ON APP START
@@ -129,6 +130,8 @@ const AuthProvider = ({ children }) => {
         authLoading, // provide loading state
         profileComplete,
         setProfileComplete,
+        subscription,
+        setSubscription,
         signOut, // ← Provide sign out method
       }}
     >

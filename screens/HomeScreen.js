@@ -1,11 +1,13 @@
 /**
- * HomeScreen - ULTIMATE SMOOTH VERSION
+ * HomeScreen - WITH PREMIUM SYSTEM INTEGRATED
  *
  * Features:
  * - Scan animation plays until cards ready
  * - Scan fades OUT + Card fades IN simultaneously
- * - Smooth connected transition
- * - NOT time-dependent, dependent on actual loading
+ * - SUPERLIKE button with premium gates
+ * - REWIND button with daily limits
+ * - Premium modals for plan selection
+ * - Daily limit warnings
  */
 
 import React, {
@@ -20,7 +22,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   StatusBar,
   Dimensions,
   Image,
@@ -33,17 +34,26 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SwipeableStack } from '../src/components/swipe/SwipeableStackEnhanced';
 import { useSwipeStack, useMatches } from '../src/hooks/useSwipeStackHook';
 import { MatchModal } from '../src/components/swipe/MatchModal';
 import { AuthContext } from '../AuthContex';
-import { useNavigation } from '@react-navigation/native';
-import axios from 'axios';
-import AppStatusBar from '../components/AppStatusBar';
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import {
+  PremiumModal,
+  DailyLimitModal,
+  FeatureLockedModal,
+} from '../src/components/swipe/PremiumModal';
+import {
+  useSubscription,
+  useSuperlike,
+  useRewind,
+} from '../src/hooks/usePremiumHooks';
+import axios from 'axios';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const API_BASE_URL = 'http://192.168.100.154:9000';
@@ -59,7 +69,6 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
 
   return (
     <Animated.View style={[styles.scanOverlayContainer, animatedStyle]}>
-      {/* Scan animation */}
       <View style={styles.scanAnimationWrapper}>
         <LottieView
           source={require('../assets/animations/Scan.json')}
@@ -69,7 +78,6 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
         />
       </View>
 
-      {/* Mild text below */}
       <Text style={styles.scanText}>Scanning nearby users...</Text>
     </Animated.View>
   );
@@ -128,26 +136,6 @@ const ProfileCard = ({ user, cardFadeInOpacity }) => {
         </Text>
       </View>
     </Animated.View>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// CUSTOM CARD RENDERER WITH ANIMATION PROPS
-// ════════════════════════════════════════════════════════════════════════════
-
-const AnimatedCardRenderer = ({
-  item,
-  index,
-  cardFadeInOpacity,
-  isFirstCard,
-}) => {
-  return (
-    <View style={{ flex: 1, width: '100%', height: '100%' }}>
-      <ProfileCard
-        user={item}
-        cardFadeInOpacity={isFirstCard ? cardFadeInOpacity : undefined}
-      />
-    </View>
   );
 };
 
@@ -216,7 +204,12 @@ const ActionButton = ({
 
   return (
     <TouchableOpacity
-      style={[styles.actionButton, sizeStyle, { borderColor: color }]}
+      style={[
+        styles.actionButton,
+        sizeStyle,
+        { borderColor: color },
+        disabled && { opacity: 0.5 },
+      ]}
       onPress={onPress}
       activeOpacity={0.7}
       disabled={disabled}
@@ -269,38 +262,49 @@ const fetchUserProfile = async (userId, token) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// MAIN HOMESCREEN
+// MAIN HOMESCREEN - WITH PREMIUM INTEGRATION
 // ════════════════════════════════════════════════════════════════════════════
 
-const HomeScreen = () => {
+export default function HomeScreen({ navigation }) {
   const { token, userId } = useContext(AuthContext);
-  const navigation = useNavigation();
 
+  // ── Premium Hooks ──
+  const { subscription, refetch: refetchSubscription } = useSubscription({
+    token,
+  });
+  const { superlike } = useSuperlike({ token });
+  const { rewind } = useRewind({ token });
+
+  // ── Refs ──
   const stackRef = useRef(null);
+  const currentCardIndex = useRef(0);
 
-  // State
+  // ── State ──
   const [isEmpty, setIsEmpty] = useState(false);
   const [localError, setLocalError] = useState(null);
   const [matchedUsers, setMatchedUsers] = useState(null);
   const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
-  const currentCardIndex = useRef(0);
 
-  // Animation shared values
+  // ── Premium Modal States ──
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [premiumFeature, setPremiumFeature] = useState('SUPERLIKE');
+
+  // ── Animation Shared Values ──
   const scanFadeOutOpacity = useSharedValue(1);
   const cardFadeInOpacity = useSharedValue(0);
 
-  // Custom hooks
+  // ── Custom Hooks ──
   const swipeStack = useSwipeStack({
     token,
     filters: {
       minAge: 18,
       maxAge: 60,
-      gender: 'Everyone',
     },
   });
 
   // ════════════════════════════════════════════════════════════════════════════
-  // SHOW SCAN AND ANIMATE TRANSITION WHEN LOADING COMPLETES
+  // ANIMATION: SHOW SCAN AND ANIMATE TRANSITION WHEN LOADING COMPLETES
   // ════════════════════════════════════════════════════════════════════════════
 
   useEffect(() => {
@@ -346,13 +350,61 @@ const HomeScreen = () => {
   // HANDLERS
   // ════════════════════════════════════════════════════════════════════════════
 
+  // ── Handle SUPERLIKE Button Press ──
+  const handleSuperlikikePress = async () => {
+    // Check if premium
+    if (!subscription?.isPremium) {
+      setPremiumFeature('SUPERLIKE');
+      setShowPremiumModal(true);
+      return;
+    }
+
+    // Check daily limit
+    if (
+      !subscription.usage?.superlikes?.remaining ||
+      subscription.usage.superlikes.remaining <= 0
+    ) {
+      setShowLimitModal(true);
+      return;
+    }
+
+    // Trigger SUPERLIKE swipe animation (upward)
+    stackRef.current?.swipeUp();
+  };
+
+  // ── Handle REWIND Button Press ──
+  const handleRewindPress = async () => {
+    // Check if premium
+    if (!subscription?.isPremium) {
+      setPremiumFeature('REWIND');
+      setShowPremiumModal(true);
+      return;
+    }
+
+    // Check daily limit
+    if (
+      !subscription.usage?.rewinds?.remaining ||
+      subscription.usage.rewinds.remaining <= 0
+    ) {
+      setShowLimitModal(true);
+      return;
+    }
+
+    // Trigger rewind animation
+    stackRef.current?.undo();
+
+    // Call API to increment usage
+    const result = await rewind();
+    if (!result.success) {
+      setLocalError(result.error || 'Failed to rewind');
+    }
+  };
+
+  // ── Handle Swipe Complete ──
   const handleSwipeComplete = useCallback(
     async (direction, user, index) => {
       if (!user) return;
-
-      if (matchedUsers) {
-        return;
-      }
+      if (matchedUsers) return;
 
       try {
         currentCardIndex.current = index + 1;
@@ -424,11 +476,17 @@ const HomeScreen = () => {
     });
   }, [matchedUsers, navigation]);
 
+  const handleSelectPlan = planType => {
+    setShowPremiumModal(false);
+    // TODO: Navigate to payment screen
+    console.log('[HomeScreen] Selected plan:', planType);
+    // navigation.navigate('PaymentScreen', { plan: planType });
+  };
+
   // ════════════════════════════════════════════════════════════════════════════
-  // RENDER
+  // RENDER: INITIAL LOADING
   // ════════════════════════════════════════════════════════════════════════════
 
-  // Initial loading state
   if (swipeStack.isInitialLoading && swipeStack.loading) {
     return (
       <View style={styles.container}>
@@ -440,6 +498,10 @@ const HomeScreen = () => {
       </View>
     );
   }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RENDER: EMPTY STATE
+  // ════════════════════════════════════════════════════════════════════════════
 
   if (isEmpty || swipeStack.feed.length === 0) {
     return (
@@ -453,12 +515,17 @@ const HomeScreen = () => {
     );
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // RENDER: MAIN SCREEN
+  // ════════════════════════════════════════════════════════════════════════════
+
   const isModalVisible = matchedUsers !== null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="white" />
+
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Flames</Text>
           <Text style={styles.headerSubtitle}>
@@ -505,7 +572,7 @@ const HomeScreen = () => {
         >
           <ActionButton
             icon="↩"
-            onPress={() => stackRef.current?.undo()}
+            onPress={handleRewindPress}
             color="#666"
             size="small"
             disabled={isModalVisible}
@@ -524,7 +591,7 @@ const HomeScreen = () => {
           />
           <ActionButton
             icon="⭐"
-            onPress={() => stackRef.current?.swipeUp()}
+            onPress={handleSuperlikikePress}
             color="#FFB800"
             disabled={isModalVisible}
           />
@@ -548,10 +615,28 @@ const HomeScreen = () => {
           onKeepSwiping={handleKeepSwiping}
           onLetsChat={handleLetsChat}
         />
+
+        {/* ══════════════════════════════════════════════════════════════════════════════════ */}
+        {/* PREMIUM MODALS */}
+        {/* ══════════════════════════════════════════════════════════════════════════════════ */}
+
+        <PremiumModal
+          visible={showPremiumModal}
+          onClose={() => setShowPremiumModal(false)}
+          feature={premiumFeature}
+          onSelectPlan={handleSelectPlan}
+        />
+
+        <DailyLimitModal
+          visible={showLimitModal}
+          onClose={() => setShowLimitModal(false)}
+          feature={premiumFeature}
+          resetTime="00:00"
+        />
       </View>
     </SafeAreaView>
   );
-};
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // STYLES
@@ -586,7 +671,6 @@ const styles = StyleSheet.create({
   stackContainer: {
     flex: 1,
     paddingHorizontal: 15,
-
     paddingBottom: 10,
     backgroundColor: 'white',
   },
@@ -632,11 +716,6 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     overflow: 'hidden',
     backgroundColor: '#ffffff',
-    // shadowColor: '#000',
-    // shadowOffset: { width: 0, height: 8 },
-    // shadowOpacity: 0.15,
-    // shadowRadius: 12,
-    // elevation: 8,
   },
 
   cardImage: {
@@ -692,16 +771,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.85)',
     lineHeight: 20,
-  },
-
-  cardShadow: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 4,
   },
 
   imageFallback: {
@@ -762,6 +831,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#EC4899',
   },
+
   overlayLabelpass: {
     fontSize: 16,
     fontWeight: '700',
@@ -890,5 +960,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-
-export default HomeScreen;
