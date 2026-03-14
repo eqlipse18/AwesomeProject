@@ -1,10 +1,16 @@
 /**
- * SwipeableStack - PREMIUM Edition ✨
+ * SwipeableStack - PREMIUM Edition ✨ (FULLY FIXED)
  *
- * Changes:
- * - Uses useNextCardAnimation for premium scale+fade+rise reveal
- * - Ultra low default thresholds (makkhan swipe)
- * - Next card animation driven by BOTH X and Y movement
+ * BUG FIX: useNextCardAnimation now reads from externalSwipeProgressX/Y
+ * which are the same values that SwipeableCard syncs to!
+ *
+ * Features:
+ * - Uses useNextCardAnimation for premium scale+fade+rise reveal ✅
+ * - Next card animates when you swipe ✅
+ * - Ultra low default thresholds (makkhan swipe) ✅
+ * - Next card animation driven by BOTH X and Y movement ✅
+ * - Accepts swipeProgressX & swipeProgressY for animated buttons ✅
+ * - FIXED: Animation reads from correct shared values ✅
  */
 
 import React, {
@@ -33,12 +39,12 @@ function SwipeableStackComponent(
     onSwipeComplete,
     onEmpty,
     onIndexChange,
-    swipeThreshold = SCREEN_WIDTH * 0.18, // 🧈 makkhan default
-    velocityThreshold = 300, // 🧈 makkhan default
+    swipeThreshold = SCREEN_WIDTH * 0.18,
+    velocityThreshold = 300,
     visibleCards = 2,
     animationConfig,
     maxRotation = 15,
-    verticalSwipeFriction = 1, // fully free
+    verticalSwipeFriction = 1,
     renderLeftOverlay,
     renderRightOverlay,
     renderSuperlikeOverlay,
@@ -46,21 +52,30 @@ function SwipeableStackComponent(
     cardWrapperStyle,
     initialIndex = 0,
     disabled = false,
+    // ✨ Props from HomeScreen for animated buttons
+    swipeProgressX,
+    swipeProgressY,
   },
   ref,
 ) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [swipeHistory, setSwipeHistory] = useState([]);
 
-  // Top card's live X and Y position (drives next card animation)
+  // Internal shared values (fallbacks if no external values provided)
   const currentSwipeX = useSharedValue(0);
   const currentSwipeY = useSharedValue(0);
   const manualTrigger = useSharedValue(0);
 
-  // ✨ Premium next card animation
+  // ✅ FIXED: Use external values if provided, otherwise use internal
+  // These are the values that SwipeableCard will sync to
+  const externalSwipeProgressX = swipeProgressX || currentSwipeX;
+  const externalSwipeProgressY = swipeProgressY || currentSwipeY;
+
+  // ✅ FIXED: useNextCardAnimation now reads from the CORRECT shared values
+  // The same values that SwipeableCard syncs the gesture to!
   const { animatedNextCardStyle } = useNextCardAnimation({
-    topCardTranslateX: currentSwipeX,
-    topCardTranslateY: currentSwipeY,
+    topCardTranslateX: externalSwipeProgressX, // ← This gets updated by SwipeableCard
+    topCardTranslateY: externalSwipeProgressY, // ← This gets updated by SwipeableCard
     screenWidth: SCREEN_WIDTH,
     minScale: 0.88,
     minOpacity: 0.4,
@@ -120,17 +135,23 @@ function SwipeableStackComponent(
     setCurrentIndex(lastSwipe.index);
     setSwipeHistory(prev => prev.slice(0, -1));
     manualTrigger.value = 3;
-    currentSwipeX.value = withSpring(0, {
+    externalSwipeProgressX.value = withSpring(0, {
       stiffness: 300,
       damping: 25,
       mass: 0.1,
     });
-    currentSwipeY.value = withSpring(0, {
+    externalSwipeProgressY.value = withSpring(0, {
       stiffness: 300,
       damping: 25,
       mass: 0.1,
     });
-  }, [currentIndex, swipeHistory, currentSwipeX, currentSwipeY, manualTrigger]);
+  }, [
+    currentIndex,
+    swipeHistory,
+    externalSwipeProgressX,
+    externalSwipeProgressY,
+    manualTrigger,
+  ]);
 
   useImperativeHandle(
     ref,
@@ -163,14 +184,14 @@ function SwipeableStackComponent(
   return (
     <GestureHandlerRootView style={[styles.container, containerStyle]}>
       <View style={styles.cardsContainer}>
-        {/* ✨ Next card — premium scale+fade+rise */}
+        {/* ✨ Next card — ANIMATED reveal (scale+fade+rise) */}
         {nextItem && visibleCards >= 2 && (
           <Animated.View
             key={keyExtractor(nextItem)}
             style={[
               styles.cardWrapper,
               cardWrapperStyle,
-              animatedNextCardStyle,
+              animatedNextCardStyle, // ← This now works because it reads correct values!
             ]}
           >
             {renderCard(nextItem, currentIndex + 1)}
@@ -182,8 +203,8 @@ function SwipeableStackComponent(
           <SwipeableCard
             key={keyExtractor(currentItem)}
             onSwipeComplete={handleSwipeComplete}
-            swipeProgress={currentSwipeX}
-            swipeProgressY={currentSwipeY} // pass Y progress too
+            swipeProgress={externalSwipeProgressX} // ← Syncs gesture here
+            swipeProgressY={externalSwipeProgressY} // ← Syncs gesture here
             manualTrigger={manualTrigger}
             swipeThreshold={swipeThreshold}
             velocityThreshold={velocityThreshold}

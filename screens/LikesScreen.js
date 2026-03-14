@@ -35,7 +35,7 @@ import {
   useMatchRequests,
   useSubscription,
 } from '../src/hooks/usePremiumHooks';
-import { PremiumModal } from '../src/components/swipe/PremiumModal';
+import { PremiumModal } from '../src/components/PremiumModal';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
