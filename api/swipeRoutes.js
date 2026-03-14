@@ -23,6 +23,162 @@ const router = express.Router();
 // ════════════════════════════════════════════════════════════════════════════
 // GET /feed - Fetch paginated discover feed (FIXED GENDER FILTERING)
 // ════════════════════════════════════════════════════════════════════════════
+// router.get('/feed', authenticate, async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const {
+//       minAge = 18,
+//       maxAge = 60,
+//       hometown,
+//       limit = 50,
+//       cursor,
+//     } = req.query;
+
+//     const parsedMinAge = parseInt(minAge, 10);
+//     const parsedMaxAge = parseInt(maxAge, 10);
+//     const parsedLimit = Math.min(parseInt(limit, 10), 100); // max return to client
+//     const internalFetchLimit = parsedLimit + 50; // prefetch extra 50 internally
+
+//     if (isNaN(parsedMinAge) || isNaN(parsedMaxAge)) {
+//       return res
+//         .status(400)
+//         .json({
+//           success: false,
+//           error: 'minAge and maxAge must be valid numbers',
+//         });
+//     }
+//     if (parsedMinAge < 18 || parsedMaxAge > 100) {
+//       return res
+//         .status(400)
+//         .json({
+//           success: false,
+//           error: 'Age range must be between 18 and 100',
+//         });
+//     }
+
+//     // ── Fetch user's gender and dating preferences ──
+//     const loggedInUserResponse = await docClient.send(
+//       new GetCommand({
+//         TableName: 'Users',
+//         Key: { userId },
+//         ProjectionExpression: 'gender, datingPreferences',
+//       }),
+//     );
+
+//     if (!loggedInUserResponse.Item)
+//       return res.status(404).json({ success: false, error: 'User not found' });
+
+//     const loggedInUserGender = loggedInUserResponse.Item.gender;
+//     const datingPreferences = loggedInUserResponse.Item.datingPreferences || [];
+
+//     let gendersToShow = [];
+//     if (datingPreferences.includes('Men')) gendersToShow.push('Male');
+//     if (datingPreferences.includes('Women')) gendersToShow.push('Female');
+//     if (gendersToShow.length === 0)
+//       gendersToShow = loggedInUserGender === 'Male' ? ['Female'] : ['Male'];
+
+//     console.log(
+//       `[/feed] User ${userId} wants: ${datingPreferences.join(
+//         ', ',
+//       )} → Showing: ${gendersToShow.join(', ')}`,
+//     );
+
+//     // ── Already-swiped users ──
+//     const likedUsersResponse = await docClient.send(
+//       new QueryCommand({
+//         TableName: 'flame-Likes',
+//         IndexName: 'likerId-timestamp-index',
+//         KeyConditionExpression: 'likerId = :userId',
+//         ProjectionExpression: 'likedId',
+//         ExpressionAttributeValues: { ':userId': userId },
+//       }),
+//     );
+//     const alreadySwiped = new Set(
+//       likedUsersResponse.Items.map(item => item.likedId),
+//     );
+
+//     // ── Build query ──
+//     const genderValues = {};
+//     gendersToShow.forEach((g, i) => (genderValues[`:gender${i}`] = g));
+
+//     const queryParams = {
+//       TableName: 'Users',
+//       IndexName: hometown ? 'hometown-age-index' : 'gender-age-index',
+//       KeyConditionExpression: hometown
+//         ? 'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge'
+//         : 'ageForSort BETWEEN :minAge AND :maxAge',
+//       FilterExpression: `isActive = :isActiveVal AND gender IN (${Object.keys(
+//         genderValues,
+//       ).join(', ')}) AND userId <> :userId`,
+//       ExpressionAttributeValues: {
+//         ':isActiveVal': true,
+//         ':minAge': parsedMinAge,
+//         ':maxAge': parsedMaxAge,
+//         ':userId': userId,
+//         ...(hometown ? { ':hometown': hometown } : {}),
+//         ...genderValues,
+//       },
+//       ProjectionExpression:
+//         'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
+//       Limit: internalFetchLimit, // prefetch extra
+//     };
+
+//     if (cursor) {
+//       try {
+//         queryParams.ExclusiveStartKey = JSON.parse(
+//           Buffer.from(cursor, 'base64').toString(),
+//         );
+//       } catch (e) {
+//         return res
+//           .status(400)
+//           .json({ success: false, error: 'Invalid cursor' });
+//       }
+//     }
+
+//     const response = await docClient.send(new QueryCommand(queryParams));
+
+//     // ── Filter out already-swiped users ──
+//     const filteredUsers = (response.Items || []).filter(
+//       user => !alreadySwiped.has(user.userId),
+//     );
+
+//     // ── Slice to requested limit ──
+//     const users = filteredUsers.slice(0, parsedLimit);
+
+//     // ── Next cursor ──
+//     let nextCursor = null;
+//     if (response.LastEvaluatedKey) {
+//       nextCursor = Buffer.from(
+//         JSON.stringify(response.LastEvaluatedKey),
+//       ).toString('base64');
+//     }
+
+//     // ── Format response ──
+//     const formattedUsers = users.map(user => ({
+//       userId: user.userId,
+//       name: user.firstName,
+//       age: user.ageForSort,
+//       image: user.imageUrls?.[0],
+//       hometown: user.hometown,
+//       gender: user.gender,
+//       goals: user.goals,
+//     }));
+
+//     return res
+//       .status(200)
+//       .json({
+//         success: true,
+//         users: formattedUsers,
+//         nextCursor,
+//         total: formattedUsers.length,
+//       });
+//   } catch (error) {
+//     console.error('[/feed] Error:', error);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: 'Failed to fetch feed' });
+//   }
+// });
 
 router.get('/feed', authenticate, async (req, res) => {
   try {
@@ -31,31 +187,22 @@ router.get('/feed', authenticate, async (req, res) => {
       minAge = 18,
       maxAge = 60,
       hometown,
-      limit = 10,
+      limit = 50,
       cursor,
     } = req.query;
 
-    // ── 1. Validation ──
     const parsedMinAge = parseInt(minAge, 10);
     const parsedMaxAge = parseInt(maxAge, 10);
-    const parsedLimit = Math.min(parseInt(limit, 10), 50);
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10), 10), 100);
 
     if (isNaN(parsedMinAge) || isNaN(parsedMaxAge)) {
-      return res.status(400).json({
-        success: false,
-        error: 'minAge and maxAge must be valid numbers',
-      });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid age range' });
     }
 
-    if (parsedMinAge < 18 || parsedMaxAge > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Age range must be between 18 and 100',
-      });
-    }
-
-    // ── 2. CRITICAL: Fetch logged-in user's DATING PREFERENCES ──
-    const loggedInUserResponse = await docClient.send(
+    // ── 1. Get logged-in user's gender and preferences ──
+    const userResp = await docClient.send(
       new GetCommand({
         TableName: 'Users',
         Key: { userId },
@@ -63,153 +210,144 @@ router.get('/feed', authenticate, async (req, res) => {
       }),
     );
 
-    if (!loggedInUserResponse.Item) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found',
-      });
-    }
+    if (!userResp.Item)
+      return res.status(404).json({ success: false, error: 'User not found' });
 
-    const loggedInUserGender = loggedInUserResponse.Item.gender; // "Male" or "Female"
-    const datingPreferences = loggedInUserResponse.Item.datingPreferences || []; // ["Men"] or ["Women"]
-
-    // ── 3. Determine what genders to show ──
+    const loggedInGender = userResp.Item.gender;
+    const prefs = userResp.Item.datingPreferences || [];
     let gendersToShow = [];
+    if (prefs.includes('Men')) gendersToShow.push('Male');
+    if (prefs.includes('Women')) gendersToShow.push('Female');
+    if (gendersToShow.length === 0)
+      gendersToShow = loggedInGender === 'Male' ? ['Female'] : ['Male'];
 
-    if (datingPreferences.includes('Men')) {
-      gendersToShow.push('Male');
-    }
-    if (datingPreferences.includes('Women')) {
-      gendersToShow.push('Female');
-    }
+    // ── 2. Fetch ALL swiped users (paginated) ──
+    const fetchAllSwiped = async () => {
+      const swiped = new Set();
+      let lastKey;
+      do {
+        const resp = await docClient.send(
+          new QueryCommand({
+            TableName: 'flame-Likes',
+            IndexName: 'likerId-timestamp-index',
+            KeyConditionExpression: 'likerId = :userId',
+            ProjectionExpression: 'likedId',
+            ExpressionAttributeValues: { ':userId': userId },
+            Limit: 1000,
+            ...(lastKey && { ExclusiveStartKey: lastKey }),
+          }),
+        );
+        (resp.Items || []).forEach(i => swiped.add(i.likedId));
+        lastKey = resp.LastEvaluatedKey;
+      } while (lastKey);
+      return swiped;
+    };
 
-    // Fallback: if no preferences set, show opposite gender
-    if (gendersToShow.length === 0) {
-      gendersToShow = loggedInUserGender === 'Male' ? ['Female'] : ['Male'];
-    }
-
-    console.log(
-      `[/feed] User ${userId} (${loggedInUserGender}) wants: ${datingPreferences.join(
-        ', ',
-      )} → Showing: ${gendersToShow.join(', ')}`,
-    );
-
-    // ── 4. Fetch already-swiped users ──
-    const likedUsersResponse = await docClient.send(
-      new QueryCommand({
-        TableName: 'flame-Likes',
-        IndexName: 'likerId-timestamp-index',
-        KeyConditionExpression: 'likerId = :userId',
-        ProjectionExpression: 'likedId',
-        ExpressionAttributeValues: {
-          ':userId': userId,
-        },
-      }),
-    );
-
-    const alreadySwiped = new Set(
-      likedUsersResponse.Items.map(item => item.likedId),
-    );
-
-    // ── 5. Build query based on location ──
-    let allResults = [];
-
-    // Query for EACH gender preference
-    for (const gender of gendersToShow) {
-      let queryParams;
-
-      if (hometown) {
-        queryParams = {
-          TableName: 'Users',
-          IndexName: 'hometown-age-index',
-          KeyConditionExpression:
-            'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge',
-          FilterExpression:
-            'isActive = :isActiveVal AND #gender = :genderVal AND userId <> :userId',
-          ProjectionExpression:
-            'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
-          ExpressionAttributeNames: {
-            '#gender': 'gender',
-          },
-          ExpressionAttributeValues: {
-            ':hometown': hometown,
-            ':minAge': parsedMinAge,
-            ':maxAge': parsedMaxAge,
-            ':isActiveVal': true,
-            ':genderVal': gender,
-            ':userId': userId,
-          },
-          Limit: parsedLimit + 20,
-        };
-      } else {
-        queryParams = {
-          TableName: 'Users',
-          IndexName: 'gender-age-index',
-          KeyConditionExpression:
-            'gender = :genderVal AND ageForSort BETWEEN :minAge AND :maxAge',
-          FilterExpression: 'isActive = :isActiveVal AND userId <> :userId',
-          ProjectionExpression:
-            'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
-          ExpressionAttributeValues: {
-            ':genderVal': gender,
-            ':minAge': parsedMinAge,
-            ':maxAge': parsedMaxAge,
-            ':isActiveVal': true,
-            ':userId': userId,
-          },
-          Limit: parsedLimit + 20,
-        };
+    // ── 3. Parse per-gender cursor map ──
+    let parsedCursor = {};
+    if (cursor) {
+      try {
+        parsedCursor = JSON.parse(Buffer.from(cursor, 'base64').toString());
+      } catch (e) {
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid cursor' });
       }
+    }
 
-      // Add cursor if this is the first gender being queried
-      if (cursor && gender === gendersToShow[0]) {
-        try {
-          const decodedCursor = JSON.parse(
-            Buffer.from(cursor, 'base64').toString(),
-          );
-          queryParams.ExclusiveStartKey = decodedCursor;
-        } catch (e) {
-          return res.status(400).json({
-            success: false,
-            error: 'Invalid cursor',
-          });
+    // ── 4. Query per gender — loop until enough results ──
+    const queryForGender = async gender => {
+      const items = [];
+      let lastKey = parsedCursor[gender] || undefined;
+      const target = parsedLimit + 20; // buffer for swiped filtering
+
+      while (items.length < target) {
+        const params = {
+          TableName: 'Users',
+          IndexName: hometown ? 'hometown-age-index' : 'gender-age-index',
+          ProjectionExpression:
+            'userId, firstName, imageUrls, gender, ageForSort, hometown, goals',
+          ExpressionAttributeValues: {
+            ':isActiveVal': true,
+            ':userId': userId,
+            ':gender': gender,
+            ':minAge': parsedMinAge,
+            ':maxAge': parsedMaxAge,
+          },
+          Limit: 100, // scan 100 items per page from dynamo
+          ...(lastKey && { ExclusiveStartKey: lastKey }),
+        };
+
+        if (hometown) {
+          params.KeyConditionExpression =
+            'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge';
+          params.FilterExpression =
+            'isActive = :isActiveVal AND userId <> :userId AND gender = :gender';
+          params.ExpressionAttributeValues[':hometown'] = hometown;
+        } else {
+          params.KeyConditionExpression =
+            'gender = :gender AND ageForSort BETWEEN :minAge AND :maxAge';
+          params.FilterExpression =
+            'isActive = :isActiveVal AND userId <> :userId';
         }
+
+        const resp = await docClient.send(new QueryCommand(params));
+        items.push(...(resp.Items || []));
+        lastKey = resp.LastEvaluatedKey;
+
+        if (!lastKey) break; // exhausted all data for this gender
       }
 
-      const response = await docClient.send(new QueryCommand(queryParams));
-      allResults = allResults.concat(response.Items || []);
-    }
+      return { items, lastKey };
+    };
 
-    // ── 6. Filter out already-swiped users ──
-    let filteredUsers = allResults.filter(
-      user => !alreadySwiped.has(user.userId),
+    // ── 5. Run with timeout (5s max) ──
+    const withTimeout = (promise, ms = 5000) =>
+      Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Feed query timed out')), ms),
+        ),
+      ]);
+
+    const [alreadySwiped, ...genderResults] = await withTimeout(
+      Promise.all([fetchAllSwiped(), ...gendersToShow.map(queryForGender)]),
     );
 
-    // ── 7. Slice to requested limit and generate next cursor ──
-    const hasMore = filteredUsers.length > parsedLimit;
+    // ── 6. Merge + dedupe + filter swiped ──
+    const seen = new Set();
+    const filteredUsers = genderResults
+      .flatMap(r => r.items)
+      .filter(u => {
+        if (alreadySwiped.has(u.userId) || seen.has(u.userId)) return false;
+        seen.add(u.userId);
+        return true;
+      });
+
+    // ── 7. Slice to limit ──
     const users = filteredUsers.slice(0, parsedLimit);
 
-    let nextCursor = null;
-    if (hasMore && users.length > 0) {
-      // Use last user's sort key as cursor
-      const lastUser = users[users.length - 1];
-      nextCursor = Buffer.from(
-        JSON.stringify({
-          gender: lastUser.gender,
-          ageForSort: lastUser.ageForSort,
-        }),
-      ).toString('base64');
-    }
+    // ── 8. Build per-gender next cursor ──
+    const cursorMap = {};
+    genderResults.forEach((r, idx) => {
+      if (r.lastKey) {
+        cursorMap[gendersToShow[idx]] = r.lastKey;
+      }
+    });
+    const nextCursor =
+      Object.keys(cursorMap).length > 0
+        ? Buffer.from(JSON.stringify(cursorMap)).toString('base64')
+        : null;
 
-    // ── 8. Format response ──
-    const formattedUsers = users.map(user => ({
-      userId: user.userId,
-      name: user.firstName,
-      age: user.ageForSort,
-      image: user.imageUrls?.[0],
-      hometown: user.hometown,
-      gender: user.gender,
-      goals: user.goals,
+    // ── 9. Format response ──
+    const formattedUsers = users.map(u => ({
+      userId: u.userId,
+      name: u.firstName,
+      age: u.ageForSort,
+      image: u.imageUrls?.[0],
+      hometown: u.hometown,
+      gender: u.gender,
+      goals: u.goals,
     }));
 
     return res.status(200).json({
@@ -218,15 +356,17 @@ router.get('/feed', authenticate, async (req, res) => {
       nextCursor,
       total: formattedUsers.length,
     });
-  } catch (error) {
-    console.error('[/feed] Error:', error);
-    return res.status(500).json({
+  } catch (err) {
+    console.error('[/feed] Error:', err);
+    const isTimeout = err.message === 'Feed query timed out';
+    return res.status(isTimeout ? 504 : 500).json({
       success: false,
-      error: 'Failed to fetch feed',
+      error: isTimeout
+        ? 'Feed took too long, try again'
+        : 'Failed to fetch feed',
     });
   }
 });
-
 // ════════════════════════════════════════════════════════════════════════════
 // POST /swipe - Record a swipe and detect mutual matches
 // ════════════════════════════════════════════════════════════════════════════
@@ -387,6 +527,162 @@ router.post('/swipe', authenticate, async (req, res) => {
   }
 });
 
+// router.post('/swipe-batch', authenticate, async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const { swipes } = req.body;
+
+//     if (!Array.isArray(swipes) || swipes.length === 0) {
+//       return res
+//         .status(400)
+//         .json({ success: false, error: 'Swipes array is required' });
+//     }
+
+//     // ── 1. Dedupe within batch itself ──
+//     const seen = new Set();
+//     const validSwipes = swipes.filter(({ likedId, type }) => {
+//       if (!likedId || !['like', 'superlike', 'pass'].includes(type))
+//         return false;
+//       if (likedId === userId) return false;
+//       if (seen.has(likedId)) return false;
+//       seen.add(likedId);
+//       return true;
+//     });
+
+//     if (validSwipes.length === 0) {
+//       return res.status(400).json({ success: false, error: 'No valid swipes' });
+//     }
+
+//     const timestamp = new Date().toISOString();
+
+//     // ── 2. Write all swipes in parallel ──
+//     await Promise.all(
+//       validSwipes.map(({ likedId, type }) =>
+//         docClient.send(
+//           new PutCommand({
+//             TableName: 'flame-Likes',
+//             Item: {
+//               likerId: userId,
+//               likedId,
+//               type,
+//               timestamp,
+//               isMatched: false,
+//             },
+//           }),
+//         ),
+//       ),
+//     );
+
+//     // ── 3. Check mutual matches in parallel (likes/superlikes only) ──
+//     const likeSwipes = validSwipes.filter(s => s.type !== 'pass');
+
+//     const reverseChecks = await Promise.all(
+//       likeSwipes.map(({ likedId }) =>
+//         docClient
+//           .send(
+//             new QueryCommand({
+//               TableName: 'flame-Likes',
+//               IndexName: 'likedId-index',
+//               KeyConditionExpression: 'likedId = :userId',
+//               FilterExpression:
+//                 'likerId = :likedId AND #type IN (:like, :superlike)',
+//               ProjectionExpression: 'likerId, likedId, #type, #ts',
+//               ExpressionAttributeNames: { '#type': 'type', '#ts': 'timestamp' },
+//               ExpressionAttributeValues: {
+//                 ':userId': userId,
+//                 ':likedId': likedId,
+//                 ':like': 'like',
+//                 ':superlike': 'superlike',
+//               },
+//             }),
+//           )
+//           .then(resp => ({ likedId, reverseItem: resp.Items?.[0] || null })),
+//       ),
+//     );
+
+//     // ── 4. Create matches in parallel + ConditionExpression to prevent duplicates ──
+//     const matchResults = await Promise.all(
+//       reverseChecks
+//         .filter(({ reverseItem }) => reverseItem !== null)
+//         .map(async ({ likedId, reverseItem }) => {
+//           const matchId = uuidv4();
+//           const now = new Date().toISOString();
+//           const swipe = validSwipes.find(s => s.likedId === likedId);
+
+//           try {
+//             await docClient.send(
+//               new PutCommand({
+//                 TableName: 'flame-Matches',
+//                 Item: {
+//                   matchId,
+//                   user1Id: userId,
+//                   user2Id: likedId,
+//                   chatEnabled: true,
+//                   createdAt: now,
+//                   lastMessageAt: now,
+//                   lastMessage: {
+//                     text: '👋 New match!',
+//                     senderId: 'system',
+//                     timestamp: now,
+//                   },
+//                 },
+//                 // ✅ prevent duplicate match if race condition
+//                 ConditionExpression: 'attribute_not_exists(matchId)',
+//               }),
+//             );
+
+//             // ✅ Update both likes as matched in parallel
+//             await Promise.all([
+//               docClient.send(
+//                 new PutCommand({
+//                   TableName: 'flame-Likes',
+//                   Item: {
+//                     likerId: userId,
+//                     likedId,
+//                     type: swipe.type,
+//                     timestamp,
+//                     isMatched: true,
+//                   },
+//                 }),
+//               ),
+//               docClient.send(
+//                 new PutCommand({
+//                   TableName: 'flame-Likes',
+//                   Item: {
+//                     likerId: likedId,
+//                     likedId: userId,
+//                     type: reverseItem.type,
+//                     timestamp: reverseItem.timestamp,
+//                     isMatched: true,
+//                   },
+//                 }),
+//               ),
+//             ]);
+
+//             return { likedId, matchId };
+//           } catch (e) {
+//             if (e.name === 'ConditionalCheckFailedException') {
+//               // match already exists, not an error
+//               return { likedId, matchId: null };
+//             }
+//             throw e;
+//           }
+//         }),
+//     );
+
+//     const results = validSwipes.map(({ likedId }) => {
+//       const match = matchResults.find(m => m?.likedId === likedId);
+//       return { likedId, matchId: match?.matchId || null };
+//     });
+
+//     return res.status(200).json({ success: true, results });
+//   } catch (error) {
+//     console.error('[/swipe-batch] Error:', error);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: 'Failed to process swipe batch' });
+//   }
+// });
 // ════════════════════════════════════════════════════════════════════════════
 // GET /matches - Get current user's confirmed matches
 // ════════════════════════════════════════════════════════════════════════════
@@ -396,7 +692,7 @@ router.get('/matches', authenticate, async (req, res) => {
     const { userId } = req.user;
     const { limit = 20, cursor } = req.query;
 
-    const parsedLimit = Math.min(parseInt(limit, 10), 50);
+    const parsedLimit = Math.min(parseInt(limit, 10), 100);
 
     // ── 1. Query both user1Id-index and user2Id-index ──
     const queryParamsUser1 = {

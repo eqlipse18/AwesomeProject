@@ -109,6 +109,7 @@ const LikesScreen = ({ navigation }) => {
               navigation={navigation}
               type="sent"
               isPremium={subscription?.isPremium}
+              setShowPremiumModal={setShowPremiumModal}
             />
           )}
           refreshControl={
@@ -161,6 +162,7 @@ const LikesScreen = ({ navigation }) => {
               navigation={navigation}
               type="received"
               isPremium={subscription?.isPremium}
+              setShowPremiumModal={setShowPremiumModal}
             />
           )}
           scrollEnabled={false}
@@ -249,7 +251,13 @@ const LikesScreen = ({ navigation }) => {
 // LikedProfileCard Component
 // ════════════════════════════════════════════════════════════════════════════
 
-const LikedProfileCard = ({ profile, navigation, type, isPremium }) => {
+const LikedProfileCard = ({
+  profile,
+  navigation,
+  type,
+  isPremium,
+  setShowPremiumModal,
+}) => {
   const handleSendMessage = () => {
     Alert.alert(
       isPremium ? 'Send Message' : 'Premium Feature',

@@ -1,55 +1,35 @@
 /**
- * SwipeableCard - Production Enhanced Version
+ * SwipeableCard - Touch Origin + Premium Edition 🎯✨
  *
- * Improvements:
- * - Better rewind animation (smooth spring from current position)
- * - Superlike detection (upward swipe)
- * - Improved physics and edge case handling
- * - Better error boundaries and prop validation
+ * Changes:
+ * - touchOriginY from gesture → passed to useSwipeAnimation
+ * - Syncs X and Y to parent for next card animation
  */
 
-import React, { memo, useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Dimensions, View } from 'react-native';
+import React, { memo, useCallback } from 'react';
+import { StyleSheet, Dimensions } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedReaction,
   withTiming,
   runOnJS,
   withSpring,
-  useSharedValue,
 } from 'react-native-reanimated';
 import { useSwipeGesture } from './useSwipeGestureEnhanced';
 import { useSwipeAnimation } from './useSwipeAnimationEnhanced';
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-/**
- * SwipeableCard Component
- *
- * Props:
- * - children: ReactNode — card content
- * - onSwipeComplete: (direction: 'left' | 'right' | 'up') => void
- * - swipeProgress: Animated.SharedValue<number> — for parent animation sync
- * - manualTrigger: Animated.SharedValue<number> — 0: idle, 1: right, -1: left, 2: up (superlike), 3: rewind
- * - swipeThreshold: number — distance before swipe completes
- * - velocityThreshold: number — speed before swipe completes
- * - maxRotation: number — max rotation degrees
- * - verticalFriction: number — vertical drag resistance
- * - animationConfig: object — spring config
- * - leftOverlay: ReactNode
- * - rightOverlay: ReactNode
- * - superlikeOverlay: ReactNode — for superlike
- * - disabled: boolean
- * - style: object
- */
 function SwipeableCardComponent({
   children,
   onSwipeComplete,
   swipeProgress,
+  swipeProgressY,
   manualTrigger,
-  swipeThreshold = SCREEN_WIDTH * 0.3,
-  velocityThreshold = 800,
+  swipeThreshold = SCREEN_WIDTH * 0.18,
+  velocityThreshold = 300,
   maxRotation = 15,
-  verticalFriction = 0.2,
+  verticalFriction = 1,
   animationConfig = {},
   leftOverlay,
   rightOverlay,
@@ -57,51 +37,48 @@ function SwipeableCardComponent({
   disabled = false,
   style,
 }) {
-  // Validate critical props
-  if (!onSwipeComplete || typeof onSwipeComplete !== 'function') {
-    console.warn(
-      '[SwipeableCard] onSwipeComplete is required and must be a function',
-    );
-  }
-
-  // Stable callback for swipe completion
   const handleSwipeComplete = useCallback(
     direction => {
-      if (onSwipeComplete) {
-        onSwipeComplete(direction);
-      }
+      if (onSwipeComplete) onSwipeComplete(direction);
     },
     [onSwipeComplete],
   );
 
-  // Create gesture and get shared values for X/Y translation
-  const { gesture, translateX, translateY, velocityY } = useSwipeGesture({
-    swipeThreshold,
-    velocityThreshold,
-    screenWidth: SCREEN_WIDTH,
-    screenHeight: SCREEN_HEIGHT,
-    verticalFriction,
-    onSwipeComplete: handleSwipeComplete,
-    disabled,
-  });
+  // 🎯 Get touchOriginY from gesture
+  const { gesture, translateX, translateY, velocityY, touchOriginY } =
+    useSwipeGesture({
+      swipeThreshold,
+      velocityThreshold,
+      screenWidth: SCREEN_WIDTH,
+      screenHeight: SCREEN_HEIGHT,
+      verticalFriction,
+      onSwipeComplete: handleSwipeComplete,
+      disabled,
+    });
 
-  // Sync local translateX to parent swipeProgress for next card animation
+  // Sync X to parent
   useAnimatedReaction(
     () => translateX.value,
-    currentX => {
-      swipeProgress.value = currentX;
+    x => {
+      swipeProgress.value = x;
     },
   );
 
-  // Listen for manual trigger (button-triggered swipes or rewind)
+  // Sync Y to parent
+  useAnimatedReaction(
+    () => translateY.value,
+    y => {
+      if (swipeProgressY) swipeProgressY.value = y;
+    },
+  );
+
+  // Manual trigger (buttons)
   useAnimatedReaction(
     () => manualTrigger.value,
     triggerValue => {
       if (triggerValue === 0) return;
 
-      // Rewind animation (triggerValue === 3)
       if (triggerValue === 3) {
-        // Spring smoothly from current position to center (0, 0)
         translateX.value = withSpring(0, {
           stiffness: 300,
           damping: 25,
@@ -115,46 +92,30 @@ function SwipeableCardComponent({
         return;
       }
 
-      // Regular swipe animations (left/right/superlike)
       let targetX = 0;
       let targetY = 0;
+      if (triggerValue === 1) targetX = SCREEN_WIDTH * 1.6;
+      if (triggerValue === -1) targetX = -SCREEN_WIDTH * 1.6;
+      if (triggerValue === 2) targetY = -SCREEN_HEIGHT * 1.3;
 
-      if (triggerValue === 1) {
-        // Right swipe (like)
-        targetX = SCREEN_WIDTH * 1.5;
-        targetY = 0;
-      } else if (triggerValue === -1) {
-        // Left swipe (pass)
-        targetX = -SCREEN_WIDTH * 1.5;
-        targetY = 0;
-      } else if (triggerValue === 2) {
-        // Superlike (upward)
-        targetX = 0;
-        targetY = -SCREEN_HEIGHT * 1.2;
-      }
+      const duration = animationConfig?.programmaticTiming?.duration ?? 220;
 
-      const duration = animationConfig?.programmaticTiming?.duration ?? 250;
-
-      // Animate both X and Y together
       translateX.value = withTiming(targetX, { duration }, () => {
         'worklet';
-        if (triggerValue === 1) {
-          runOnJS(handleSwipeComplete)('right');
-        } else if (triggerValue === -1) {
-          runOnJS(handleSwipeComplete)('left');
-        } else if (triggerValue === 2) {
-          runOnJS(handleSwipeComplete)('up');
-        }
+        if (triggerValue === 1) runOnJS(handleSwipeComplete)('right');
+        if (triggerValue === -1) runOnJS(handleSwipeComplete)('left');
       });
 
       if (triggerValue === 2) {
-        // For superlike, animate Y simultaneously
-        translateY.value = withTiming(targetY, { duration });
+        translateY.value = withTiming(targetY, { duration }, () => {
+          'worklet';
+          runOnJS(handleSwipeComplete)('up');
+        });
       }
     },
   );
 
-  // Get animated styles for card and overlays
+  // 🎯 Pass touchOriginY to animation hook
   const {
     animatedCardStyle,
     leftOverlayStyle,
@@ -163,6 +124,7 @@ function SwipeableCardComponent({
   } = useSwipeAnimation({
     translateX,
     translateY,
+    touchOriginY, // 🎯 NEW
     screenWidth: SCREEN_WIDTH,
     screenHeight: SCREEN_HEIGHT,
     maxRotation,
@@ -174,7 +136,6 @@ function SwipeableCardComponent({
       <Animated.View style={[styles.cardWrapper, style, animatedCardStyle]}>
         {children}
 
-        {/* Right overlay (LIKE) */}
         {rightOverlay && (
           <Animated.View
             style={[
@@ -186,8 +147,6 @@ function SwipeableCardComponent({
             {rightOverlay}
           </Animated.View>
         )}
-
-        {/* Left overlay (PASS) */}
         {leftOverlay && (
           <Animated.View
             style={[
@@ -199,8 +158,6 @@ function SwipeableCardComponent({
             {leftOverlay}
           </Animated.View>
         )}
-
-        {/* Superlike overlay (UP) */}
         {superlikeOverlay && (
           <Animated.View
             style={[
@@ -217,7 +174,6 @@ function SwipeableCardComponent({
   );
 }
 
-// Memoize for performance
 export const SwipeableCard = memo(SwipeableCardComponent);
 
 const styles = StyleSheet.create({
@@ -229,19 +185,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   overlayContainer: {
-    position: 'absolute',
-    top: 50,
+    ...StyleSheet.absoluteFillObject,
     zIndex: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  leftOverlay: {
-    right: 40,
-  },
-  rightOverlay: {
-    left: 40,
-  },
+
+  leftOverlay: { right: 40 },
+
+  rightOverlay: { left: 40 },
+
   superlikeOverlay: {
-    top: 40,
-    left: '50%',
-    transform: [{ translateX: -50 }],
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

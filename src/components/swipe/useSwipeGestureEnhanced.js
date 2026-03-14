@@ -1,11 +1,10 @@
 /**
- * useSwipeGesture Hook - Enhanced Version
+ * useSwipeGesture Hook - Touch Origin + Makkhan Edition 🎯🧈
  *
- * Improvements:
- * - Vertical swipe detection for superlike
- * - Better velocity handling
- * - Improved gesture thresholds
- * - Smoother animations
+ * Changes:
+ * - touchOriginY tracked from onBegin → passed to animation hook
+ * - Ultra low thresholds (makkhan swipe)
+ * - No vertical friction → free movement
  */
 
 import { Gesture } from 'react-native-gesture-handler';
@@ -16,127 +15,102 @@ import {
   runOnJS,
 } from 'react-native-reanimated';
 
-/**
- * Custom Pan Gesture for Cards
- *
- * Supports:
- * - Horizontal swipes: left (pass) / right (like)
- * - Vertical swipes: upward (superlike)
- * - Velocity-based detection
- * - Distance-based detection
- */
 export function useSwipeGesture({
   swipeThreshold,
   velocityThreshold,
   screenWidth,
   screenHeight,
-  verticalFriction = 0.2,
+  verticalFriction = 1,
   onSwipeComplete,
   disabled = false,
 }) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const velocityY = useSharedValue(0);
+  const touchOriginY = useSharedValue(0); // 🎯 where finger first touched on card
+
+  const SWIPE_DIST = screenWidth * 0.18;
+  const SWIPE_VEL = 300;
+  const SUPER_DIST = screenHeight * 0.12;
+  const SUPER_VEL = 280;
 
   const gesture = Gesture.Pan()
     .enabled(!disabled)
+    .onBegin(event => {
+      'worklet';
+      // event.y = touch Y position relative to the card component
+      touchOriginY.value = event.y;
+    })
     .onUpdate(event => {
       'worklet';
       translateX.value = event.translationX;
-      // Apply vertical friction to prevent over-scrolling
-      translateY.value = event.translationY * verticalFriction;
+      translateY.value = event.translationY;
       velocityY.value = event.velocityY;
     })
     .onEnd(event => {
       'worklet';
-      const absTranslationX = Math.abs(event.translationX);
-      const absTranslationY = Math.abs(event.translationY);
-      const absVelocityX = Math.abs(event.velocityX);
-      const absVelocityY = Math.abs(event.velocityY);
+      const absX = Math.abs(event.translationX);
+      const absY = Math.abs(event.translationY);
+      const absVX = Math.abs(event.velocityX);
+      const absVY = Math.abs(event.velocityY);
 
       let direction = null;
       let targetX = 0;
       let targetY = 0;
 
-      // ── 1. Horizontal Swipes (Left/Right) ──
-      if (
-        absTranslationX > swipeThreshold ||
-        absVelocityX > velocityThreshold
-      ) {
-        // Only trigger horizontal if X movement is dominant
-        if (absTranslationX > absTranslationY * 1.2) {
+      if (absX > absY) {
+        if (absX > SWIPE_DIST || absVX > SWIPE_VEL) {
           direction = event.translationX > 0 ? 'right' : 'left';
           targetX =
-            direction === 'right' ? screenWidth * 1.5 : -screenWidth * 1.5;
-          targetY = 0;
+            direction === 'right' ? screenWidth * 1.6 : -screenWidth * 1.6;
+          targetY = event.translationY * 0.5;
         }
-      }
-
-      // ── 2. Vertical Swipes (Up for Superlike) ──
-      // Only accept upward swipes, require more distance/velocity
-      if (!direction && event.translationY < 0) {
-        const superlikeThreshold = swipeThreshold * 1.5; // Higher threshold for superlike
-        const superlikeVelocityThreshold = velocityThreshold * 1.2;
-
-        if (
-          absTranslationY > superlikeThreshold ||
-          absVelocityY > superlikeVelocityThreshold
-        ) {
-          // Only if Y is dominant movement
-          if (absTranslationY > absTranslationX * 1.2) {
+      } else {
+        if (absY > SUPER_DIST || absVY > SUPER_VEL) {
+          if (event.translationY < 0) {
             direction = 'up';
+            targetY = -screenHeight * 1.3;
             targetX = 0;
-            targetY = -screenHeight * 1.2;
+          } else {
+            direction = 'left';
+            targetX = -screenWidth * 1.6;
+            targetY = screenHeight * 0.5;
           }
         }
       }
 
-      // ── 3. No swipe detected — snap back to center ──
       if (!direction) {
         translateX.value = withSpring(0, {
-          stiffness: 300,
-          damping: 25,
-          mass: 0.1,
+          stiffness: 280,
+          damping: 22,
+          mass: 0.08,
         });
         translateY.value = withSpring(0, {
-          stiffness: 300,
-          damping: 25,
-          mass: 0.1,
+          stiffness: 280,
+          damping: 22,
+          mass: 0.08,
         });
         return;
       }
 
-      // ── 4. Execute swipe animation ──
-      const duration = 250;
+      const duration = 220;
 
       if (direction === 'right' || direction === 'left') {
         translateX.value = withTiming(targetX, { duration }, () => {
           'worklet';
           runOnJS(onSwipeComplete)(direction);
         });
-        translateY.value = withSpring(0);
+        translateY.value = withTiming(targetY, { duration });
       } else if (direction === 'up') {
-        // Superlike - animate both X and Y
         translateY.value = withTiming(targetY, { duration }, () => {
           'worklet';
-          runOnJS(onSwipeComplete)(direction);
+          runOnJS(onSwipeComplete)('up');
         });
-        // Keep X centered
-        translateX.value = withSpring(0, {
-          stiffness: 200,
-          damping: 20,
-        });
+        translateX.value = withSpring(0, { stiffness: 200, damping: 20 });
       }
     });
 
-  return {
-    gesture,
-    translateX,
-    translateY,
-    velocityY,
-  };
+  return { gesture, translateX, translateY, velocityY, touchOriginY }; // 🎯
 }
 
-export function triggerProgrammaticSwipe() {
-  // Placeholder for future use
-}
+export function triggerProgrammaticSwipe() {}

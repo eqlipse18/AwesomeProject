@@ -128,9 +128,9 @@ export default CustomTabBar;
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 10,
-    left: 20,
-    width: width - 40,
+    bottom: 0,
+    left: 10,
+    width: width - 20,
     height: 70,
     borderRadius: 25,
     overflow: 'hidden',

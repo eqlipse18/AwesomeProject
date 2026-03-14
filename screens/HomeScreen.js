@@ -16,6 +16,7 @@ import React, {
   useRef,
   useState,
   useEffect,
+  Suspense,
 } from 'react';
 import {
   View,
@@ -25,8 +26,9 @@ import {
   StatusBar,
   Dimensions,
   Image,
+  AppState,
 } from 'react-native';
-import { LinearGradient } from 'react-native-linear-gradient';
+import LinearGradient from 'react-native-linear-gradient';
 import LottieView from 'lottie-react-native';
 import Animated, {
   useSharedValue,
@@ -34,7 +36,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+
 import { SwipeableStack } from '../src/components/swipe/SwipeableStackEnhanced';
 import { useSwipeStack, useMatches } from '../src/hooks/useSwipeStackHook';
 import { MatchModal } from '../src/components/swipe/MatchModal';
@@ -44,19 +46,31 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import {
-  PremiumModal,
-  DailyLimitModal,
-  FeatureLockedModal,
-} from '../src/components/swipe/PremiumModal';
-import {
   useSubscription,
   useSuperlike,
   useRewind,
 } from '../src/hooks/usePremiumHooks';
 import axios from 'axios';
+import Config from 'react-native-config';
+// import {
+//   PremiumModal,
+//   DailyLimitModal,
+//   FeatureLockedModal,
+// } from '../src/components/PremiumModal';
+const PremiumModal = React.lazy(() =>
+  import('../src/components/PremiumModal').then(m => ({
+    default: m.PremiumModal,
+  })),
+);
+
+const DailyLimitModal = React.lazy(() =>
+  import('../src/components/PremiumModal').then(m => ({
+    default: m.DailyLimitModal,
+  })),
+);
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const API_BASE_URL = 'http://192.168.100.154:9000';
+const API_BASE_URL = Config.API_BASE_URL;
 
 // ════════════════════════════════════════════════════════════════════════════
 // SCAN LOADING OVERLAY - ANIMATED
@@ -87,7 +101,7 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
 // PROFILE CARD - ANIMATED FADE IN
 // ════════════════════════════════════════════════════════════════════════════
 
-const ProfileCard = ({ user, cardFadeInOpacity }) => {
+const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
   const [imageError, setImageError] = useState(false);
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
@@ -137,7 +151,7 @@ const ProfileCard = ({ user, cardFadeInOpacity }) => {
       </View>
     </Animated.View>
   );
-};
+});
 
 // ════════════════════════════════════════════════════════════════════════════
 // OVERLAYS
@@ -145,24 +159,48 @@ const ProfileCard = ({ user, cardFadeInOpacity }) => {
 
 const LikeOverlay = () => (
   <View style={[styles.overlay, styles.likeOverlay]}>
-    <Text style={styles.overlayText}>❤️</Text>
-    <Text style={styles.overlayLabel}>LIKE</Text>
+    <View style={styles.scanAnimationWrapper}>
+      <LottieView
+        source={require('../assets/animations/like.json')}
+        autoPlay
+        loop={true}
+        style={styles.scanAnimation}
+      />
+    </View>
   </View>
 );
 
 const PassOverlay = () => (
   <View style={[styles.overlay, styles.passOverlay]}>
-    <Text style={styles.overlayText}>✕</Text>
-    <Text style={styles.overlayLabelpass}>PASS</Text>
+    <View style={styles.crossWrapper}>
+      <LottieView
+        source={require('../assets/animations/cross.json')}
+        autoPlay
+        loop={true}
+        style={styles.scanAnimation}
+      />
+    </View>
   </View>
 );
 
 const SuperlikeOverlay = () => (
-  <View style={{ alignItems: 'baseline', justifyContent: 'center' }}>
-    <View style={[styles.overlay, styles.superlikeOverlay]}>
-      <Text style={styles.overlayText}>⭐</Text>
-      <Text style={styles.overlayLabel}>SUPERLIKE!</Text>
-    </View>
+  <View style={styles.superWrapper}>
+    <LottieView
+      source={require('../assets/animations/Star.json')}
+      autoPlay
+      loop
+      style={styles.scanAnimation}
+    />
+
+    <Text
+      style={[
+        styles.superText,
+        { color: '#FFF', top: '-8%', left: 0, right: -1 },
+      ]}
+    >
+      {'SUPERLIKE'}
+    </Text>
+    <Text style={styles.superText}>SUPERLIKE</Text>
   </View>
 );
 
@@ -191,44 +229,42 @@ const EmptyState = ({ onReset, error }) => (
 // ════════════════════════════════════════════════════════════════════════════
 // ACTION BUTTON
 // ════════════════════════════════════════════════════════════════════════════
-
 const ActionButton = ({
-  icon,
-  label,
+  iconSource,
+
   onPress,
-  color = '#FFF',
   size = 'medium',
   disabled = false,
+  backgroundColor = '#FFF', // default bg
 }) => {
-  const sizeStyle = size === 'small' ? styles.buttonSmall : styles.buttonMedium;
+  const iconSize = size === 'small' ? 40 : 46;
+  const buttonSize = size === 'small' ? 56 : 68; // circular size
 
   return (
     <TouchableOpacity
       style={[
-        styles.actionButton,
-        sizeStyle,
-        { borderColor: color },
+        {
+          width: buttonSize,
+          height: buttonSize,
+          borderRadius: buttonSize / 2,
+          backgroundColor: backgroundColor,
+          justifyContent: 'center',
+          alignItems: 'center',
+        },
         disabled && { opacity: 0.5 },
       ]}
       onPress={onPress}
       activeOpacity={0.7}
       disabled={disabled}
     >
-      <Text
-        style={[
-          styles.actionButtonIcon,
-          { color, fontSize: size === 'small' ? 20 : 28 },
-        ]}
-      >
-        {icon}
-      </Text>
-      {label && (
-        <Text style={[styles.actionButtonLabel, { color }]}>{label}</Text>
-      )}
+      <Image
+        source={iconSource}
+        style={{ width: iconSize, height: iconSize }}
+        resizeMode="contain"
+      />
     </TouchableOpacity>
   );
 };
-
 // ════════════════════════════════════════════════════════════════════════════
 // FETCH USER PROFILE
 // ════════════════════════════════════════════════════════════════════════════
@@ -267,6 +303,8 @@ const fetchUserProfile = async (userId, token) => {
 
 export default function HomeScreen({ navigation }) {
   const { token, userId } = useContext(AuthContext);
+  const swipeQueue = useRef([]);
+  const tokenRef = useRef(token);
 
   // ── Premium Hooks ──
   const { subscription, refetch: refetchSubscription } = useSubscription({
@@ -297,12 +335,14 @@ export default function HomeScreen({ navigation }) {
   // ── Custom Hooks ──
   const swipeStack = useSwipeStack({
     token,
-    filters: {
-      minAge: 18,
-      maxAge: 60,
-    },
+    filters: { minAge: 18, maxAge: 60 },
+    limit: 20,
   });
 
+  const renderCard = useCallback(
+    item => <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />,
+    [],
+  );
   // ════════════════════════════════════════════════════════════════════════════
   // ANIMATION: SHOW SCAN AND ANIMATE TRANSITION WHEN LOADING COMPLETES
   // ════════════════════════════════════════════════════════════════════════════
@@ -346,12 +386,27 @@ export default function HomeScreen({ navigation }) {
     showLoadingOverlay,
   ]);
 
+  // -->Next 5 profiles load instantly
+  useEffect(() => {
+    if (!swipeStack.feed || swipeStack.feed.length === 0) return;
+
+    const preloadImages = async () => {
+      const nextProfiles = swipeStack.feed.slice(0, 10);
+
+      Promise.all(
+        nextProfiles.filter(p => p.image).map(p => Image.prefetch(p.image)),
+      );
+    };
+
+    preloadImages();
+  }, [swipeStack.feed]);
+
   // ════════════════════════════════════════════════════════════════════════════
   // HANDLERS
   // ════════════════════════════════════════════════════════════════════════════
 
   // ── Handle SUPERLIKE Button Press ──
-  const handleSuperlikikePress = async () => {
+  const handleSuperlikePress = async () => {
     // Check if premium
     if (!subscription?.isPremium) {
       setPremiumFeature('SUPERLIKE');
@@ -361,7 +416,7 @@ export default function HomeScreen({ navigation }) {
 
     // Check daily limit
     if (
-      !subscription.usage?.superlikes?.remaining ||
+      !subscription?.usage?.superlikes?.remaining ||
       subscription.usage.superlikes.remaining <= 0
     ) {
       setShowLimitModal(true);
@@ -369,7 +424,9 @@ export default function HomeScreen({ navigation }) {
     }
 
     // Trigger SUPERLIKE swipe animation (upward)
-    stackRef.current?.swipeUp();
+    if (stackRef.current) {
+      stackRef.current.swipeUp();
+    }
   };
 
   // ── Handle REWIND Button Press ──
@@ -383,7 +440,7 @@ export default function HomeScreen({ navigation }) {
 
     // Check daily limit
     if (
-      !subscription.usage?.rewinds?.remaining ||
+      !subscription?.usage?.rewinds?.remaining ||
       subscription.usage.rewinds.remaining <= 0
     ) {
       setShowLimitModal(true);
@@ -403,54 +460,41 @@ export default function HomeScreen({ navigation }) {
   // ── Handle Swipe Complete ──
   const handleSwipeComplete = useCallback(
     async (direction, user, index) => {
-      if (!user) return;
-      if (matchedUsers) return;
+      if (!user || matchedUsers) return;
+
+      const typeMap = {
+        left: 'pass',
+        right: 'like',
+        up: 'superlike',
+      };
+
+      const type = typeMap[direction];
+      if (!type) return;
+
+      currentCardIndex.current = index + 1;
+      console.log('[HomeScreen] Swiped:', type, 'on:', user.userId);
 
       try {
-        currentCardIndex.current = index + 1;
+        const result = await swipeStack.handleSwipe(user.userId, type);
 
-        const typeMap = {
-          left: 'pass',
-          right: 'like',
-          up: 'superlike',
-        };
+        if (!result?.success) {
+          setLocalError(result?.error || 'Failed to process swipe');
+          return;
+        }
 
-        console.log('[HomeScreen] Swiped:', typeMap[direction], 'Card:', index);
-
-        const result = await swipeStack.handleSwipe(
-          user.userId,
-          typeMap[direction],
-        );
-
-        if (!result.success) {
-          setLocalError(result.error || 'Failed to process swipe');
-        } else if (result.match) {
+        if (result.match) {
           console.log('[HomeScreen] 🔥 MATCH! 🔥');
-
-          if (userId) {
-            const [loggedInUserData, matchedUserData] = await Promise.all([
-              fetchUserProfile(userId, token),
-              fetchUserProfile(user.userId, token),
-            ]);
-
-            if (loggedInUserData && matchedUserData) {
-              setMatchedUsers({
-                user1: loggedInUserData,
-                user2: matchedUserData,
-              });
-            } else {
-              setLocalError('Failed to load match profiles');
-            }
-          } else {
-            setLocalError('User ID not found');
-          }
+          setMatchedUsers({
+            user1: { name: 'You', age: '', image: null },
+            user2: { name: user.name, age: user.age, image: user.image },
+          });
         }
       } catch (err) {
         setLocalError(err.message || 'Unknown error');
         console.error('[HomeScreen] Swipe error:', err);
       }
     },
-    [swipeStack, userId, token, matchedUsers],
+    [swipeStack, matchedUsers],
   );
 
   const handleEmpty = useCallback(() => {
@@ -529,19 +573,19 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Flames</Text>
           <Text style={styles.headerSubtitle}>
-            {swipeStack.feedLength} profiles available
+            {swipeStack.feedLength} profile
+            {swipeStack.feedLength > 1 ? 's' : ''} available
           </Text>
         </View>
 
         {/* Swipe Stack */}
         <View style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}>
           <SwipeableStack
+            stackSize={5}
             ref={stackRef}
             data={swipeStack.feed}
             keyExtractor={item => item.userId}
-            renderCard={item => (
-              <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />
-            )}
+            renderCard={renderCard}
             onSwipeRight={(item, index) =>
               handleSwipeComplete('right', item, index)
             }
@@ -552,7 +596,7 @@ export default function HomeScreen({ navigation }) {
             onEmpty={handleEmpty}
             swipeThreshold={SCREEN_WIDTH * 0.25}
             velocityThreshold={800}
-            maxRotation={12}
+            maxRotation={15}
             renderLeftOverlay={() => <PassOverlay />}
             renderRightOverlay={() => <LikeOverlay />}
             renderSuperlikeOverlay={() => <SuperlikeOverlay />}
@@ -571,29 +615,32 @@ export default function HomeScreen({ navigation }) {
           style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
         >
           <ActionButton
-            icon="↩"
+            iconSource={require('../assets/Images/rewind.png')}
             onPress={handleRewindPress}
             color="#666"
             size="small"
             disabled={isModalVisible}
           />
           <ActionButton
-            icon="✕"
+            iconSource={require('../assets/Images/cross.png')}
             onPress={() => stackRef.current?.swipeLeft()}
             color="#EF4444"
+            size="medium"
             disabled={isModalVisible}
           />
           <ActionButton
-            icon="♥"
+            iconSource={require('../assets/Images/circle.png')}
             onPress={() => stackRef.current?.swipeRight()}
-            color="#EC4899"
+            size="medium"
             disabled={isModalVisible}
+            backgroundColor="#ffffff"
           />
           <ActionButton
-            icon="⭐"
-            onPress={handleSuperlikikePress}
-            color="#FFB800"
+            iconSource={require('../assets/Images/star.png')}
+            onPress={handleSuperlikePress}
+            size="small" // 👈 THIS WAS MISSING
             disabled={isModalVisible}
+            backgroundColor="#ffffff"
           />
         </View>
 
@@ -620,19 +667,21 @@ export default function HomeScreen({ navigation }) {
         {/* PREMIUM MODALS */}
         {/* ══════════════════════════════════════════════════════════════════════════════════ */}
 
-        <PremiumModal
-          visible={showPremiumModal}
-          onClose={() => setShowPremiumModal(false)}
-          feature={premiumFeature}
-          onSelectPlan={handleSelectPlan}
-        />
+        <Suspense fallback={<View />}>
+          <PremiumModal
+            visible={showPremiumModal}
+            onClose={() => setShowPremiumModal(false)}
+            feature={premiumFeature}
+            onSelectPlan={handleSelectPlan}
+          />
 
-        <DailyLimitModal
-          visible={showLimitModal}
-          onClose={() => setShowLimitModal(false)}
-          feature={premiumFeature}
-          resetTime="00:00"
-        />
+          <DailyLimitModal
+            visible={showLimitModal}
+            onClose={() => setShowLimitModal(false)}
+            feature={premiumFeature}
+            resetTime="00:00"
+          />
+        </Suspense>
       </View>
     </SafeAreaView>
   );
@@ -656,7 +705,6 @@ const styles = StyleSheet.create({
   },
 
   headerTitle: {
-    fontFamily: 'Nunito-Light',
     fontSize: 32,
     fontWeight: '800',
     color: '#ff0059',
@@ -671,8 +719,8 @@ const styles = StyleSheet.create({
   stackContainer: {
     flex: 1,
     paddingHorizontal: 15,
-    paddingBottom: 10,
-    backgroundColor: 'white',
+    paddingBottom: 125,
+    backgroundColor: '#ffffff3f',
   },
 
   // Scan Loading Overlay
@@ -694,7 +742,28 @@ const styles = StyleSheet.create({
     height: (SCREEN_WIDTH - 32) * 1.3,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+  },
+  crossWrapper: {
+    width: SCREEN_WIDTH * 0.5,
+    height: SCREEN_WIDTH * 0.5 * 1.3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  overlayContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  superWrapper: {
+    width: SCREEN_WIDTH - 52,
+    height: (SCREEN_WIDTH - 52) * 1.3,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   scanAnimation: {
@@ -708,6 +777,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     fontWeight: '500',
   },
+  superText: {
+    top: '-10%', // bit above center
+    textAlign: 'center',
+    fontSize: 32, // big text
+    fontWeight: '900',
+    color: '#0099FF', // blue text
+    textTransform: 'uppercase',
+    textShadowColor: '#FFF', // white border effect
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 0,
+    paddingHorizontal: 10,
+    letterSpacing: 5,
+  },
 
   // Card
   cardContainer: {
@@ -718,6 +800,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
 
+  renderToHardwareTextureAndroid: true,
   cardImage: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
@@ -751,7 +834,7 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFF',
+    color: '#ffffff',
     marginRight: 8,
   },
 
@@ -794,33 +877,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
   },
-
   overlay: {
-    borderWidth: 1,
     borderRadius: 30,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.82)',
+    justifyContent: 'center',
   },
 
   likeOverlay: {
     borderColor: '#EC4899',
-    transform: [{ rotate: '-20deg' }],
+    transform: [{ rotate: '20deg' }],
   },
 
   passOverlay: {
-    borderColor: '#ffffff',
     transform: [{ rotate: '20deg' }],
-    backgroundColor: 'rgba(255, 74, 74, 0.82)',
   },
 
   superlikeOverlay: {
-    borderColor: '#FFB800',
-    backgroundColor: '#ffb700af',
-    alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
   overlayText: {
     fontSize: 40,
     marginBottom: 4,
@@ -839,16 +914,17 @@ const styles = StyleSheet.create({
   },
 
   buttonsContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 14,
+    zIndex: 50,
     paddingVertical: 20,
-    paddingHorizontal: 16,
-    paddingBottom: 110,
-    gap: 12,
-    backgroundColor: '#FFF',
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    paddingBottom: 50,
   },
 
   actionButton: {
@@ -856,22 +932,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 50,
     borderWidth: 2,
-    backgroundColor: '#FFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
+    backgroundColor: '#ffffff',
 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
   buttonSmall: {
-    width: 48,
-    height: 48,
+    width: 56,
+    height: 56,
   },
 
   buttonMedium: {
-    width: 64,
-    height: 64,
+    width: 68,
+    height: 68,
   },
 
   actionButtonIcon: {

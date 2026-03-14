@@ -1,12 +1,10 @@
 /**
- * SwipeableStack - Enhanced Production Version
+ * SwipeableStack - PREMIUM Edition ✨
  *
- * Improvements:
- * - Better rewind animation
- * - Superlike (3-way swipe) support
- * - Improved state management
- * - Better error handling
- * - Proper cleanup on unmount
+ * Changes:
+ * - Uses useNextCardAnimation for premium scale+fade+rise reveal
+ * - Ultra low default thresholds (makkhan swipe)
+ * - Next card animation driven by BOTH X and Y movement
  */
 
 import React, {
@@ -15,49 +13,15 @@ import React, {
   useImperativeHandle,
   useCallback,
   useState,
-  useEffect,
 } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  interpolate,
-  Extrapolation,
-  withSpring,
-} from 'react-native-reanimated';
+import Animated, { useSharedValue, withSpring } from 'react-native-reanimated';
 import { SwipeableCard } from './SwipeableCardEnhanced';
+import { useNextCardAnimation } from './useSwipeAnimationEnhanced';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-/**
- * SwipeableStack Component
- *
- * A production-ready Tinder-like card swiping component.
- *
- * Props:
- * - data: array of items to swipe
- * - renderCard: (item, index) => ReactNode
- * - keyExtractor: (item) => string
- * - onSwipeLeft: (item, index) => void
- * - onSwipeRight: (item, index) => void
- * - onSwipeUp: (item, index) => void  ← NEW: for superlike
- * - onSwipeComplete: (direction, item, index) => void
- * - onEmpty: () => void
- * - onIndexChange: (newIndex) => void
- * - swipeThreshold: number
- * - velocityThreshold: number
- * - visibleCards: number (default: 2)
- * - maxRotation: number
- * - verticalSwipeFriction: number
- * - renderLeftOverlay: () => ReactNode  (PASS)
- * - renderRightOverlay: () => ReactNode (LIKE)
- * - renderSuperlikeOverlay: () => ReactNode  ← NEW
- * - containerStyle: object
- * - cardWrapperStyle: object
- * - initialIndex: number
- * - disabled: boolean
- */
 function SwipeableStackComponent(
   {
     data = [],
@@ -69,16 +33,15 @@ function SwipeableStackComponent(
     onSwipeComplete,
     onEmpty,
     onIndexChange,
-    swipeThreshold = SCREEN_WIDTH * 0.3,
-    velocityThreshold = 800,
+    swipeThreshold = SCREEN_WIDTH * 0.18, // 🧈 makkhan default
+    velocityThreshold = 300, // 🧈 makkhan default
     visibleCards = 2,
     animationConfig,
     maxRotation = 15,
-    verticalSwipeFriction = 0.2,
+    verticalSwipeFriction = 1, // fully free
     renderLeftOverlay,
     renderRightOverlay,
     renderSuperlikeOverlay,
-    overlayConfig = { inputRange: [0, 0.2], outputRange: [0, 1] },
     containerStyle,
     cardWrapperStyle,
     initialIndex = 0,
@@ -86,68 +49,42 @@ function SwipeableStackComponent(
   },
   ref,
 ) {
-  // Validate required props
-  if (!data || !Array.isArray(data)) {
-    console.warn('[SwipeableStack] data must be an array');
-  }
-  if (!renderCard || typeof renderCard !== 'function') {
-    console.warn('[SwipeableStack] renderCard is required');
-  }
-  if (!keyExtractor || typeof keyExtractor !== 'function') {
-    console.warn('[SwipeableStack] keyExtractor is required');
-  }
-
-  // State management
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [swipeHistory, setSwipeHistory] = useState([]);
 
-  // Shared animation values
+  // Top card's live X and Y position (drives next card animation)
   const currentSwipeX = useSharedValue(0);
-  const manualTrigger = useSharedValue(0); // 0: idle, 1: right, -1: left, 2: up, 3: rewind
+  const currentSwipeY = useSharedValue(0);
+  const manualTrigger = useSharedValue(0);
 
-  /**
-   * Handle swipe completion from card or manual trigger
-   * Calls appropriate callbacks and manages state
-   */
+  // ✨ Premium next card animation
+  const { animatedNextCardStyle } = useNextCardAnimation({
+    topCardTranslateX: currentSwipeX,
+    topCardTranslateY: currentSwipeY,
+    screenWidth: SCREEN_WIDTH,
+    minScale: 0.88,
+    minOpacity: 0.4,
+  });
+
   const handleSwipeComplete = useCallback(
     direction => {
-      // Reset manual trigger immediately
       manualTrigger.value = 0;
-
-      // Get current item before incrementing index
       const currentItem = data[currentIndex];
       if (!currentItem) return;
 
-      // Update index
       const newIndex = currentIndex + 1;
       setCurrentIndex(newIndex);
-
-      // Track swipe history for undo
       setSwipeHistory(prev => [...prev, { index: currentIndex, direction }]);
 
-      // Call direction-specific callbacks
-      if (direction === 'left' && onSwipeLeft) {
+      if (direction === 'left' && onSwipeLeft)
         onSwipeLeft(currentItem, currentIndex);
-      } else if (direction === 'right' && onSwipeRight) {
+      if (direction === 'right' && onSwipeRight)
         onSwipeRight(currentItem, currentIndex);
-      } else if (direction === 'up' && onSwipeUp) {
-        onSwipeUp(currentItem, currentIndex);
-      }
-
-      // Call generic callback
-      if (onSwipeComplete) {
+      if (direction === 'up' && onSwipeUp) onSwipeUp(currentItem, currentIndex);
+      if (onSwipeComplete)
         onSwipeComplete(direction, currentItem, currentIndex);
-      }
-
-      // Call index change callback
-      if (onIndexChange) {
-        onIndexChange(newIndex);
-      }
-
-      // Check if all cards exhausted
-      if (newIndex >= data.length && onEmpty) {
-        onEmpty();
-      }
+      if (onIndexChange) onIndexChange(newIndex);
+      if (newIndex >= data.length && onEmpty) onEmpty();
     },
     [
       currentIndex,
@@ -162,7 +99,6 @@ function SwipeableStackComponent(
     ],
   );
 
-  // Programmatic swipe methods
   const swipeLeft = useCallback(() => {
     if (currentIndex >= data.length) return;
     manualTrigger.value = -1;
@@ -178,26 +114,24 @@ function SwipeableStackComponent(
     manualTrigger.value = 2;
   }, [currentIndex, data.length, manualTrigger]);
 
-  // Undo last swipe
   const undo = useCallback(() => {
     if (currentIndex <= 0 || swipeHistory.length === 0) return;
-
     const lastSwipe = swipeHistory[swipeHistory.length - 1];
     setCurrentIndex(lastSwipe.index);
     setSwipeHistory(prev => prev.slice(0, -1));
-
-    // Trigger rewind animation
     manualTrigger.value = 3;
-
-    // Smooth spring animation back to center
     currentSwipeX.value = withSpring(0, {
       stiffness: 300,
       damping: 25,
       mass: 0.1,
     });
-  }, [currentIndex, swipeHistory, currentSwipeX, manualTrigger]);
+    currentSwipeY.value = withSpring(0, {
+      stiffness: 300,
+      damping: 25,
+      mass: 0.1,
+    });
+  }, [currentIndex, swipeHistory, currentSwipeX, currentSwipeY, manualTrigger]);
 
-  // Expose ref methods to parent
   useImperativeHandle(
     ref,
     () => ({
@@ -211,30 +145,10 @@ function SwipeableStackComponent(
     [swipeLeft, swipeRight, swipeUp, undo, currentIndex, swipeHistory],
   );
 
-  // Animation for next card (scale + opacity)
-  const nextCardStyle = useAnimatedStyle(() => {
-    const scale = interpolate(
-      Math.abs(currentSwipeX.value),
-      [0, SCREEN_WIDTH],
-      [0.92, 1],
-      Extrapolation.CLAMP,
-    );
-    const opacity = interpolate(
-      Math.abs(currentSwipeX.value),
-      [0, SCREEN_WIDTH * 0.5],
-      [0.6, 1],
-      Extrapolation.CLAMP,
-    );
-
-    return { transform: [{ scale }], opacity, zIndex: 9 };
-  });
-
-  // Render overlays
   const leftOverlay = renderLeftOverlay?.();
   const rightOverlay = renderRightOverlay?.();
   const superlikeOverlay = renderSuperlikeOverlay?.();
 
-  // If all cards swiped, return empty container
   if (currentIndex >= data.length) {
     return (
       <GestureHandlerRootView style={[styles.container, containerStyle]} />
@@ -249,11 +163,15 @@ function SwipeableStackComponent(
   return (
     <GestureHandlerRootView style={[styles.container, containerStyle]}>
       <View style={styles.cardsContainer}>
-        {/* Background/Next card */}
+        {/* ✨ Next card — premium scale+fade+rise */}
         {nextItem && visibleCards >= 2 && (
           <Animated.View
             key={keyExtractor(nextItem)}
-            style={[styles.cardWrapper, cardWrapperStyle, nextCardStyle]}
+            style={[
+              styles.cardWrapper,
+              cardWrapperStyle,
+              animatedNextCardStyle,
+            ]}
           >
             {renderCard(nextItem, currentIndex + 1)}
           </Animated.View>
@@ -265,6 +183,7 @@ function SwipeableStackComponent(
             key={keyExtractor(currentItem)}
             onSwipeComplete={handleSwipeComplete}
             swipeProgress={currentSwipeX}
+            swipeProgressY={currentSwipeY} // pass Y progress too
             manualTrigger={manualTrigger}
             swipeThreshold={swipeThreshold}
             velocityThreshold={velocityThreshold}
@@ -274,7 +193,6 @@ function SwipeableStackComponent(
             leftOverlay={leftOverlay}
             rightOverlay={rightOverlay}
             superlikeOverlay={superlikeOverlay}
-            overlayConfig={overlayConfig}
             disabled={disabled}
             style={cardWrapperStyle}
           >
@@ -286,7 +204,6 @@ function SwipeableStackComponent(
   );
 }
 
-// Forward ref + memo for performance
 export const SwipeableStack = memo(forwardRef(SwipeableStackComponent));
 
 const styles = StyleSheet.create({
