@@ -42,14 +42,11 @@ import { BASE_URL } from '../urls/url';
 const SignUpScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showconfirmPassword, setConfirmShowPassword] = useState(false);
-  // const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const navigation = useNavigation();
   const [activeInput, setActiveInput] = useState(null);
   const [loading, setLoading] = useState(false);
   const [formReady, setFormReady] = useState(false);
 
-  // const CARD_WIDTH = screenWidth * 1;
-  // const CARD_HEIGHT = screenHeight * 1;
   useEffect(() => {
     if (Platform.OS === 'android') {
       changeNavigationBarColor('#FF6A6A', false);
@@ -61,10 +58,10 @@ const SignUpScreen = () => {
     };
   }, []);
 
-  //--> Navigate to SignIn Screen
   const handleNextSignIn = () => {
     navigation.navigate('SignIn');
   };
+
   const handlegoogle = () => {
     navigation.navigate('Welcome');
   };
@@ -94,21 +91,12 @@ const SignUpScreen = () => {
   }, []);
 
   const SignupSchema = Yup.object().shape({
-    // firstName: Yup.string()
-    //   .min(2, 'Too Short!')
-    //   .max(50, 'Too Long!')
-    //   .required('Please enter your full name'),
-    // lastName: Yup.string()
-    //   .min(2, 'Too Short!')
-    //   .max(50, 'Too Long!')
-    //   .required('Required'),
     email: Yup.string()
       .email('Invalid email')
       .required('Please enter your email address '),
     password: Yup.string()
       .min(8)
       .required('please enter 8-digit password ')
-      // .matches(/^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/,'Must contain 8 AlphaNumeric Character')
       .matches(
         /^(?=.*?[a-z])(?=.*?[0-9]).{8,}$/,
         'Must contain 8 AlphaNumeric Character',
@@ -118,23 +106,13 @@ const SignUpScreen = () => {
       .required('please enter 8-digit to confirm password ')
       .oneOf([Yup.ref('password')], 'Your password do not match ')
       .required('Please confirm Your password'),
-    // mobile: Yup.string()
-    //   .min(10, 'Must be exactly 10 digits')
-    //   .max(10, 'Must be exactly 10 digits')
-    //   .matches(/^[0-9]+$/, 'Must be only digits')
-    //   .required('Please enter your 10-digit Mobile Number'),
   });
 
-  //animation MIRON -->
   const _damping = 14;
   const _entering = FadeInDown.springify();
-  // .damping(_damping);
   const _entering1 = FadeInDown.springify().delay(150);
   const _entering2 = FadeInDown.springify().delay(300);
-  // const _existing = FadeOut.springify().damping(_damping);
   const _layout = LinearTransition.springify();
-  // .damping(_damping);
-  //for the pressabl we to create animated component
   const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
   if (!formReady) {
@@ -144,6 +122,7 @@ const SignUpScreen = () => {
       </View>
     );
   }
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
       <SafeAreaView
@@ -156,8 +135,8 @@ const SignUpScreen = () => {
         {/* ===== SCREEN BACKGROUND GRADIENT ===== */}
         <LinearGradient
           colors={['#FF0000', '#FF3D85']}
-          start={{ x: 0, y: 1 }} // bottom
-          end={{ x: 0, y: 0 }} // top
+          start={{ x: 0, y: 1 }}
+          end={{ x: 0, y: 0 }}
           style={{
             position: 'absolute',
             top: 0,
@@ -182,63 +161,87 @@ const SignUpScreen = () => {
             source={require('../assets/Images/logosignup.png')}
             resizeMode="contain"
             style={{
-              height: responsiveHeight(9), //82
-              width: responsiveWidth(20), //100
+              height: responsiveHeight(9),
+              width: responsiveWidth(20),
               marginTop: responsiveHeight(9),
             }}
           />
-
-          {/* ===== CARD ===== */}
 
           <Formik
             initialValues={initialValues}
             validationSchema={SignupSchema}
             validateOnMount={true}
             onSubmit={async (values, { setFieldError }) => {
-              // Save registration progress
               const dataToSave = {
                 email: values.email,
                 password: values.password,
               };
+
               console.log('--- Saving Email & Password ---');
               console.log(dataToSave);
 
               await saveRegistrationProgress('Email', dataToSave);
-              console.log('Data saved successfully, navigating to OTP screen');
+              console.log('Data saved successfully, attempting signup');
+
+              setLoading(true);
 
               try {
-                setLoading(true);
+                console.log('[SignUpScreen] Sending /sendOtp request:', {
+                  email: values.email,
+                });
+
                 const response = await axios.post(`${BASE_URL}/sendOtp`, {
                   email: values.email,
                   password: values.password,
                 });
 
-                if (response.data.unconfirmed) {
-                  // user exists but not confirmed → navigate to OTP screen
+                console.log('[SignUpScreen] /sendOtp response:', response.data);
+
+                if (response.data.success) {
+                  // ✅ Success - navigate to OTP screen
+                  console.log(
+                    '[SignUpScreen] Signup successful, navigating to OTP',
+                  );
                   navigation.navigate('Otp', {
                     email: values.email,
                     password: values.password,
                   });
                 } else {
-                  // new user → navigate to OTP screen
-                  navigation.navigate('Otp', {
-                    email: values.email,
-                    password: values.password,
-                  });
+                  // ❌ Backend returned error
+                  console.error(
+                    '[SignUpScreen] Backend error:',
+                    response.data.error,
+                  );
+                  setFieldError('email', response.data.error);
+                  Alert.alert('Signup Error', response.data.error, [
+                    { text: 'OK' },
+                  ]);
                 }
               } catch (error) {
+                console.error('[SignUpScreen] Catch block error:', error);
+
                 const backendError = error.response?.data?.error;
+                const errorMessage = backendError || error.message;
+
+                console.log('[SignUpScreen] Error details:', {
+                  backendError,
+                  errorMessage,
+                  status: error.response?.status,
+                });
+
+                // ✅ Show Alert to user
+                Alert.alert(
+                  'Signup Failed',
+                  errorMessage || 'Please try again',
+                  [{ text: 'OK' }],
+                );
+
+                // Also set field error for good measure
                 if (
-                  backendError === 'User already exists and confirmed' ||
-                  backendError?.includes('UsernameExistsException')
+                  backendError?.includes('already exists') ||
+                  backendError?.includes('confirmed')
                 ) {
-                  // this will now show the error under the email field
-                  setFieldError('email', 'User already exists Please login.');
-                } else {
-                  console.log(
-                    'Other backend error:',
-                    backendError || error.message,
-                  );
+                  setFieldError('email', errorMessage);
                 }
               } finally {
                 setLoading(false);
@@ -256,13 +259,11 @@ const SignUpScreen = () => {
             }) => (
               <ScrollView>
                 <Animated.View entering={FadeIn.duration(300).delay(100)}>
-                  {/* <Animated.View entering={FadeInDown.duration(600)}> */}
                   <View
                     style={{
-                      marginTop: responsiveHeight(6), //50
-                      width: responsiveWidth(100), //full
-                      height: responsiveHeight(70), //640
-                      // flex: 1,
+                      marginTop: responsiveHeight(6),
+                      width: responsiveWidth(100),
+                      height: responsiveHeight(70),
                       borderTopLeftRadius: 40,
                       borderTopRightRadius: 40,
                       overflow: 'hidden',
@@ -275,7 +276,7 @@ const SignUpScreen = () => {
                   >
                     {/* ===== CARD GRADIENT ===== */}
                     <LinearGradient
-                      colors={['#FF6A6A', '#ffffffff']} // bottom → top
+                      colors={['#FF6A6A', '#ffffffff']}
                       start={{ x: 0, y: 1 }}
                       end={{ x: 0, y: 0 }}
                       style={{
@@ -292,18 +293,17 @@ const SignUpScreen = () => {
                       style={{
                         flex: 1,
                         alignItems: 'center',
-                        paddingTop: responsiveHeight(6), //30
+                        paddingTop: responsiveHeight(6),
                       }}
                     >
                       {/* Email */}
                       <Animated.View
                         entering={_entering}
                         layout={_layout}
-                        // exiting={_existing}
                         style={{
                           flexDirection: 'row',
                           alignItems: 'center',
-                          width: responsiveWidth(90), //370
+                          width: responsiveWidth(90),
                           paddingVertical: 3,
                           borderRadius: 35,
                           transform: [
@@ -323,21 +323,17 @@ const SignUpScreen = () => {
                           style={{ height: 25, width: 25, marginRight: 10 }}
                         />
                         <TextInput
-                          // value={email}
-                          // onChangeText={text => setEmail(text)}
                           value={values.email}
                           onChangeText={handleChange('email')}
                           placeholder="Enter your email"
                           placeholderTextColor="#bebebe"
                           onFocus={() => setActiveInput('email')}
-                          // onBlur={() => setActiveInput(null)}
                           onBlur={() => setFieldTouched('email')}
                           autoFocus={true}
                           style={{
                             flex: 1,
                             fontSize: 16,
                             fontWeight: '500',
-
                             color: '#4d4d4d',
                           }}
                         />
@@ -364,6 +360,7 @@ const SignUpScreen = () => {
                           </Text>
                         )}
                       </Animated.View>
+
                       {/* Password */}
                       <Animated.View
                         entering={_entering1}
@@ -371,7 +368,7 @@ const SignUpScreen = () => {
                         style={{
                           flexDirection: 'row',
                           alignItems: 'center',
-                          width: responsiveWidth(90), //370
+                          width: responsiveWidth(90),
                           paddingVertical: 3,
                           borderRadius: 35,
                           transform: [
@@ -391,14 +388,11 @@ const SignUpScreen = () => {
                           style={{ height: 25, width: 25, marginRight: 10 }}
                         />
                         <TextInput
-                          // value={password}
-                          // onChangeText={text => setPassword(text)}
                           value={values.password}
                           onChangeText={handleChange('password')}
                           placeholder="Set a password"
                           placeholderTextColor="#bebebe"
                           onFocus={() => setActiveInput('password')}
-                          // onBlur={() => setActiveInput(null)}
                           onBlur={() => setFieldTouched('password')}
                           secureTextEntry={!showPassword}
                           style={{
@@ -408,7 +402,6 @@ const SignUpScreen = () => {
                             color: '#4d4d4d',
                           }}
                         />
-                        {/* SHOW / HIDE */}
                         <Pressable
                           style={({ pressed }) => ({
                             transform: [{ scale: pressed ? 0.99 : 1 }],
@@ -442,6 +435,7 @@ const SignUpScreen = () => {
                           </Text>
                         )}
                       </Animated.View>
+
                       {/* confirmPassword */}
                       <Animated.View
                         entering={_entering2}
@@ -449,7 +443,7 @@ const SignUpScreen = () => {
                         style={{
                           flexDirection: 'row',
                           alignItems: 'center',
-                          width: responsiveWidth(90), //370
+                          width: responsiveWidth(90),
                           paddingVertical: 3,
                           borderRadius: 35,
                           transform: [
@@ -476,15 +470,11 @@ const SignUpScreen = () => {
                           style={{ height: 25, width: 25, marginRight: 10 }}
                         />
                         <TextInput
-                          // value={password}
-                          // onChangeText={text => setPassword(text)}
                           value={values.confirmPassword}
                           onChangeText={handleChange('confirmPassword')}
                           placeholder="Confirm your password"
                           placeholderTextColor="#bebebe"
                           onFocus={() => setActiveInput('confirmPassword')}
-                          // onBlur={() => setActiveInput(null)}
-                          // onBlur={() => setFieldTouched('confirmPassword')}
                           secureTextEntry={!showconfirmPassword}
                           style={{
                             flex: 1,
@@ -493,7 +483,6 @@ const SignUpScreen = () => {
                             color: '#4d4d4d',
                           }}
                         />
-                        {/* SHOW / HIDE */}
                         <Pressable
                           style={({ pressed }) => ({
                             transform: [{ scale: pressed ? 0.99 : 1 }],
@@ -523,30 +512,19 @@ const SignUpScreen = () => {
                           marginBottom: 5,
                         }}
                       >
-                        {/* {touched.confirmPassword && errors.confirmPassword && (
-                      <Text style={{ color: 'red', fontSize: 14 }}>
-                        {errors.confirmPassword}
-                      </Text>
-                    )} */}
                         {values.confirmPassword.length > 0 &&
                           errors.confirmPassword && (
-                            <Text style={{ color: 'red' }}>
+                            <Text style={{ color: 'red', fontSize: 14 }}>
                               {errors.confirmPassword}
                             </Text>
                           )}
                       </View>
-                      {/* Sign Up */}
+
+                      {/* Sign Up Button */}
                       <Pressable
                         onPress={() => {
                           if (!isValid || loading) return;
-                          setLoading(true);
-                          try {
-                            handleSubmit(); // ✅ no await needed
-                          } catch (e) {
-                            console.log('Signup error:', e);
-                          } finally {
-                            setLoading(false);
-                          }
+                          handleSubmit();
                         }}
                         disabled={!isValid || loading}
                         style={({ pressed }) => ({
@@ -575,6 +553,7 @@ const SignUpScreen = () => {
                           </Text>
                         )}
                       </Pressable>
+
                       <View
                         style={{
                           width: 330,
@@ -586,6 +565,7 @@ const SignUpScreen = () => {
                           OR
                         </Text>
                       </View>
+
                       {/* Sign Up with Google */}
                       <Pressable
                         onPress={handlegoogle}
@@ -595,7 +575,7 @@ const SignUpScreen = () => {
                           marginTop: 10,
                           backgroundColor: 'white',
                           paddingVertical: 10,
-                          width: responsiveWidth(85), //330
+                          width: responsiveWidth(85),
                           borderRadius: 35,
                           borderWidth: 1,
                           borderColor: '#fd97afff',
@@ -625,13 +605,14 @@ const SignUpScreen = () => {
                           </Text>
                         </View>
                       </Pressable>
+
                       {/* Already have account + Login */}
                       <View
                         style={{
                           flexDirection: 'row',
                           justifyContent: 'center',
                           alignItems: 'center',
-                          marginTop: responsiveHeight(7), //130
+                          marginTop: responsiveHeight(7),
                         }}
                       >
                         <Animated.View
@@ -639,7 +620,7 @@ const SignUpScreen = () => {
                         >
                           <Text
                             style={{
-                              fontSize: responsiveFontSize(1.7), //17
+                              fontSize: responsiveFontSize(1.7),
                               color: '#2b2b2bff',
                               fontWeight: '400',
                               marginRight: 10,
@@ -685,7 +666,6 @@ const SignUpScreen = () => {
               </ScrollView>
             )}
           </Formik>
-          {/* </Animated.View> */}
         </View>
       </SafeAreaView>
     </ScrollView>

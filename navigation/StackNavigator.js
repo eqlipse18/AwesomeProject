@@ -18,6 +18,7 @@ import HomeJobScreen from '../screens/HomeJobScreen';
 import PhotoScreen from '../screens/PhotoScreen';
 import HobbyScreen from '../screens/HobbyScreen';
 import PreFinalScreen from '../screens/PreFinalScreen';
+import SetNewPasswordScreen from '../screens/SetNewPasswordScreen';
 
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthContext, AuthProvider } from '../AuthContex';
@@ -59,6 +60,7 @@ const AuthStack = () => {
       <Stack.Screen name="SignIn" component={SignInScreen} />
       <Stack.Screen name="Otp" component={OtpScreen} />
       <Stack.Screen name="ForgetPass" component={ForgetPassScreen} />
+      <Stack.Screen name="SetNewPassword" component={SetNewPasswordScreen} />
     </Stack.Navigator>
   );
 };

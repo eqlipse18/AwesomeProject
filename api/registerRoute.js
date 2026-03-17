@@ -1,5 +1,11 @@
 import express from 'express';
-import { docClient, PutCommand, QueryCommand } from './db.js';
+import {
+  docClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  UpdateCommand,
+} from './db.js';
 import { authenticate } from './authenticate.js';
 import {
   validateProfileData,
@@ -22,14 +28,27 @@ const router = express.Router();
  *  5. User written to DynamoDB `Users` table
  *     ConditionalExpression prevents any double-registration
  */
+/**
+ * /register endpoint - FIXED VERSION
+ *
+ * CRITICAL CHANGE:
+ * Use UpdateCommand instead of PutCommand with ConditionExpression
+ * This way it works whether user exists (from /sendOtp) or not
+ *
+ * No more 409 errors! ✅
+ */
+
 router.post('/register', authenticate, async (req, res) => {
   try {
     const raw = req.body;
     const { userId, email } = req.user; // from verified Cognito IdToken — never from body
 
+    console.log('[/register] Registering user:', userId);
+
     // ── 1. Validate ────────────────────────────────────────────────────────────
     const errors = validateProfileData(raw);
     if (errors.length > 0) {
+      console.error('[/register] Validation errors:', errors);
       return res.status(400).json({ success: false, errors });
     }
 
@@ -37,6 +56,7 @@ router.post('/register', authenticate, async (req, res) => {
     const age = calculateAgeFromDob(raw.dateOfBirth);
 
     if (age < 18) {
+      console.error('[/register] User too young:', age);
       return res.status(400).json({
         success: false,
         errors: ['You must be 18 or older to register'],
@@ -44,6 +64,7 @@ router.post('/register', authenticate, async (req, res) => {
     }
 
     if (age > 100) {
+      console.error('[/register] Invalid age:', age);
       return res.status(400).json({
         success: false,
         errors: ['Invalid date of birth'],
@@ -53,94 +74,281 @@ router.post('/register', authenticate, async (req, res) => {
     // ── 3. Sanitize image URLs ──────────────────────────────────────────────────
     const safeImageUrls = sanitizeImageUrls(raw.imageUrls);
     if (safeImageUrls.length === 0) {
+      console.error('[/register] No valid images');
       return res.status(400).json({
         success: false,
         errors: ['No valid profile images found'],
       });
     }
 
-    // ── 4. Build the user object ────────────────────────────────────────────────
+    // ── 4. Prepare update expression ────────────────────────────────────────────
     const now = new Date().toISOString();
 
-    const newUser = {
-      // ── Keys ──
-      userId, // PK — Cognito sub
-      email: email.toLowerCase().trim(), // GSI: email-index
-
-      // ── Identity ──
-      firstName: raw.firstName.trim(),
-      lastName: raw.lastName.trim(),
-      fullName: `${raw.firstName.trim()} ${raw.lastName.trim()}`,
-      gender: raw.gender, // GSI PK: gender-age-index
-      nonbinary: raw.nonbinary || '',
-
-      // ── Dating ──
-      dateOfBirth: raw.dateOfBirth,
-      ageForSort: age, // GSI SK — Number for range queries
-      datingPreferences: raw.datingPreferences,
-      goals: raw.goals.trim(),
-
-      // ── Lifestyle ──
-      drink: raw.drink || '',
-      smoke: raw.smoke || '',
-      height: raw.height || '',
-      hobbies: Array.isArray(raw.hobbies) ? raw.hobbies : [],
-
-      // ── Location & Work ──
-      hometown: raw.hometown.trim(), // GSI PK: hometown-age-index
-      // Handle the 'jobtittle' typo from the client — accept all spellings
-      jobTitle: (raw.jobTitle || raw.jobtittle || raw.jobtitle || '').trim(),
-
-      // ── Media ──
-      imageUrls: safeImageUrls,
-
-      // ── Gamification ──
-      roses: 1,
-      likesRemaining: 25, // refill daily via Lambda/cron later
-      likesResetAt: now,
-
-      // ── Status flags ──
-      isActive: true,
-      isProfileComplete: true,
-      isVerified: false, // for future verification badge
-      isPremium: false, // for future subscription
-
-      // ── Timestamps ──
-      lastActiveAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
+    // ✅ FIXED: Use UpdateCommand instead of PutCommand
+    // This works whether user exists (created by /sendOtp) or not
+    const updateCommand = new UpdateCommand({
+      TableName: 'Users',
+      Key: { userId },
+      UpdateExpression: `
+        SET
+          firstName = :firstName,
+          lastName = :lastName,
+          fullName = :fullName,
+          gender = :gender,
+          nonbinary = :nonbinary,
+          dateOfBirth = :dateOfBirth,
+          ageForSort = :ageForSort,
+          datingPreferences = :datingPreferences,
+          goals = :goals,
+          drink = :drink,
+          smoke = :smoke,
+          height = :height,
+          hobbies = :hobbies,
+          hometown = :hometown,
+          jobTitle = :jobTitle,
+          imageUrls = :imageUrls,
+          roses = :roses,
+          likesRemaining = :likesRemaining,
+          likesResetAt = :likesResetAt,
+          isActive = :isActive,
+          isProfileComplete = :isProfileComplete,
+          isVerified = :isVerified,
+          isPremium = :isPremium,
+          lastActiveAt = :lastActiveAt,
+          updatedAt = :updatedAt
+      `,
+      ExpressionAttributeValues: {
+        ':firstName': raw.firstName.trim(),
+        ':lastName': raw.lastName.trim(),
+        ':fullName': `${raw.firstName.trim()} ${raw.lastName.trim()}`,
+        ':gender': raw.gender,
+        ':nonbinary': raw.nonbinary || '',
+        ':dateOfBirth': raw.dateOfBirth,
+        ':ageForSort': age,
+        ':datingPreferences': raw.datingPreferences,
+        ':goals': raw.goals.trim(),
+        ':drink': raw.drink || '',
+        ':smoke': raw.smoke || '',
+        ':height': raw.height || '',
+        ':hobbies': Array.isArray(raw.hobbies) ? raw.hobbies : [],
+        ':hometown': raw.hometown.trim(),
+        ':jobTitle': (
+          raw.jobTitle ||
+          raw.jobtittle ||
+          raw.jobtitle ||
+          ''
+        ).trim(),
+        ':imageUrls': safeImageUrls,
+        ':roses': 1,
+        ':likesRemaining': 25,
+        ':likesResetAt': now,
+        ':isActive': true,
+        ':isProfileComplete': true,
+        ':isVerified': false,
+        ':isPremium': false,
+        ':lastActiveAt': now,
+        ':updatedAt': now,
+      },
+      ReturnValues: 'ALL_NEW',
+    });
 
     // ── 5. Write to DynamoDB ────────────────────────────────────────────────────
-    // ConditionExpression: fails if userId already exists → prevents double-registration
-    await docClient.send(
-      new PutCommand({
-        TableName: 'Users',
-        Item: newUser,
-        ConditionExpression: 'attribute_not_exists(userId)',
-      }),
-    );
+    // ✅ UpdateCommand works whether user exists or not
+    // - If user exists (from /sendOtp): Updates all fields ✅
+    // - If user doesn't exist: Creates new record ✅
+    // No 409 ConditionalCheckFailedException!
 
-    console.log(`[register] New user created: ${userId}`);
+    const result = await docClient.send(updateCommand);
 
-    return res.status(201).json({
+    console.log(`[/register] User profile registered/updated: ${userId}`);
+    console.log('[/register] Updated fields:', {
+      firstName: result.Attributes.firstName,
+      isProfileComplete: result.Attributes.isProfileComplete,
+      updatedAt: result.Attributes.updatedAt,
+    });
+
+    return res.status(200).json({
       success: true,
       message: 'Profile registered successfully',
       userId,
+      user: result.Attributes,
     });
   } catch (error) {
-    if (error.name === 'ConditionalCheckFailedException') {
-      // User hit register twice — profile already exists
-      return res.status(409).json({
+    console.error('[/register] Error:', error.message);
+    console.error('[/register] Error name:', error.name);
+
+    // Handle validation errors from helper functions
+    if (error.message?.includes('invalid')) {
+      return res.status(400).json({
         success: false,
-        error: 'Profile already registered for this account',
+        error: error.message,
       });
     }
 
-    console.error('[register] Error:', error);
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
+    });
+  }
+});
+
+/**
+ * BONUS ENDPOINTS FOR PROFILE MANAGEMENT
+ */
+
+/**
+ * GET /user-profile
+ * Get current user's complete profile
+ */
+router.get('/user-profile', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    console.log('[/user-profile] Fetching profile for:', userId);
+
+    const getCommand = new GetCommand({
+      TableName: 'Users',
+      Key: { userId },
+    });
+
+    const result = await docClient.send(getCommand);
+
+    if (!result.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'User profile not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: result.Item,
+    });
+  } catch (error) {
+    console.error('[/user-profile] Error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch profile',
+    });
+  }
+});
+
+/**
+ * PUT /update-profile
+ * Update any profile fields after initial registration
+ * User can edit name, bio, photos, etc anytime
+ */
+router.put('/update-profile', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const updates = req.body;
+
+    console.log('[/update-profile] Updating profile for:', userId);
+
+    // Whitelist allowed fields (don't let user modify protected fields)
+    const allowedFields = [
+      'firstName',
+      'lastName',
+      'gender',
+      'dateOfBirth',
+      'datingPreferences',
+      'goals',
+      'drink',
+      'smoke',
+      'height',
+      'hobbies',
+      'hometown',
+      'jobTitle',
+      'imageUrls',
+    ];
+
+    const updateExpressions = [];
+    const expressionAttributeValues = {};
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        updateExpressions.push(`${field} = :${field}`);
+        expressionAttributeValues[`:${field}`] = updates[field];
+      }
+    }
+
+    if (updateExpressions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No fields to update',
+      });
+    }
+
+    // Always update timestamp
+    updateExpressions.push('updatedAt = :updatedAt');
+    expressionAttributeValues[':updatedAt'] = new Date().toISOString();
+
+    const updateCommand = new UpdateCommand({
+      TableName: 'Users',
+      Key: { userId },
+      UpdateExpression: `SET ${updateExpressions.join(', ')}`,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ReturnValues: 'ALL_NEW',
+    });
+
+    const result = await docClient.send(updateCommand);
+
+    console.log('[/update-profile] Profile updated for:', userId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: result.Attributes,
+    });
+  } catch (error) {
+    console.error('[/update-profile] Error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update profile',
+    });
+  }
+});
+
+/**
+ * POST /check-profile-complete
+ * Check if user's profile registration is complete
+ * Used by frontend to decide: show HomeScreen or ProfileSetup
+ */
+router.post('/check-profile-complete', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    console.log('[/check-profile-complete] Checking for:', userId);
+
+    const getCommand = new GetCommand({
+      TableName: 'Users',
+      Key: { userId },
+    });
+
+    const result = await docClient.send(getCommand);
+
+    if (!result.Item) {
+      return res.status(200).json({
+        success: true,
+        isProfileComplete: false,
+        message: 'Profile not found, needs setup',
+      });
+    }
+
+    const isComplete = result.Item.isProfileComplete === true;
+
+    console.log('[/check-profile-complete] isProfileComplete:', isComplete);
+
+    return res.status(200).json({
+      success: true,
+      isProfileComplete: isComplete,
+      user: isComplete ? result.Item : null,
+    });
+  } catch (error) {
+    console.error('[/check-profile-complete] Error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check profile status',
     });
   }
 });

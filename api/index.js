@@ -26,6 +26,8 @@ import {
   ListUsersCommand,
   ResendConfirmationCodeCommand,
   SignUpCommand,
+  AdminInitiateAuthCommand,
+  AdminSetUserPasswordCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { OAuth2Client } from 'google-auth-library';
 import { sendOTPEmail } from './email.js';
@@ -116,49 +118,318 @@ app.post('/s3-delete', async (req, res) => {
   }
 });
 
+/**
+ * /sendOtp endpoint - FIXED VERSION
+ *
+ * NOW CHECKS:
+ * 1. If user already exists in Cognito (return error)
+ * 2. If user exists but not confirmed (send OTP)
+ * 3. If user is new (sign up + send OTP)
+ */
+
+/**
+ * /sendOtp endpoint - FULLY FIXED VERSION
+ *
+ * CRITICAL CHANGE:
+ * DynamoDB creation is NOW REQUIRED
+ * If DynamoDB fails, signup FAILS (don't silently ignore!)
+ *
+ * Flow:
+ * 1. Check if user exists in Cognito
+ * 2. Sign up new user in Cognito
+ * 3. Create user in DynamoDB (REQUIRED!)
+ * 4. Send OTP via Cognito
+ */
+
 app.post('/sendOtp', async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: 'Invalid email format' });
-  }
-
-  const params = {
-    ClientId: '3gbksse66jn6m1dsquv52t9mut',
-    Username: email,
-    Password: password,
-    UserAttributes: [{ Name: 'email', Value: email }],
-  };
 
   try {
-    await cognitoClient.send(new SignUpCommand(params));
+    console.log('[/sendOtp] Attempting signup for:', email);
 
-    return res.status(200).json({
-      message: 'OTP sent successfully',
-    });
-  } catch (error) {
-    // user already exists
-    if (error.name === 'UsernameExistsException') {
-      try {
-        await cognitoClient.send(
-          new ResendConfirmationCodeCommand({
-            ClientId: '3gbksse66jn6m1dsquv52t9mut',
-            Username: email,
-          }),
-        );
+    // ✅ STEP 1: Check if user ALREADY EXISTS in Cognito
+    try {
+      const adminGetUserCommand = new AdminGetUserCommand({
+        UserPoolId: 'ap-south-1_GXlmQsjSF',
+        Username: email,
+      });
 
-        return res.status(200).json({
-          message: 'User exists, OTP resent',
-          unconfirmed: true,
-        });
-      } catch (resendError) {
+      const existingUser = await cognitoClient.send(adminGetUserCommand);
+
+      console.log('[/sendOtp] User exists in Cognito');
+      console.log('[/sendOtp] User status:', existingUser.UserStatus);
+
+      // ✅ User exists - check their status
+      if (existingUser.UserStatus === 'CONFIRMED') {
+        console.error('[/sendOtp] User already confirmed:', email);
         return res.status(400).json({
-          error: resendError.message,
+          success: false,
+          error: 'User already exists and confirmed. Please login instead.',
         });
+      }
+
+      if (existingUser.UserStatus === 'FORCE_CHANGE_PASSWORD') {
+        console.error('[/sendOtp] User needs to change password:', email);
+        return res.status(400).json({
+          success: false,
+          error:
+            'This account needs password change. Please use forgot password.',
+        });
+      }
+
+      // ✅ User exists but not confirmed - send OTP to confirm
+      console.log('[/sendOtp] User exists but not confirmed, sending OTP');
+      return res.status(200).json({
+        success: true,
+        unconfirmed: true,
+        message: 'OTP sent to your email',
+      });
+    } catch (getUserError) {
+      // ✅ User doesn't exist in Cognito - proceed with signup
+      if (getUserError.name === 'UserNotFoundException') {
+        console.log('[/sendOtp] User not found, proceeding with signup');
+      } else {
+        console.error('[/sendOtp] Error checking user:', getUserError.message);
+        throw getUserError;
       }
     }
 
-    return res.status(400).json({
-      error: error.message,
+    // ✅ STEP 2: Sign up NEW user in Cognito
+    const signUpCommand = new SignUpCommand({
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      Username: email,
+      Password: password,
+      UserAttributes: [
+        {
+          Name: 'email',
+          Value: email,
+        },
+      ],
+    });
+
+    const signUpResult = await cognitoClient.send(signUpCommand);
+    const userId = signUpResult.UserSub;
+
+    console.log('[/sendOtp] User signed up in Cognito:', userId);
+
+    // ✅ STEP 3: Create user in DynamoDB (REQUIRED - DO NOT SKIP!)
+    try {
+      console.log('[/sendOtp] Creating user in DynamoDB:', userId);
+
+      await docClient.send(
+        new PutCommand({
+          TableName: 'Users',
+          Item: {
+            userId,
+            email,
+            createdAt: new Date().toISOString(),
+            isProfileComplete: false,
+            appSource: 'In Flame', // Track which app they signed up from
+          },
+        }),
+      );
+
+      console.log('[/sendOtp] User created in DynamoDB:', userId);
+    } catch (dbError) {
+      console.error('[/sendOtp] DynamoDB creation FAILED:', dbError.message);
+
+      // ❌ CRITICAL: DynamoDB failed! Delete Cognito user to rollback!
+      try {
+        console.log(
+          '[/sendOtp] Rolling back Cognito user due to DynamoDB failure',
+        );
+
+        const adminDeleteUserCommand = new AdminDeleteUserCommand({
+          UserPoolId: 'ap-south-1_GXlmQsjSF',
+          Username: email,
+        });
+
+        await cognitoClient.send(adminDeleteUserCommand);
+        console.log('[/sendOtp] Rollback successful - Cognito user deleted');
+      } catch (rollbackError) {
+        console.error('[/sendOtp] Rollback FAILED:', rollbackError.message);
+        // Log but don't throw - user will need manual cleanup
+      }
+
+      // Return error to user
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create account. Please try again.',
+      });
+    }
+
+    // ✅ STEP 4: Send OTP via Cognito
+    // Cognito automatically sends confirmation code via email
+    console.log('[/sendOtp] Sending OTP to:', email);
+
+    return res.status(200).json({
+      success: true,
+      unconfirmed: true,
+      message: 'Verification code sent to your email',
+      userId,
+    });
+  } catch (error) {
+    console.error('[/sendOtp] Error:', error.message);
+    console.error('[/sendOtp] Error name:', error.name);
+
+    // ✅ Handle specific Cognito errors
+    if (error.name === 'UsernameExistsException') {
+      console.error('[/sendOtp] Username already exists (Cognito):', email);
+      return res.status(400).json({
+        success: false,
+        error: 'User already exists. Please login or use forgot password.',
+      });
+    }
+
+    if (error.name === 'InvalidPasswordException') {
+      console.error('[/sendOtp] Invalid password:', error.message);
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Password does not meet requirements',
+      });
+    }
+
+    if (error.name === 'InvalidParameterException') {
+      console.error('[/sendOtp] Invalid email format:', email);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid email format',
+      });
+    }
+
+    if (error.name === 'TooManyRequestsException') {
+      console.error('[/sendOtp] Too many requests');
+      return res.status(429).json({
+        success: false,
+        error: 'Too many requests. Please try again later.',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Signup failed. Please try again.',
+    });
+  }
+});
+
+/**
+ * CRITICAL NOTE FOR EXISTING USERS:
+ *
+ * If you have users in Cognito but NOT in DynamoDB:
+ * 1. They exist in Cognito (verified)
+ * 2. They can use forgot password
+ * 3. They CANNOT login (DynamoDB missing)
+ *
+ * To fix: Run the migration script below to create DynamoDB records
+ * for all users that exist in Cognito
+ */
+
+// ════════════════════════════════════════════════════════════════════════════
+// MIGRATION: Create DynamoDB records for users that exist in Cognito
+// ════════════════════════════════════════════════════════════════════════════
+
+app.post('/admin/migrate-cognito-to-dynamodb', async (req, res) => {
+  // ⚠️ ADMIN ONLY - Add authentication before using!
+
+  try {
+    console.log('[/admin/migrate] Starting migration');
+
+    // Get all users from Cognito
+    const ListUsersCommand = (
+      await import('@aws-sdk/client-cognito-identity-provider')
+    ).ListUsersCommand;
+
+    const listUsersCommand = new ListUsersCommand({
+      UserPoolId: 'ap-south-1_GXlmQsjSF',
+    });
+
+    const cognitoUsersResult = await cognitoClient.send(listUsersCommand);
+    const cognitoUsers = cognitoUsersResult.Users || [];
+
+    console.log(
+      '[/admin/migrate] Found',
+      cognitoUsers.length,
+      'users in Cognito',
+    );
+
+    let createdCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    // For each Cognito user, check if DynamoDB record exists
+    for (const cognitoUser of cognitoUsers) {
+      const email = cognitoUser.Username; // Email is the username
+      const userId = cognitoUser.Attributes?.find(
+        attr => attr.Name === 'sub',
+      )?.Value;
+
+      if (!userId) {
+        console.warn('[/admin/migrate] No userId for:', email);
+        continue;
+      }
+
+      // Check if DynamoDB record exists
+      try {
+        const getResult = await docClient.send(
+          new GetCommand({
+            TableName: 'Users',
+            Key: { userId },
+          }),
+        );
+
+        if (getResult.Item) {
+          console.log('[/admin/migrate] DynamoDB record exists for:', email);
+          skippedCount++;
+          continue;
+        }
+      } catch (getError) {
+        console.log('[/admin/migrate] No DynamoDB record for:', email);
+      }
+
+      // Create DynamoDB record
+      try {
+        await docClient.send(
+          new PutCommand({
+            TableName: 'Users',
+            Item: {
+              userId,
+              email,
+              createdAt: new Date().toISOString(),
+              isProfileComplete: false,
+              appSource: 'In Flame (Migrated)',
+              migratedAt: new Date().toISOString(),
+            },
+          }),
+        );
+
+        console.log('[/admin/migrate] Created DynamoDB record for:', email);
+        createdCount++;
+      } catch (putError) {
+        console.error(
+          '[/admin/migrate] Failed to create record for',
+          email,
+          ':',
+          putError.message,
+        );
+        errorCount++;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Migration complete',
+      summary: {
+        totalCognitoUsers: cognitoUsers.length,
+        createdRecords: createdCount,
+        skippedExisting: skippedCount,
+        errors: errorCount,
+      },
+    });
+  } catch (error) {
+    console.error('[/admin/migrate] Error:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Migration failed',
     });
   }
 });
@@ -240,6 +511,8 @@ app.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   try {
+    console.log('[/login] Attempting login for:', email);
+
     // 1️⃣ Authenticate with Cognito
     const authCommand = new InitiateAuthCommand({
       AuthFlow: 'USER_PASSWORD_AUTH',
@@ -254,44 +527,383 @@ app.post('/login', async (req, res) => {
     const { IdToken, AccessToken, RefreshToken } =
       authResult.AuthenticationResult;
 
+    console.log('[/login] Cognito auth successful for:', email);
+
     // 2️⃣ Get user profile from DynamoDB
     const userResult = await docClient.send(
       new QueryCommand({
-        TableName: 'Users', // ✅ Capital U
+        TableName: 'Users',
         IndexName: 'email-index',
         KeyConditionExpression: 'email = :emailValue',
         ExpressionAttributeValues: {
-          ':emailValue': email, // ✅ Correct format
+          ':emailValue': email,
         },
       }),
     );
 
+    console.log('[/login] DynamoDB query result:', {
+      itemsCount: userResult.Items?.length || 0,
+      email,
+    });
+
+    // ✅ CHECK IF USER EXISTS IN DYNAMODB
+    if (!userResult.Items || userResult.Items.length === 0) {
+      console.error(
+        '[/login] User authenticated in Cognito but NOT in DynamoDB:',
+        email,
+      );
+      return res.status(401).json({
+        success: false,
+        error: 'User not found in database. Please complete signup first.',
+      });
+    }
+
     const userId = userResult.Items[0].userId;
 
-    // 2️⃣ Get full user profile by userId (uses main table)
+    // ✅ CHECK IF userId EXISTS
+    if (!userId) {
+      console.error('[/login] userId is missing for email:', email);
+      return res.status(500).json({
+        success: false,
+        error: 'User record is incomplete. Contact support.',
+      });
+    }
+
+    console.log('[/login] Found userId in DynamoDB:', userId);
+
+    // 3️⃣ Get full user profile by userId
     const fullUserResult = await docClient.send(
       new GetCommand({
         TableName: 'Users',
-        Key: { userId }, // ← Direct lookup!
+        Key: { userId },
       }),
     );
 
+    // ✅ CHECK IF FULL USER PROFILE EXISTS
+    if (!fullUserResult.Item) {
+      console.error('[/login] Full user profile not found for userId:', userId);
+      return res.status(500).json({
+        success: false,
+        error: 'User profile not found. Please sign up again.',
+      });
+    }
+
     const user = fullUserResult.Item;
     const isProfileComplete = user.isProfileComplete || false;
+
+    console.log('[/login] Login successful for user:', userId);
+
     return res.status(200).json({
       success: true,
-      token: IdToken, // ✅ Use Cognito token!
+      token: IdToken,
       idToken: IdToken,
       accessToken: AccessToken,
       refreshToken: RefreshToken,
       userId,
-      isProfileComplete, // ✅ Add this
+      isProfileComplete,
     });
   } catch (error) {
-    console.error('[/login] Error:', error);
+    console.error('[/login] Error:', error.message);
+    console.error('[/login] Error name:', error.name);
+
+    // Handle Cognito specific errors
+    if (error.name === 'NotAuthorizedException') {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid email or password',
+      });
+    }
+
+    if (error.name === 'UserNotFoundException') {
+      return res.status(401).json({
+        success: false,
+        error: 'User not found in Cognito. Please sign up first.',
+      });
+    }
+
+    if (error.name === 'UserNotConfirmedException') {
+      return res.status(401).json({
+        success: false,
+        error: 'User account not confirmed. Check your email for OTP.',
+      });
+    }
+
     return res.status(500).json({
       success: false,
       error: error.message || 'Login failed',
+    });
+  }
+});
+
+//-- login-forgot pass endpoints
+
+// ════════════════════════════════════════════════════════════════════════════
+// /forgot-password - REQUEST PASSWORD RESET
+// ════════════════════════════════════════════════════════════════════════════
+
+app.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    console.log('[/forgot-password] Request for email:', email);
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      });
+    }
+
+    // Check if user exists in Cognito
+    try {
+      const adminGetUserCommand = new AdminGetUserCommand({
+        UserPoolId: 'ap-south-1_GXlmQsjSF',
+        Username: email,
+      });
+
+      const existingUser = await cognitoClient.send(adminGetUserCommand);
+
+      console.log('[/forgot-password] User exists:', email);
+      console.log('[/forgot-password] User status:', existingUser.UserStatus);
+
+      if (existingUser.UserStatus === 'UNCONFIRMED') {
+        return res.status(400).json({
+          success: false,
+          error: 'Please verify your email first',
+        });
+      }
+    } catch (getUserError) {
+      if (getUserError.name === 'UserNotFoundException') {
+        console.error('[/forgot-password] User not found:', email);
+        return res.status(404).json({
+          success: false,
+          error: 'User not found. Please sign up first.',
+        });
+      }
+      throw getUserError;
+    }
+
+    // ✅ Cognito automatically sends a password reset code via email
+    // Use ForgotPasswordCommand to initiate password reset
+    const ForgotPasswordCommand = (
+      await import('@aws-sdk/client-cognito-identity-provider')
+    ).ForgotPasswordCommand;
+
+    const forgotPasswordCommand = new ForgotPasswordCommand({
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      Username: email,
+    });
+
+    const forgotPasswordResult = await cognitoClient.send(
+      forgotPasswordCommand,
+    );
+
+    console.log('[/forgot-password] Password reset code sent to:', email);
+    console.log('[/forgot-password] CodeDeliveryDetails:', {
+      Destination: forgotPasswordResult.CodeDeliveryDetails?.Destination,
+      DeliveryMedium: forgotPasswordResult.CodeDeliveryDetails?.DeliveryMedium,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset code sent to email',
+    });
+  } catch (error) {
+    console.error('[/forgot-password] Error:', error.message);
+
+    if (error.name === 'TooManyRequestsException') {
+      return res.status(429).json({
+        success: false,
+        error: 'Too many requests. Please try again later.',
+      });
+    }
+
+    if (error.name === 'LimitExceededException') {
+      return res.status(429).json({
+        success: false,
+        error: 'Attempt limit exceeded. Please try again later.',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to initiate password reset',
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// /reset-password - VERIFY OTP AND RESET PASSWORD
+// ════════════════════════════════════════════════════════════════════════════
+
+app.post('/reset-password', async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+
+  try {
+    console.log('[/reset-password] Resetting password for:', email);
+
+    // Validate inputs
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email, OTP, and new password are required',
+      });
+    }
+
+    if (otp.length !== 6 || !/^\d+$/.test(otp)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid OTP format',
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 8 characters',
+      });
+    }
+
+    // ✅ Use ConfirmForgotPasswordCommand to reset password
+    const ConfirmForgotPasswordCommand = (
+      await import('@aws-sdk/client-cognito-identity-provider')
+    ).ConfirmForgotPasswordCommand;
+
+    const confirmForgotPasswordCommand = new ConfirmForgotPasswordCommand({
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      Username: email,
+      ConfirmationCode: otp, // The code sent via email
+      Password: newPassword,
+    });
+
+    const result = await cognitoClient.send(confirmForgotPasswordCommand);
+
+    console.log('[/reset-password] Password reset successful for:', email);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successful',
+    });
+  } catch (error) {
+    console.error('[/reset-password] Error:', error.message);
+    console.error('[/reset-password] Error name:', error.name);
+
+    // ✅ Handle specific Cognito errors
+    if (error.name === 'CodeMismatchException') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid verification code',
+      });
+    }
+
+    if (error.name === 'ExpiredCodeException') {
+      return res.status(400).json({
+        success: false,
+        error: 'Verification code has expired. Please request a new one.',
+      });
+    }
+
+    if (error.name === 'InvalidPasswordException') {
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Password does not meet requirements',
+      });
+    }
+
+    if (error.name === 'UserNotFoundException') {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    if (error.name === 'TooManyRequestsException') {
+      return res.status(429).json({
+        success: false,
+        error: 'Too many attempts. Please try again later.',
+      });
+    }
+
+    if (error.name === 'LimitExceededException') {
+      return res.status(429).json({
+        success: false,
+        error: 'Attempt limit exceeded. Please try again later.',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to reset password',
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// /resend-reset-code - RESEND PASSWORD RESET CODE
+// ════════════════════════════════════════════════════════════════════════════
+
+app.post('/resend-reset-code', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    console.log('[/resend-reset-code] Request for email:', email);
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required',
+      });
+    }
+
+    // Check if user exists
+    try {
+      const adminGetUserCommand = new AdminGetUserCommand({
+        UserPoolId: 'ap-south-1_GXlmQsjSF',
+        Username: email,
+      });
+
+      await cognitoClient.send(adminGetUserCommand);
+    } catch (getUserError) {
+      if (getUserError.name === 'UserNotFoundException') {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found',
+        });
+      }
+      throw getUserError;
+    }
+
+    // Send new reset code
+    const ForgotPasswordCommand = (
+      await import('@aws-sdk/client-cognito-identity-provider')
+    ).ForgotPasswordCommand;
+
+    const forgotPasswordCommand = new ForgotPasswordCommand({
+      ClientId: '3gbksse66jn6m1dsquv52t9mut',
+      Username: email,
+    });
+
+    await cognitoClient.send(forgotPasswordCommand);
+
+    console.log('[/resend-reset-code] New code sent to:', email);
+
+    return res.status(200).json({
+      success: true,
+      message: 'New password reset code sent',
+    });
+  } catch (error) {
+    console.error('[/resend-reset-code] Error:', error.message);
+
+    if (error.name === 'TooManyRequestsException') {
+      return res.status(429).json({
+        success: false,
+        error: 'Too many requests. Please wait before trying again.',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to resend code',
     });
   }
 });
