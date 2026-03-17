@@ -23,6 +23,7 @@ import SetNewPasswordScreen from '../screens/SetNewPasswordScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthContext, AuthProvider } from '../AuthContex';
 import { ActivityIndicator, View } from 'react-native';
+import DailyScreen from '../screens/DailyScreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -47,6 +48,11 @@ function AppStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Tabs" component={BottomTabs} />
+      <Stack.Screen
+        name="Daily"
+        component={DailyScreen}
+        options={{ animation: 'slide_from_bottom' }} // ← nice entry
+      />
     </Stack.Navigator>
   );
 }

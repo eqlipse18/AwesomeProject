@@ -26,6 +26,7 @@ import {
   StatusBar,
   Dimensions,
   Image,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'react-native-linear-gradient';
 import LottieView from 'lottie-react-native';
@@ -49,6 +50,11 @@ import {
 } from '../src/hooks/usePremiumHooks';
 import axios from 'axios';
 import Config from 'react-native-config';
+import {
+  responsiveFontSize,
+  responsiveWidth,
+} from 'react-native-responsive-dimensions';
+import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
 
 // ── Lazy load premium modals ──
 const PremiumModal = React.lazy(() =>
@@ -403,6 +409,7 @@ export default function HomeScreen({ navigation }) {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [premiumFeature, setPremiumFeature] = useState('SUPERLIKE');
+  const { unseenCount } = useDailyFeed({ token });
 
   // ── Animation Shared Values ──
   const scanFadeOutOpacity = useSharedValue(1);
@@ -638,8 +645,41 @@ export default function HomeScreen({ navigation }) {
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="white" />
 
+        {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Flames</Text>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.headerTitle}>Flames</Text>
+
+            {/* Tab buttons */}
+            <View style={styles.tabRow}>
+              {/* Nearby — placeholder */}
+              <TouchableOpacity style={styles.tabBtn} disabled>
+                <Text style={styles.tabBtnText}>Nearby</Text>
+              </TouchableOpacity>
+
+              {/* Online — placeholder */}
+              <TouchableOpacity style={styles.tabBtn} disabled>
+                <Text style={styles.tabBtnText}>Online</Text>
+              </TouchableOpacity>
+
+              {/* Daily New — active */}
+              <TouchableOpacity
+                style={styles.dailyTabBtn}
+                onPress={() => navigation.navigate('Daily')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.dailyTabText}>Daily New</Text>
+                {unseenCount > 0 && (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifText}>
+                      {unseenCount > 99 ? '99+' : unseenCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <Text style={styles.headerSubtitle}>
             {feedCount} profile{feedCount !== 1 ? 's' : ''} available
           </Text>
@@ -794,6 +834,62 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     color: '#64748B',
+  },
+
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    opacity: 0.5,
+  },
+  tabBtnText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  dailyTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'pink',
+    backgroundColor: '#fff',
+    gap: 6,
+  },
+  dailyTabText: {
+    fontSize: 12,
+    color: '#FF0059',
+    fontWeight: '700',
+  },
+  notifBadge: {
+    backgroundColor: '#FF0059',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  notifText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
   },
 
   stackContainer: {
@@ -1054,3 +1150,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+
+//  boost will be paid feature for premium user for whom 5 boost will be provided  to ther user who have purchased flame plus and 10 boost for user who have

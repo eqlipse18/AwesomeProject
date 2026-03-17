@@ -34,6 +34,7 @@ import { sendOTPEmail } from './email.js';
 import registerRouter from './registerRoute.js';
 import swipeRouter from './swipeRoutes.js';
 import subscriptionRoutes from './subscriptionRoutes.js';
+import dailyFeedRoutes from './dailyFeedRoutes.js';
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -1006,3 +1007,4 @@ app.use('/', registerRouter);
  */
 app.use('/', swipeRouter);
 app.use('/', subscriptionRoutes);
+app.use('/', dailyFeedRoutes);

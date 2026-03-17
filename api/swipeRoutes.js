@@ -14,171 +14,12 @@ import {
   GetCommand,
   PutCommand,
   BatchGetCommand,
+  UpdateCommand,
 } from './db.js';
 import { authenticate } from './authenticate.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
-
-// ════════════════════════════════════════════════════════════════════════════
-// GET /feed - Fetch paginated discover feed (FIXED GENDER FILTERING)
-// ════════════════════════════════════════════════════════════════════════════
-// router.get('/feed', authenticate, async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-//     const {
-//       minAge = 18,
-//       maxAge = 60,
-//       hometown,
-//       limit = 50,
-//       cursor,
-//     } = req.query;
-
-//     const parsedMinAge = parseInt(minAge, 10);
-//     const parsedMaxAge = parseInt(maxAge, 10);
-//     const parsedLimit = Math.min(parseInt(limit, 10), 100); // max return to client
-//     const internalFetchLimit = parsedLimit + 50; // prefetch extra 50 internally
-
-//     if (isNaN(parsedMinAge) || isNaN(parsedMaxAge)) {
-//       return res
-//         .status(400)
-//         .json({
-//           success: false,
-//           error: 'minAge and maxAge must be valid numbers',
-//         });
-//     }
-//     if (parsedMinAge < 18 || parsedMaxAge > 100) {
-//       return res
-//         .status(400)
-//         .json({
-//           success: false,
-//           error: 'Age range must be between 18 and 100',
-//         });
-//     }
-
-//     // ── Fetch user's gender and dating preferences ──
-//     const loggedInUserResponse = await docClient.send(
-//       new GetCommand({
-//         TableName: 'Users',
-//         Key: { userId },
-//         ProjectionExpression: 'gender, datingPreferences',
-//       }),
-//     );
-
-//     if (!loggedInUserResponse.Item)
-//       return res.status(404).json({ success: false, error: 'User not found' });
-
-//     const loggedInUserGender = loggedInUserResponse.Item.gender;
-//     const datingPreferences = loggedInUserResponse.Item.datingPreferences || [];
-
-//     let gendersToShow = [];
-//     if (datingPreferences.includes('Men')) gendersToShow.push('Male');
-//     if (datingPreferences.includes('Women')) gendersToShow.push('Female');
-//     if (gendersToShow.length === 0)
-//       gendersToShow = loggedInUserGender === 'Male' ? ['Female'] : ['Male'];
-
-//     console.log(
-//       `[/feed] User ${userId} wants: ${datingPreferences.join(
-//         ', ',
-//       )} → Showing: ${gendersToShow.join(', ')}`,
-//     );
-
-//     // ── Already-swiped users ──
-//     const likedUsersResponse = await docClient.send(
-//       new QueryCommand({
-//         TableName: 'flame-Likes',
-//         IndexName: 'likerId-timestamp-index',
-//         KeyConditionExpression: 'likerId = :userId',
-//         ProjectionExpression: 'likedId',
-//         ExpressionAttributeValues: { ':userId': userId },
-//       }),
-//     );
-//     const alreadySwiped = new Set(
-//       likedUsersResponse.Items.map(item => item.likedId),
-//     );
-
-//     // ── Build query ──
-//     const genderValues = {};
-//     gendersToShow.forEach((g, i) => (genderValues[`:gender${i}`] = g));
-
-//     const queryParams = {
-//       TableName: 'Users',
-//       IndexName: hometown ? 'hometown-age-index' : 'gender-age-index',
-//       KeyConditionExpression: hometown
-//         ? 'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge'
-//         : 'ageForSort BETWEEN :minAge AND :maxAge',
-//       FilterExpression: `isActive = :isActiveVal AND gender IN (${Object.keys(
-//         genderValues,
-//       ).join(', ')}) AND userId <> :userId`,
-//       ExpressionAttributeValues: {
-//         ':isActiveVal': true,
-//         ':minAge': parsedMinAge,
-//         ':maxAge': parsedMaxAge,
-//         ':userId': userId,
-//         ...(hometown ? { ':hometown': hometown } : {}),
-//         ...genderValues,
-//       },
-//       ProjectionExpression:
-//         'userId, firstName, imageUrls, gender, ageForSort, hometown, goals, datingPreferences',
-//       Limit: internalFetchLimit, // prefetch extra
-//     };
-
-//     if (cursor) {
-//       try {
-//         queryParams.ExclusiveStartKey = JSON.parse(
-//           Buffer.from(cursor, 'base64').toString(),
-//         );
-//       } catch (e) {
-//         return res
-//           .status(400)
-//           .json({ success: false, error: 'Invalid cursor' });
-//       }
-//     }
-
-//     const response = await docClient.send(new QueryCommand(queryParams));
-
-//     // ── Filter out already-swiped users ──
-//     const filteredUsers = (response.Items || []).filter(
-//       user => !alreadySwiped.has(user.userId),
-//     );
-
-//     // ── Slice to requested limit ──
-//     const users = filteredUsers.slice(0, parsedLimit);
-
-//     // ── Next cursor ──
-//     let nextCursor = null;
-//     if (response.LastEvaluatedKey) {
-//       nextCursor = Buffer.from(
-//         JSON.stringify(response.LastEvaluatedKey),
-//       ).toString('base64');
-//     }
-
-//     // ── Format response ──
-//     const formattedUsers = users.map(user => ({
-//       userId: user.userId,
-//       name: user.firstName,
-//       age: user.ageForSort,
-//       image: user.imageUrls?.[0],
-//       hometown: user.hometown,
-//       gender: user.gender,
-//       goals: user.goals,
-//     }));
-
-//     return res
-//       .status(200)
-//       .json({
-//         success: true,
-//         users: formattedUsers,
-//         nextCursor,
-//         total: formattedUsers.length,
-//       });
-//   } catch (error) {
-//     console.error('[/feed] Error:', error);
-//     return res
-//       .status(500)
-//       .json({ success: false, error: 'Failed to fetch feed' });
-//   }
-// });
 
 router.get('/feed', authenticate, async (req, res) => {
   try {
@@ -430,6 +271,20 @@ router.post('/swipe', authenticate, async (req, res) => {
         Item: likeRecord,
       }),
     );
+
+    // ─────────────────────────────────────────────
+    // ── 3b. INCREMENT likeCount on target user ──  ← YE NAI LINE HAI
+    // ─────────────────────────────────────────────
+    if (type !== 'pass') {
+      await docClient.send(
+        new UpdateCommand({
+          TableName: 'Users',
+          Key: { userId: likedId },
+          UpdateExpression: 'ADD likeCount :inc',
+          ExpressionAttributeValues: { ':inc': 1 },
+        }),
+      );
+    }
 
     // ── 4. Check for mutual match ──
     let matchDetected = false;
