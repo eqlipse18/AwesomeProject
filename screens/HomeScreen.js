@@ -55,6 +55,7 @@ import {
   responsiveWidth,
 } from 'react-native-responsive-dimensions';
 import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
+import { formatLastActive } from '../src/hooks/useOnlineStatus';
 
 // ── Lazy load premium modals ──
 const PremiumModal = React.lazy(() =>
@@ -103,31 +104,49 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
 
 const ProfileCard = React.memo(({ user, cardFadeInOpacity, onPress }) => {
   const [imageError, setImageError] = useState(false);
-
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     opacity: cardFadeInOpacity.value,
   }));
 
-  if (!user) {
-    return (
-      <View style={styles.cardContainer}>
-        <View style={styles.loadingCard}>
-          <Text style={styles.noDataText}>Loading profile...</Text>
-        </View>
+  if (!user) return null;
+
+  const imageUrl = user.image || user.imageUrls?.[0];
+  const lastActiveText = user.isOnline
+    ? 'Online'
+    : formatLastActive(user.lastActiveAt, 3); // ✅ cards pe 3 din tak
+
+  // Render mein — pill hamesha dikhao agar text hai
+  {
+    lastActiveText && (
+      <View
+        style={[
+          styles.onlinePill,
+          {
+            backgroundColor: user.isOnline
+              ? 'rgba(34, 197, 94, 0.85)' // green
+              : 'rgba(0, 0, 0, 0.45)', // dark grey
+          },
+        ]}
+      >
+        {/* ✅ dot + text dono */}
+        <View
+          style={[
+            styles.onlinePillDot,
+            { backgroundColor: user.isOnline ? '#fff' : '#94A3B8' },
+          ]}
+        />
+        <Text style={styles.onlinePillText}>{lastActiveText}</Text>
       </View>
     );
   }
-
-  const imageUrl = user.image || user.imageUrls?.[0];
 
   return (
     <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
       <TouchableOpacity
         activeOpacity={0.95}
         onPress={onPress}
-        style={StyleSheet.absoluteFillObject} // ✅ image ke upar full cover, layout disturb nahi
+        style={StyleSheet.absoluteFillObject}
       />
-
       {imageUrl && !imageError ? (
         <Image
           source={{ uri: imageUrl }}
@@ -141,7 +160,7 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity, onPress }) => {
       )}
 
       <LinearGradient
-        colors={['transparent', 'rgba(0, 0, 0, 0.85)']}
+        colors={['transparent', 'rgba(0,0,0,0.85)']}
         style={styles.gradient}
       />
 
@@ -149,6 +168,21 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity, onPress }) => {
         <View style={styles.nameAgeContainer}>
           <Text style={styles.name}>{user.name}</Text>
           <Text style={styles.age}>{user.age}</Text>
+          {/* ✅ Online indicator */}
+          {lastActiveText && (
+            <View
+              style={[
+                styles.onlinePill,
+                {
+                  backgroundColor: user.isOnline
+                    ? '#22C55E'
+                    : 'rgba(255,255,255,0.25)',
+                },
+              ]}
+            >
+              <Text style={styles.onlinePillText}>{lastActiveText}</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.hometown}>
           📍 {user.hometown || 'Location not set'}
@@ -848,6 +882,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+  },
+
+  onlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+    gap: 4,
+  },
+  onlinePillDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  onlinePillText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
   },
 
   header: {

@@ -96,16 +96,17 @@ router.get('/feed', authenticate, async (req, res) => {
       }
     }
 
-    // ── 4. Query per gender — loop until enough results ──
+    // ── 4. Query per gender — GSI se sirf basic fields ──
     const queryForGender = async gender => {
       const items = [];
       let lastKey = parsedCursor[gender] || undefined;
-      const target = parsedLimit + 20; // buffer for swiped filtering
+      const target = parsedLimit + 20;
 
       while (items.length < target) {
         const params = {
           TableName: 'Users',
           IndexName: hometown ? 'hometown-age-index' : 'gender-age-index',
+          // ✅ GSI mein sirf ye fields projected hain — isOnline/lastActiveAt nahi
           ProjectionExpression:
             'userId, firstName, imageUrls, gender, ageForSort, hometown, goals',
           ExpressionAttributeValues: {
@@ -115,7 +116,7 @@ router.get('/feed', authenticate, async (req, res) => {
             ':minAge': parsedMinAge,
             ':maxAge': parsedMaxAge,
           },
-          Limit: 100, // scan 100 items per page from dynamo
+          Limit: 100,
           ...(lastKey && { ExclusiveStartKey: lastKey }),
         };
 
@@ -135,8 +136,7 @@ router.get('/feed', authenticate, async (req, res) => {
         const resp = await docClient.send(new QueryCommand(params));
         items.push(...(resp.Items || []));
         lastKey = resp.LastEvaluatedKey;
-
-        if (!lastKey) break; // exhausted all data for this gender
+        if (!lastKey) break;
       }
 
       return { items, lastKey };
@@ -168,6 +168,35 @@ router.get('/feed', authenticate, async (req, res) => {
     // ── 7. Slice to limit ──
     const users = filteredUsers.slice(0, parsedLimit);
 
+    // ── 7b. BatchGet main table — isOnline + lastActiveAt ──
+    const sevenDaysAgo = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    let onlineMap = {};
+    if (users.length > 0) {
+      try {
+        const batchResp = await docClient.send(
+          new BatchGetCommand({
+            RequestItems: {
+              Users: {
+                Keys: users.map(u => ({ userId: u.userId })),
+                ProjectionExpression: 'userId, isOnline, lastActiveAt',
+              },
+            },
+          }),
+        );
+        (batchResp.Responses?.Users || []).forEach(u => {
+          onlineMap[u.userId] = {
+            isOnline: u.isOnline ?? false,
+            lastActiveAt: u.lastActiveAt ?? null,
+          };
+        });
+      } catch (e) {
+        console.warn('[/feed] BatchGet online status failed:', e.message);
+      }
+    }
+
     // ── 8. Build per-gender next cursor ──
     const cursorMap = {};
     genderResults.forEach((r, idx) => {
@@ -180,16 +209,26 @@ router.get('/feed', authenticate, async (req, res) => {
         ? Buffer.from(JSON.stringify(cursorMap)).toString('base64')
         : null;
 
-    // ── 9. Format response ──
-    const formattedUsers = users.map(u => ({
-      userId: u.userId,
-      name: u.firstName,
-      age: u.ageForSort,
-      image: u.imageUrls?.[0],
-      hometown: u.hometown,
-      gender: u.gender,
-      goals: u.goals,
-    }));
+    // ── 9. Format + 7 din inactive filter ──
+    const formattedUsers = users
+      .filter(u => {
+        const lat = onlineMap[u.userId]?.lastActiveAt;
+        // ✅ lastActiveAt nahi hai (naya user) → dikhao
+        // ✅ lastActiveAt 7 din ke andar → dikhao
+        if (!lat) return true;
+        return lat > sevenDaysAgo;
+      })
+      .map(u => ({
+        userId: u.userId,
+        name: u.firstName,
+        age: u.ageForSort,
+        image: u.imageUrls?.[0],
+        hometown: u.hometown,
+        gender: u.gender,
+        goals: u.goals,
+        isOnline: onlineMap[u.userId]?.isOnline ?? false,
+        lastActiveAt: onlineMap[u.userId]?.lastActiveAt ?? null,
+      }));
 
     return res.status(200).json({
       success: true,
@@ -772,7 +811,7 @@ router.post('/get-user-by-id', authenticate, async (req, res) => {
         TableName: 'Users',
         Key: { userId },
         ProjectionExpression:
-          'userId, firstName, lastName, fullName, ageForSort, dateOfBirth, imageUrls, gender, hometown, goals, hobbies, jobTitle, #ht, drink, smoke, datingPreferences, isVerified, isPremium',
+          'userId, firstName, lastName, fullName, ageForSort, dateOfBirth, imageUrls, gender, hometown, goals, hobbies, jobTitle, #ht, drink, smoke, datingPreferences, isVerified, isPremium, isOnline, lastActiveAt',
         ExpressionAttributeNames: {
           '#ht': 'height', // height reserved word
         },

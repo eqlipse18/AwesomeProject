@@ -28,6 +28,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../AuthContex';
 import { useMatches } from '../src/hooks/useChatHook';
+import {
+  useOnlineStatus,
+  formatLastActive,
+} from '../src/hooks/useOnlineStatus';
 
 const formatTime = ts => {
   if (!ts) return '';
@@ -42,7 +46,7 @@ const formatTime = ts => {
 };
 
 // ── Match Avatar (top row — new matches) ──
-const NewMatchBubble = ({ match, onPress }) => (
+const NewMatchBubble = ({ match, onPress, isOnline }) => (
   <TouchableOpacity
     style={styles.bubbleWrapper}
     onPress={onPress}
@@ -56,7 +60,13 @@ const NewMatchBubble = ({ match, onPress }) => (
           <Text style={{ fontSize: 22 }}>👤</Text>
         </View>
       )}
-      <View style={styles.bubbleOnline} />
+      {/* ✅ Dynamic dot */}
+      <View
+        style={[
+          styles.bubbleOnline,
+          { backgroundColor: isOnline ? '#22C55E' : '#94A3B8' },
+        ]}
+      />
     </View>
     <Text style={styles.bubbleName} numberOfLines={1}>
       {match.name}
@@ -65,7 +75,7 @@ const NewMatchBubble = ({ match, onPress }) => (
 );
 
 // ── Chat Row ──
-const ChatRow = ({ match, onPress }) => (
+const ChatRow = ({ match, onPress, isOnline, lastActiveText }) => (
   <TouchableOpacity
     style={styles.chatRow}
     onPress={onPress}
@@ -79,6 +89,13 @@ const ChatRow = ({ match, onPress }) => (
           <Text style={{ fontSize: 24 }}>👤</Text>
         </View>
       )}
+      {/* ✅ Online dot on avatar */}
+      <View
+        style={[
+          styles.avatarOnlineDot,
+          { backgroundColor: isOnline ? '#22C55E' : '#94A3B8' },
+        ]}
+      />
     </View>
 
     <View style={styles.chatRowContent}>
@@ -105,22 +122,25 @@ const ChatRow = ({ match, onPress }) => (
         >
           {match.lastMessage || '👋 New match!'}
         </Text>
-        {match.unreadCount > 0 && (
+        {match.unreadCount > 0 ? (
           <View style={styles.unreadBadge}>
             <Text style={styles.unreadText}>
               {match.unreadCount > 99 ? '99+' : match.unreadCount}
             </Text>
           </View>
-        )}
+        ) : lastActiveText ? (
+          // ✅ Unread nahi hai toh last active dikhao
+          <Text style={styles.lastActiveText}>{lastActiveText}</Text>
+        ) : null}
       </View>
     </View>
   </TouchableOpacity>
 );
-
 export default function ChatScreen({ navigation }) {
-  const { token } = useContext(AuthContext);
+  const { token, userId } = useContext(AuthContext);
   const { matches, loading, error, refetch } = useMatches({ token });
   const [refreshing, setRefreshing] = useState(false);
+  const { getStatus } = useOnlineStatus({ token, userId });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -210,12 +230,16 @@ export default function ChatScreen({ navigation }) {
                   gap: 12,
                   paddingBottom: 8,
                 }}
-                renderItem={({ item }) => (
-                  <NewMatchBubble
-                    match={item}
-                    onPress={() => handleMatchPress(item)}
-                  />
-                )}
+                renderItem={({ item }) => {
+                  const status = getStatus(item.userId, item);
+                  return (
+                    <NewMatchBubble
+                      match={item}
+                      onPress={() => handleMatchPress(item)}
+                      isOnline={status.isOnline}
+                    />
+                  );
+                }}
               />
               {activeChats.length > 0 && (
                 <Text style={styles.sectionLabel}>Chats 💬</Text>
@@ -223,9 +247,21 @@ export default function ChatScreen({ navigation }) {
             </View>
           ) : null
         }
-        renderItem={({ item }) => (
-          <ChatRow match={item} onPress={() => handleMatchPress(item)} />
-        )}
+        renderItem={({ item }) => {
+          const status = getStatus(item.userId, item);
+          const lastActiveText = status.isOnline
+            ? null
+            : formatLastActive(status.lastActiveAt);
+
+          return (
+            <ChatRow
+              match={item}
+              onPress={() => handleMatchPress(item)}
+              isOnline={status.isOnline}
+              lastActiveText={lastActiveText}
+            />
+          );
+        }}
         ListEmptyComponent={
           newMatches.length > 0 ? null : (
             <View style={styles.noChatsContainer}>
@@ -345,6 +381,21 @@ const styles = StyleSheet.create({
   },
   unreadText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 
+  avatarOnlineDot: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  lastActiveText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginLeft: 8,
+  },
   emptyTitle: {
     fontSize: 22,
     fontWeight: '700',

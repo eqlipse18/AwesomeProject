@@ -34,6 +34,7 @@ import Animated, {
 import axios from 'axios';
 import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
+import { formatLastActive } from '../src/hooks/useOnlineStatus';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const IMAGE_HEIGHT = SCREEN_HEIGHT * 0.52;
@@ -444,18 +445,45 @@ export default function UserProfileScreen({ navigation, route }) {
 
               {/* Name */}
               <View style={styles.nameSection}>
-                <View style={styles.nameRow}>
-                  <Text style={styles.name}>
-                    {profile?.firstName || profile?.fullName}
-                  </Text>
-                  {age ? <Text style={styles.age}>{age}</Text> : null}
-                  {profile?.isVerified && (
-                    <Text style={styles.verifiedBadge}>✓</Text>
-                  )}
+                {/* Left side — name + job */}
+                <View style={{ flex: 1 }}>
+                  <View style={styles.nameRow}>
+                    <Text style={styles.name}>
+                      {profile?.firstName || profile?.fullName}
+                    </Text>
+                    {age ? <Text style={styles.age}>{age}</Text> : null}
+                    {profile?.isVerified && (
+                      <Text style={styles.verifiedBadge}>✓</Text>
+                    )}
+                  </View>
+                  {profile?.jobTitle ? (
+                    <Text style={styles.jobTitle}>💼 {profile.jobTitle}</Text>
+                  ) : null}
                 </View>
-                {profile?.jobTitle ? (
-                  <Text style={styles.jobTitle}>💼 {profile.jobTitle}</Text>
-                ) : null}
+
+                {/* ✅ Right side — online status */}
+                <View style={styles.onlineRow}>
+                  <View
+                    style={[
+                      styles.onlineDot,
+                      {
+                        backgroundColor: profile?.isOnline
+                          ? '#22C55E'
+                          : '#94A3B8',
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.onlineText,
+                      { color: profile?.isOnline ? '#22C55E' : '#94A3B8' },
+                    ]}
+                  >
+                    {profile?.isOnline
+                      ? 'Online'
+                      : formatLastActive(profile?.lastActiveAt)}
+                  </Text>
+                </View>
               </View>
 
               <View style={styles.divider} />
@@ -624,7 +652,13 @@ const styles = StyleSheet.create({
   actionBtnDone: { backgroundColor: '#10B981' },
   actionBtnIcon: { fontSize: 16 },
   actionBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  nameSection: { marginBottom: 16 },
+  nameSection: {
+    marginBottom: 16,
+    flexDirection: 'row', // ✅ row layout
+    alignItems: 'flex-start',
+    justifyContent: 'space-between', // ✅ name left, status right
+  },
+
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -716,6 +750,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 20,
+  },
+
+  onlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  onlineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#22C55E',
+  },
+  onlineText: {
+    fontSize: 13,
+    color: '#22C55E',
+    fontWeight: '600',
   },
   retryBtn: {
     backgroundColor: '#FF0059',
