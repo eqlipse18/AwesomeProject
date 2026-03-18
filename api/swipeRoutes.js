@@ -312,59 +312,93 @@ router.post('/swipe', authenticate, async (req, res) => {
       );
 
       if (reverseCheckResponse.Items.length > 0) {
-        // Mutual like detected!
-        matchDetected = true;
-        matchId = uuidv4();
-        const now = new Date().toISOString();
-
-        const matchRecord = {
-          matchId: matchId,
-          user1Id: userId,
-          user2Id: likedId,
-          chatEnabled: true,
-          createdAt: now,
-          lastMessageAt: now,
-          lastMessage: {
-            text: '👋 New match!',
-            senderId: 'system',
-            timestamp: now,
-          },
-        };
-
-        await docClient.send(
-          new PutCommand({
-            TableName: 'flame-Matches',
-            Item: matchRecord,
-          }),
-        );
-
-        await Promise.all([
+        // Pehle check karo match already exist karta hai kya
+        const [existingMatch1, existingMatch2] = await Promise.all([
           docClient.send(
-            new PutCommand({
-              TableName: 'flame-Likes',
-              Item: {
-                ...likeRecord,
-                isMatched: true,
-              },
+            new QueryCommand({
+              TableName: 'flame-Matches',
+              IndexName: 'user1Id-index',
+              KeyConditionExpression: 'user1Id = :u1',
+              FilterExpression: 'user2Id = :u2',
+              ExpressionAttributeValues: { ':u1': userId, ':u2': likedId },
+              Limit: 1,
             }),
           ),
           docClient.send(
-            new PutCommand({
-              TableName: 'flame-Likes',
-              Item: {
-                likerId: likedId,
-                likedId: userId,
-                type: reverseCheckResponse.Items[0].type,
-                timestamp: reverseCheckResponse.Items[0].timestamp,
-                isMatched: true,
-              },
+            new QueryCommand({
+              TableName: 'flame-Matches',
+              IndexName: 'user1Id-index',
+              KeyConditionExpression: 'user1Id = :u1',
+              FilterExpression: 'user2Id = :u2',
+              ExpressionAttributeValues: { ':u1': likedId, ':u2': userId },
+              Limit: 1,
             }),
           ),
         ]);
 
-        console.log(
-          `[/swipe] Match created: ${matchId} between ${userId} and ${likedId}`,
-        );
+        const alreadyMatched =
+          existingMatch1.Items?.length > 0 || existingMatch2.Items?.length > 0;
+
+        matchDetected = true;
+
+        if (alreadyMatched) {
+          // ✅ Already exist karta hai — existing matchId use karo
+          matchId =
+            existingMatch1.Items?.[0]?.matchId ||
+            existingMatch2.Items?.[0]?.matchId;
+          console.log(`[/swipe] Match already exists: ${matchId}`);
+        } else {
+          // ✅ Naya match banao
+          matchId = uuidv4();
+          const now = new Date().toISOString();
+
+          const matchRecord = {
+            matchId,
+            user1Id: userId,
+            user2Id: likedId,
+            chatEnabled: true,
+            createdAt: now,
+            lastMessageAt: now,
+            lastMessage: {
+              text: '👋 New match!',
+              senderId: 'system',
+              timestamp: now,
+            },
+          };
+
+          await docClient.send(
+            new PutCommand({
+              TableName: 'flame-Matches',
+              Item: matchRecord,
+              ConditionExpression: 'attribute_not_exists(matchId)', //  race condition safe
+            }),
+          );
+
+          await Promise.all([
+            docClient.send(
+              new PutCommand({
+                TableName: 'flame-Likes',
+                Item: { ...likeRecord, isMatched: true },
+              }),
+            ),
+            docClient.send(
+              new PutCommand({
+                TableName: 'flame-Likes',
+                Item: {
+                  likerId: likedId,
+                  likedId: userId,
+                  type: reverseCheckResponse.Items[0].type,
+                  timestamp: reverseCheckResponse.Items[0].timestamp,
+                  isMatched: true,
+                },
+              }),
+            ),
+          ]);
+
+          console.log(
+            `[/swipe] Match created: ${matchId} between ${userId} and ${likedId}`,
+          );
+        }
       }
     }
 
@@ -542,9 +576,10 @@ router.post('/swipe', authenticate, async (req, res) => {
 // GET /matches - Get current user's confirmed matches
 // ════════════════════════════════════════════════════════════════════════════
 
-router.get('/matches', authenticate, async (req, res) => {
+router.get('/matches-legacy', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
+    console.log('[/matches] Fetching for userId:', userId);
     const { limit = 20, cursor } = req.query;
 
     const parsedLimit = Math.min(parseInt(limit, 10), 100);

@@ -35,6 +35,10 @@ import registerRouter from './registerRoute.js';
 import swipeRouter from './swipeRoutes.js';
 import subscriptionRoutes from './subscriptionRoutes.js';
 import dailyFeedRoutes from './dailyFeedRoutes.js';
+import { createServer } from 'http';
+import { initSocket } from './socket.js';
+import chatRoutes from './chatRoutes.js';
+
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -54,8 +58,11 @@ console.log(
 );
 
 const PORT = 9000;
-app.listen(PORT, () => {
-  console.log(`server running on http://localhost${PORT}`);
+const httpServer = createServer(app);
+initSocket(httpServer); //  circular import khatam
+
+httpServer.listen(PORT, () => {
+  console.log(`server running on http://localhost:${PORT}`);
 });
 
 // onbaording setup for image upload
@@ -1005,6 +1012,7 @@ app.use('/', registerRouter);
  * 3. GET /matches - Get current user's confirmed matches
  *
  */
+app.use('/', chatRoutes);
 app.use('/', swipeRouter);
-app.use('/', subscriptionRoutes);
 app.use('/', dailyFeedRoutes);
+app.use('/', subscriptionRoutes);

@@ -25,6 +25,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { AuthContext, AuthProvider } from '../AuthContex';
 import { ActivityIndicator, View } from 'react-native';
 import DailyScreen from '../screens/DailyScreen';
+import ConversationScreen from '../screens/ConversationScreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -66,6 +67,11 @@ function AppStack() {
           cardOverlayEnabled: false,
           detachPreviousScreen: false, //  Previous screen render rehti hai — no black flash
         }}
+      />
+      <Stack.Screen
+        name="Conversation"
+        component={ConversationScreen}
+        options={{ animation: 'slide_from_right' }}
       />
     </Stack.Navigator>
   );
