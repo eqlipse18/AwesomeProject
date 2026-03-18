@@ -111,6 +111,36 @@ export const initSocket = httpServer => {
         console.error('[Socket] disconnect DB update failed:', e.message);
       }
 
+      socket.on('user_offline', async ({ userId }) => {
+        if (!userId) return;
+
+        console.log(`[Socket] User offline: ${userId}`);
+        onlineUsers.delete(userId);
+
+        const now = new Date().toISOString();
+        try {
+          await docClient.send(
+            new UpdateCommand({
+              TableName: 'Users',
+              Key: { userId },
+              UpdateExpression: 'SET isOnline = :offline, lastActiveAt = :now',
+              ExpressionAttributeValues: {
+                ':offline': false,
+                ':now': now,
+              },
+            }),
+          );
+        } catch (e) {
+          console.error('[Socket] user_offline DB update failed:', e.message);
+        }
+
+        io.emit('online_status_changed', {
+          userId,
+          isOnline: false,
+          lastActiveAt: now,
+        });
+      });
+
       // ✅ Broadcast offline
       io.emit('online_status_changed', {
         userId,
