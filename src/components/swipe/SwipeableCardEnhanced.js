@@ -34,6 +34,7 @@ function SwipeableCardComponent({
   leftOverlay,
   rightOverlay,
   superlikeOverlay,
+  onPress,
   disabled = false,
   style,
 }) {
@@ -52,6 +53,7 @@ function SwipeableCardComponent({
       screenWidth: SCREEN_WIDTH,
       screenHeight: SCREEN_HEIGHT,
       verticalFriction,
+      onPress,
       onSwipeComplete: handleSwipeComplete,
       disabled,
     });

@@ -1,12 +1,3 @@
-/**
- * useSwipeGesture Hook - Touch Origin + Makkhan Edition 🎯🧈
- *
- * Changes:
- * - touchOriginY tracked from onBegin → passed to animation hook
- * - Ultra low thresholds (makkhan swipe)
- * - No vertical friction → free movement
- */
-
 import { Gesture } from 'react-native-gesture-handler';
 import {
   useSharedValue,
@@ -22,23 +13,32 @@ export function useSwipeGesture({
   screenHeight,
   verticalFriction = 1,
   onSwipeComplete,
+  onPress, // ✅ NEW
   disabled = false,
 }) {
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const velocityY = useSharedValue(0);
-  const touchOriginY = useSharedValue(0); // 🎯 where finger first touched on card
+  const touchOriginY = useSharedValue(0);
 
   const SWIPE_DIST = screenWidth * 0.18;
   const SWIPE_VEL = 300;
   const SUPER_DIST = screenHeight * 0.12;
   const SUPER_VEL = 280;
 
-  const gesture = Gesture.Pan()
+  // ✅ Tap gesture
+  const tap = Gesture.Tap()
+    .enabled(!disabled)
+    .maxDistance(8) // 8px se zyada move kiya toh tap nahi
+    .onEnd(() => {
+      'worklet';
+      if (onPress) runOnJS(onPress)();
+    });
+
+  const pan = Gesture.Pan()
     .enabled(!disabled)
     .onBegin(event => {
       'worklet';
-      // event.y = touch Y position relative to the card component
       touchOriginY.value = event.y;
     })
     .onUpdate(event => {
@@ -110,7 +110,10 @@ export function useSwipeGesture({
       }
     });
 
-  return { gesture, translateX, translateY, velocityY, touchOriginY }; // 🎯
+  // ✅ Race — tap jaldi ho toh tap wins, movement ho toh pan wins
+  const gesture = Gesture.Race(tap, pan);
+
+  return { gesture, translateX, translateY, velocityY, touchOriginY };
 }
 
 export function triggerProgrammaticSwipe() {}

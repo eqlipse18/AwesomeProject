@@ -300,8 +300,29 @@ export default function DailyScreen({ navigation }) {
             paddingHorizontal: (SCREEN_WIDTH - _cardWidth) / 2,
             alignItems: 'center',
           }}
+          // renderItem update karo:
+          // renderItem mein ref + measure add karo
           renderItem={({ item, index }) => (
-            <ProfileCard item={item} index={index} scrollX={scrollX} />
+            <TouchableOpacity
+              ref={ref => {
+                item._ref = ref;
+              }}
+              activeOpacity={0.95}
+              onPress={() => {
+                item._ref?.measure((x, y, width, height, pageX, pageY) => {
+                  navigation.navigate('UserProfile', {
+                    targetUserId: item.userId,
+                    imageUrl: item.image,
+                    originX: pageX,
+                    originY: pageY,
+                    originWidth: width,
+                    originHeight: height,
+                  });
+                });
+              }}
+            >
+              <ProfileCard item={item} index={index} scrollX={scrollX} />
+            </TouchableOpacity>
           )}
           onScroll={onScroll}
           scrollEventThrottle={1}

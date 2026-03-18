@@ -1,18 +1,3 @@
-/**
- * SwipeableStack - PREMIUM Edition ✨ (FULLY FIXED)
- *
- * BUG FIX: useNextCardAnimation now reads from externalSwipeProgressX/Y
- * which are the same values that SwipeableCard syncs to!
- *
- * Features:
- * - Uses useNextCardAnimation for premium scale+fade+rise reveal ✅
- * - Next card animates when you swipe ✅
- * - Ultra low default thresholds (makkhan swipe) ✅
- * - Next card animation driven by BOTH X and Y movement ✅
- * - Accepts swipeProgressX & swipeProgressY for animated buttons ✅
- * - FIXED: Animation reads from correct shared values ✅
- */
-
 import React, {
   memo,
   forwardRef,
@@ -55,6 +40,7 @@ function SwipeableStackComponent(
     // ✨ Props from HomeScreen for animated buttons
     swipeProgressX,
     swipeProgressY,
+    onCardPress,
   },
   ref,
 ) {
@@ -216,6 +202,7 @@ function SwipeableStackComponent(
             superlikeOverlay={superlikeOverlay}
             disabled={disabled}
             style={cardWrapperStyle}
+            onPress={() => onCardPress && onCardPress(currentItem)}
           >
             {renderCard(currentItem, currentIndex)}
           </SwipeableCard>

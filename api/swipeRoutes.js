@@ -737,7 +737,10 @@ router.post('/get-user-by-id', authenticate, async (req, res) => {
         TableName: 'Users',
         Key: { userId },
         ProjectionExpression:
-          'userId, firstName, lastName, ageForSort, imageUrls, gender, hometown, goals',
+          'userId, firstName, lastName, fullName, ageForSort, dateOfBirth, imageUrls, gender, hometown, goals, hobbies, jobTitle, #ht, drink, smoke, datingPreferences, isVerified, isPremium',
+        ExpressionAttributeNames: {
+          '#ht': 'height', // height reserved word
+        },
       }),
     );
 

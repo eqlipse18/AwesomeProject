@@ -101,7 +101,7 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
 // PROFILE CARD
 // ════════════════════════════════════════════════════════════════════════════
 
-const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
+const ProfileCard = React.memo(({ user, cardFadeInOpacity, onPress }) => {
   const [imageError, setImageError] = useState(false);
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
@@ -122,6 +122,12 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
 
   return (
     <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
+      <TouchableOpacity
+        activeOpacity={0.95}
+        onPress={onPress}
+        style={StyleSheet.absoluteFillObject} // ✅ image ke upar full cover, layout disturb nahi
+      />
+
       {imageUrl && !imageError ? (
         <Image
           source={{ uri: imageUrl }}
@@ -400,6 +406,7 @@ export default function HomeScreen({ navigation }) {
 
   const stackRef = useRef(null);
   const currentCardIndex = useRef(0);
+  const stackContainerRef = useRef(null);
 
   const [isEmpty, setIsEmpty] = useState(false);
   const [localError, setLocalError] = useState(null);
@@ -686,7 +693,10 @@ export default function HomeScreen({ navigation }) {
         </View>
 
         {/* Swipe Stack */}
-        <View style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}>
+        <View
+          ref={stackContainerRef}
+          style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}
+        >
           <SwipeableStack
             stackSize={5}
             ref={stackRef}
@@ -711,6 +721,29 @@ export default function HomeScreen({ navigation }) {
             disabled={isModalVisible}
             swipeProgressX={swipeProgressX}
             swipeProgressY={swipeProgressY}
+            onCardPress={item => {
+              //  Axios directly — no apiClient needed
+              axios
+                .post(
+                  `${API_BASE_URL}/get-user-by-id`,
+                  { userId: item.userId },
+                  { headers: { Authorization: `Bearer ${token}` } },
+                )
+                .catch(() => {});
+
+              stackContainerRef.current?.measure(
+                (x, y, width, height, pageX, pageY) => {
+                  navigation.navigate('UserProfile', {
+                    targetUserId: item.userId,
+                    imageUrl: item.image || item.imageUrls?.[0],
+                    originX: pageX,
+                    originY: pageY,
+                    originWidth: width,
+                    originHeight: height,
+                  });
+                },
+              );
+            }}
           />
 
           {showLoadingOverlay && (

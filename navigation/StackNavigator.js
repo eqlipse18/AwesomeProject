@@ -19,6 +19,7 @@ import PhotoScreen from '../screens/PhotoScreen';
 import HobbyScreen from '../screens/HobbyScreen';
 import PreFinalScreen from '../screens/PreFinalScreen';
 import SetNewPasswordScreen from '../screens/SetNewPasswordScreen';
+import UserProfileScreen from '../screens/UserProfileScreen';
 
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthContext, AuthProvider } from '../AuthContex';
@@ -52,6 +53,19 @@ function AppStack() {
         name="Daily"
         component={DailyScreen}
         options={{ animation: 'slide_from_bottom' }} // ← nice entry
+      />
+      <Stack.Screen
+        name="UserProfile"
+        component={UserProfileScreen}
+        options={{
+          headerShown: false,
+          presentation: 'transparentModal',
+          animation: 'none', // yReact Navigation ka animation off — khud handle kar rahe hain
+          cardStyle: { backgroundColor: 'transparent' },
+
+          cardOverlayEnabled: false,
+          detachPreviousScreen: false, //  Previous screen render rehti hai — no black flash
+        }}
       />
     </Stack.Navigator>
   );
