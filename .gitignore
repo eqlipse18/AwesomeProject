@@ -5,6 +5,11 @@
 #envkeys
 .env 
 
+# Google services config
+android/app/google-services.json
+
+# Keystore
+android/app/debug.keystore
 # Xcode
 #
 build/
