@@ -1,659 +1,1005 @@
 /**
- * LikesScreen - Two tabs: LIKES + MATCHES
+ * LikesScreen - Fully Updated
  *
- * Tab 1 (LIKES):
- * - Sent likes (profiles I liked)
- * - Received likes (blurred for free users)
- * - Send Message Request button (PAID)
- * - View Profile button (FREE)
+ * Top tabs: Likes | Matches
+ * Likes → Liked | Liked You (nested tabs)
+ * Matches → Matched | Discover (nested tabs)
  *
- * Tab 2 (MATCHES):
- * - Pending SUPERLIKEs (awaiting approval)
- * - Accepted matches
- * - Rejected notifications (auto-disappear after 1 day)
- * - Chat + View Profile buttons
+ * Features:
+ * - 2-column grid layout
+ * - Real photo blur (BlurView) for free users
+ * - Online status on cards
+ * - Filter bar: All, New, Nearby, Active, With Bio, Verified
+ * - Premium banner
  */
 
-import React, { useContext, useState, useEffect, useCallback } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
-  StyleSheet,
-  Text,
   View,
+  Text,
+  StyleSheet,
   FlatList,
   Image,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   Dimensions,
-  BlurView,
-  Alert,
+  ScrollView,
+  StatusBar,
 } from 'react-native';
-import { TabView, SceneMap } from 'react-native-tab-view';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'react-native-linear-gradient';
+import { BlurView } from '@react-native-community/blur';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import axios from 'axios';
+import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
-import {
-  useLikes,
-  useMatchRequests,
-  useSubscription,
-} from '../src/hooks/usePremiumHooks';
-import { PremiumModal } from '../src/components/PremiumModal';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useLikes, useSubscription } from '../src/hooks/usePremiumHooks';
+import { useMatches } from '../src/hooks/useChatHook';
+import { formatLastActive } from '../src/hooks/useOnlineStatus';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
+const CARD_HEIGHT = CARD_WIDTH * 1.45;
+const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
-const LikesScreen = ({ navigation }) => {
+const createApiClient = token =>
+  axios.create({
+    baseURL: API_BASE_URL,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    timeout: 10000,
+  });
+
+// ════════════════════════════════════════════════════════════════════════════
+// FILTER BAR
+// ════════════════════════════════════════════════════════════════════════════
+
+const FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'new', label: 'New' },
+  { key: 'nearby', label: 'Nearby' },
+  { key: 'active', label: 'Active' },
+  { key: 'withBio', label: 'With Bio' },
+  { key: 'verified', label: 'Verified' },
+];
+
+const FilterBar = ({ activeFilter, onFilterPress }) => (
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={styles.filterBar}
+    style={{ flexGrow: 0 }}
+  >
+    {FILTERS.map(f => (
+      <TouchableOpacity
+        key={f.key}
+        style={[
+          styles.filterChip,
+          activeFilter === f.key && styles.filterChipActive,
+        ]}
+        onPress={() => onFilterPress(f.key)}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            styles.filterChipText,
+            activeFilter === f.key && styles.filterChipTextActive,
+          ]}
+        >
+          {f.label}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </ScrollView>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// TOP TAB BAR
+// ════════════════════════════════════════════════════════════════════════════
+
+const TopTabBar = ({ tabs, activeTab, onTabPress }) => (
+  <View style={styles.topTabBar}>
+    {tabs.map(tab => (
+      <TouchableOpacity
+        key={tab.key}
+        style={[styles.topTab, activeTab === tab.key && styles.topTabActive]}
+        onPress={() => onTabPress(tab.key)}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            styles.topTabText,
+            activeTab === tab.key && styles.topTabTextActive,
+          ]}
+        >
+          {tab.label}
+        </Text>
+        {tab.count > 0 && (
+          <View style={styles.topTabBadge}>
+            <Text style={styles.topTabBadgeText}>{tab.count}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    ))}
+  </View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// SUB TAB BAR
+// ════════════════════════════════════════════════════════════════════════════
+
+const SubTabBar = ({ tabs, activeTab, onTabPress }) => (
+  <View style={styles.subTabBar}>
+    {tabs.map(tab => (
+      <TouchableOpacity
+        key={tab.key}
+        style={[styles.subTab, activeTab === tab.key && styles.subTabActive]}
+        onPress={() => onTabPress(tab.key)}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            styles.subTabText,
+            activeTab === tab.key && styles.subTabTextActive,
+          ]}
+        >
+          {tab.label}
+        </Text>
+        {tab.count !== undefined && tab.count > 0 && (
+          <View
+            style={[
+              styles.subTabBadge,
+              activeTab === tab.key && styles.subTabBadgeActive,
+            ]}
+          >
+            <Text style={styles.subTabBadgeText}>{tab.count}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    ))}
+    <View
+      style={[
+        styles.subTabIndicator,
+        {
+          left:
+            tabs.findIndex(t => t.key === activeTab) *
+            (SCREEN_WIDTH / tabs.length),
+        },
+      ]}
+    />
+  </View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROFILE CARD — 2 col grid
+// ════════════════════════════════════════════════════════════════════════════
+
+const ProfileCard = ({
+  item,
+  onPress,
+  blurred = false,
+  isNew = false,
+  showOnline = false,
+}) => (
+  <Animated.View entering={FadeIn.duration(300).springify()}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
+      <View style={styles.cardImageWrapper}>
+        {item.image ? (
+          <>
+            <Image source={{ uri: item.image }} style={styles.cardImage} />
+            {/* ✅ Real BlurView over actual photo */}
+            {blurred && (
+              <BlurView
+                style={StyleSheet.absoluteFillObject}
+                blurType="light"
+                blurAmount={14}
+                reducedTransparencyFallbackColor="rgba(200,200,200,0.8)"
+              />
+            )}
+          </>
+        ) : (
+          <View style={[styles.cardImage, styles.cardImageFallback]}>
+            <Text style={{ fontSize: 36 }}>📷</Text>
+          </View>
+        )}
+
+        {/* ✅ NEW badge */}
+        {isNew && (
+          <View style={styles.newBadge}>
+            <Text style={styles.newBadgeText}>NEW</Text>
+          </View>
+        )}
+
+        {/* ✅ Online dot */}
+        {showOnline && !blurred && (
+          <View
+            style={[
+              styles.onlineDot,
+              {
+                backgroundColor: item.isOnline ? '#22C55E' : '#94A3B8',
+              },
+            ]}
+          />
+        )}
+
+        {/* Gradient overlay — only non-blurred */}
+        {!blurred && (
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.75)']}
+            style={styles.cardGradient}
+          />
+        )}
+      </View>
+
+      {/* Info */}
+      <View style={styles.cardInfo}>
+        {/* ✅ Blurred — dashed name placeholder */}
+        <Text
+          style={[styles.cardName, blurred && styles.cardNameBlurred]}
+          numberOfLines={1}
+        >
+          {blurred
+            ? '— — — —'
+            : `${item.name}${item.age ? `, ${item.age}` : ''}`}
+        </Text>
+
+        {!blurred ? (
+          <>
+            {item.hometown ? (
+              <Text style={styles.cardLocation} numberOfLines={1}>
+                📍 {item.hometown}
+              </Text>
+            ) : null}
+            {/* ✅ Online status */}
+            {showOnline && (item.isOnline || item.lastActiveAt) ? (
+              <Text style={styles.cardActive} numberOfLines={1}>
+                {item.isOnline
+                  ? '🟢 Online'
+                  : formatLastActive(item.lastActiveAt, 3)}
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          // ✅ Blurred — grey placeholder bars
+          <>
+            <View style={styles.blurBar} />
+            <View style={[styles.blurBar, { width: '55%' }]} />
+          </>
+        )}
+      </View>
+    </TouchableOpacity>
+  </Animated.View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// PREMIUM LOCK BANNER
+// ════════════════════════════════════════════════════════════════════════════
+
+const PremiumBanner = ({ count, onUpgrade }) => (
+  <TouchableOpacity
+    style={styles.premiumBanner}
+    onPress={onUpgrade}
+    activeOpacity={0.88}
+  >
+    <LinearGradient
+      colors={['#FF0059', '#FF6B6B']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={styles.premiumBannerGradient}
+    >
+      <Text style={styles.premiumBannerEmoji}>🔥</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.premiumBannerTitle}>{count} people liked you!</Text>
+        <Text style={styles.premiumBannerSub}>
+          Upgrade to see who liked you
+        </Text>
+      </View>
+      <Text style={styles.premiumBannerArrow}>→</Text>
+    </LinearGradient>
+  </TouchableOpacity>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// EMPTY STATE
+// ════════════════════════════════════════════════════════════════════════════
+
+const EmptyState = ({ emoji, title, subtitle }) => (
+  <View style={styles.emptyState}>
+    <Text style={styles.emptyEmoji}>{emoji}</Text>
+    <Text style={styles.emptyTitle}>{title}</Text>
+    <Text style={styles.emptySub}>{subtitle}</Text>
+  </View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// MAIN SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+
+export default function LikesScreen({ navigation }) {
   const { token, userId } = useContext(AuthContext);
-  const [index, setIndex] = useState(0);
-  const [routes] = useState([
-    { key: 'likes', title: 'Likes' },
-    { key: 'matches', title: 'Matches' },
-  ]);
+  const [topTab, setTopTab] = useState('likes');
+  const [likesSubTab, setLikesSubTab] = useState('liked');
+  const [matchesSubTab, setMatchesSubTab] = useState('matched');
+  const [refreshing, setRefreshing] = useState(false);
+  const [newUsers, setNewUsers] = useState([]);
+  const [newUsersLoading, setNewUsersLoading] = useState(false);
+  const [activeFilter, setActiveFilter] = useState('all');
 
-  // ── Hooks ──
+  const apiClient = useRef(createApiClient(token));
+
   const {
     sentLikes,
     receivedLikes,
-    loading,
-    error,
+    loading: likesLoading,
     isBlurred,
     refetchSent,
     refetchReceived,
   } = useLikes({ token });
-  const {
-    requests,
-    loading: requestsLoading,
-    refetch: refetchRequests,
-  } = useMatchRequests({ token });
+
   const { subscription } = useSubscription({ token });
+  const {
+    matches,
+    loading: matchesLoading,
+    refetch: refetchMatches,
+  } = useMatches({ token });
 
-  const [refreshing, setRefreshing] = useState(false);
-  const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const isPremium = subscription?.isPremium || false;
 
-  // ── Refresh ──
+  // ── Fetch new users ──
+  const fetchNewUsers = useCallback(async () => {
+    try {
+      setNewUsersLoading(true);
+      const resp = await apiClient.current.get('/users/new', {
+        params: { limit: 20 },
+      });
+      if (resp.data.success) setNewUsers(resp.data.users || []);
+    } catch (e) {
+      console.error('[LikesScreen] fetchNewUsers error:', e.message);
+    } finally {
+      setNewUsersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (token) fetchNewUsers();
+  }, [token, fetchNewUsers]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await Promise.all([refetchSent(), refetchReceived(), refetchRequests()]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refetchSent, refetchReceived, refetchRequests]);
+    await Promise.all([
+      refetchSent(),
+      refetchReceived(),
+      refetchMatches(),
+      fetchNewUsers(),
+    ]);
+    setRefreshing(false);
+  }, [refetchSent, refetchReceived, refetchMatches, fetchNewUsers]);
 
-  // ── Tab Scenes ──
-  const LikesScene = () => (
-    <View style={styles.sceneContainer}>
-      <View style={styles.subTabs}>
-        <Text style={styles.subTabLabel}>
-          💬 Sent Likes ({sentLikes.length})
-        </Text>
-      </View>
+  const handleCardPress = useCallback(
+    item => {
+      navigation.navigate('UserProfile', {
+        targetUserId: item.userId,
+        imageUrl: item.image,
+      });
+    },
+    [navigation],
+  );
 
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-        </View>
-      ) : sentLikes.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <MaterialCommunityIcons name="heart-outline" size={60} color="#ccc" />
-          <Text style={styles.emptyText}>No sent likes yet</Text>
-          <Text style={styles.emptySubtext}>
-            Start swiping to like profiles
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={sentLikes}
-          keyExtractor={item => item.userId}
-          renderItem={({ item }) => (
-            <LikedProfileCard
-              profile={item}
-              navigation={navigation}
-              type="sent"
-              isPremium={subscription?.isPremium}
-              setShowPremiumModal={setShowPremiumModal}
-            />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+  // ── Filter logic ──
+  const applyFilter = useCallback(
+    data => {
+      switch (activeFilter) {
+        case 'new':
+          return data.filter(u => {
+            if (!u.joinedAt) return false;
+            return new Date() - new Date(u.joinedAt) < 7 * 24 * 60 * 60 * 1000;
+          });
+        case 'nearby':
+          // Will work when currentUser hometown is available
+          return data.filter(u => u.hometown);
+        case 'active':
+          return data.filter(
+            u =>
+              u.isOnline ||
+              (u.lastActiveAt &&
+                new Date() - new Date(u.lastActiveAt) < 24 * 60 * 60 * 1000),
+          );
+        case 'withBio':
+          return data.filter(u => u.goals);
+        case 'verified':
+          return data.filter(u => u.isVerified);
+        default:
+          return data;
+      }
+    },
+    [activeFilter],
+  );
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // TAB RENDERS
+  // ════════════════════════════════════════════════════════════════════════════
+
+  const renderLikedTab = () => {
+    if (likesLoading)
+      return (
+        <ActivityIndicator
+          size="large"
+          color="#FF0059"
+          style={{ marginTop: 40 }}
+        />
+      );
+
+    const filtered = applyFilter(sentLikes);
+
+    if (filtered.length === 0)
+      return (
+        <EmptyState
+          emoji="💝"
+          title={activeFilter !== 'all' ? 'No results' : 'No likes sent yet'}
+          subtitle={
+            activeFilter !== 'all'
+              ? 'Try a different filter'
+              : 'Start swiping to like profiles!'
           }
-          scrollEnabled={true}
-          nestedScrollEnabled={true}
         />
-      )}
+      );
 
-      {/* Received Likes Section */}
-      <View style={styles.subTabs}>
-        <Text style={styles.subTabLabel}>
-          ⭐ Received Likes ({receivedLikes.length})
-        </Text>
-      </View>
-
-      {isBlurred ? (
-        <View style={styles.blurredContainer}>
-          <MaterialCommunityIcons name="lock-outline" size={50} color="#999" />
-          <Text style={styles.blurredText}>
-            Upgrade to Premium to see who liked you
-          </Text>
-          <TouchableOpacity
-            style={styles.premiumButton}
-            onPress={() => setShowPremiumModal(true)}
-          >
-            <Text style={styles.premiumButtonText}>Upgrade Now</Text>
-          </TouchableOpacity>
-        </View>
-      ) : receivedLikes.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <MaterialCommunityIcons
-            name="heart-multiple-outline"
-            size={60}
-            color="#ccc"
+    return (
+      <FlatList
+        data={filtered}
+        numColumns={2}
+        keyExtractor={item => item.userId}
+        columnWrapperStyle={styles.row}
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#FF0059']}
           />
-          <Text style={styles.emptyText}>No received likes yet</Text>
-          <Text style={styles.emptySubtext}>
-            Impress someone to get a like!
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={receivedLikes}
-          keyExtractor={item => item.userId}
-          renderItem={({ item }) => (
-            <LikedProfileCard
-              profile={item}
-              navigation={navigation}
-              type="received"
-              isPremium={subscription?.isPremium}
-              setShowPremiumModal={setShowPremiumModal}
-            />
-          )}
-          scrollEnabled={false}
-          nestedScrollEnabled={false}
-        />
-      )}
-    </View>
-  );
-
-  const MatchesScene = () => (
-    <View style={styles.sceneContainer}>
-      {/* Pending SUPERLIKEs */}
-      {requests.length > 0 && (
-        <View>
-          <View style={styles.subTabs}>
-            <Text style={styles.subTabLabel}>
-              ⭐ Pending Approval ({requests.length})
-            </Text>
-          </View>
-
-          <FlatList
-            data={requests}
-            keyExtractor={item => item.requestId}
-            renderItem={({ item }) => (
-              <PendingSuperlikikeCard request={item} navigation={navigation} />
-            )}
-            scrollEnabled={false}
-            nestedScrollEnabled={false}
+        }
+        renderItem={({ item }) => (
+          <ProfileCard
+            item={item}
+            showOnline={true}
+            onPress={() => handleCardPress(item)}
           />
-        </View>
-      )}
-
-      {/* Accepted Matches */}
-      <View style={styles.subTabs}>
-        <Text style={styles.subTabLabel}>✅ Active Matches (Coming Soon)</Text>
-      </View>
-
-      <View style={styles.emptyContainer}>
-        <MaterialCommunityIcons
-          name="cards-heart-outline"
-          size={60}
-          color="#ccc"
-        />
-        <Text style={styles.emptyText}>No active matches yet</Text>
-        <Text style={styles.emptySubtext}>Mutual likes will appear here</Text>
-      </View>
-
-      {requestsLoading && (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-        </View>
-      )}
-    </View>
-  );
-
-  const renderScene = SceneMap({
-    likes: LikesScene,
-    matches: MatchesScene,
-  });
-
-  return (
-    <View style={styles.container}>
-      <TabView
-        navigationState={{ index, routes }}
-        renderScene={renderScene}
-        onIndexChange={setIndex}
-        initialLayout={{ width: SCREEN_WIDTH }}
+        )}
       />
-
-      {/* Premium Modal */}
-      <PremiumModal
-        visible={showPremiumModal}
-        onClose={() => setShowPremiumModal(false)}
-        feature="RECEIVED_LIKES"
-        onSelectPlan={planType => {
-          setShowPremiumModal(false);
-          // TODO: Navigate to payment or call subscription hook
-          Alert.alert('Plan Selected', `You selected ${planType}`);
-        }}
-      />
-    </View>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// LikedProfileCard Component
-// ════════════════════════════════════════════════════════════════════════════
-
-const LikedProfileCard = ({
-  profile,
-  navigation,
-  type,
-  isPremium,
-  setShowPremiumModal,
-}) => {
-  const handleSendMessage = () => {
-    Alert.alert(
-      isPremium ? 'Send Message' : 'Premium Feature',
-      isPremium
-        ? 'Send a message to this user?'
-        : 'Upgrade to Premium to send messages',
-      [
-        {
-          text: isPremium ? 'Cancel' : 'Upgrade',
-          onPress: () => {
-            if (!isPremium) {
-              setShowPremiumModal(true);
-            }
-          },
-        },
-        {
-          text: isPremium ? 'Send' : 'Cancel',
-          onPress: () => {
-            // TODO: Implement send message logic
-            Alert.alert('Message sent!', `Message sent to ${profile.name}`);
-          },
-        },
-      ],
     );
   };
 
-  const handleViewProfile = () => {
-    navigation.navigate('Profile', {
-      userId: profile.userId,
-      profile: profile,
-    });
-  };
-
-  return (
-    <View style={styles.card}>
-      <View style={styles.cardImageContainer}>
-        <Image
-          source={{ uri: profile.image }}
-          style={styles.cardImage}
-          defaultSource={require('../assets/Images/default-avatar.png')}
+  const renderLikedYouTab = () => {
+    if (likesLoading)
+      return (
+        <ActivityIndicator
+          size="large"
+          color="#FF0059"
+          style={{ marginTop: 40 }}
         />
-        {type === 'received' && !isPremium && (
-          <BlurView intensity={90} style={styles.blurOverlay} />
+      );
+
+    if (receivedLikes.length === 0)
+      return (
+        <EmptyState
+          emoji="👀"
+          title="No likes yet"
+          subtitle={
+            isPremium
+              ? 'No one liked you yet — keep swiping!'
+              : 'Upgrade to see who liked you'
+          }
+        />
+      );
+
+    const filtered = isPremium ? applyFilter(receivedLikes) : receivedLikes;
+
+    return (
+      <FlatList
+        data={filtered}
+        numColumns={2}
+        keyExtractor={(item, i) => item.userId || String(i)}
+        columnWrapperStyle={styles.row}
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#FF0059']}
+          />
+        }
+        ListHeaderComponent={
+          !isPremium && receivedLikes.length > 0 ? (
+            <PremiumBanner
+              count={receivedLikes.length}
+              onUpgrade={() => {
+                /* TODO: Premium modal */
+              }}
+            />
+          ) : null
+        }
+        renderItem={({ item }) => (
+          <ProfileCard
+            item={item}
+            blurred={!isPremium}
+            showOnline={isPremium}
+            onPress={() => (isPremium ? handleCardPress(item) : null)}
+          />
         )}
-      </View>
-
-      <View style={styles.cardContent}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardName}>
-            {profile.name}, {profile.age}
-          </Text>
-          {type === 'sent' && (
-            <MaterialCommunityIcons name="heart" size={20} color="#FF0059" />
-          )}
-          {type === 'received' && (
-            <MaterialCommunityIcons name="star" size={20} color="#FFD700" />
-          )}
-        </View>
-
-        <Text style={styles.cardLocation}>📍 {profile.hometown}</Text>
-
-        <View style={styles.cardButtons}>
-          {!isPremium && type === 'received' ? (
-            <TouchableOpacity
-              style={[styles.button, styles.buttonDisabled]}
-              disabled
-            >
-              <MaterialCommunityIcons name="lock" size={18} color="#999" />
-              <Text style={styles.buttonTextDisabled}>Locked</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.button, styles.buttonPrimary]}
-              onPress={handleSendMessage}
-            >
-              <MaterialCommunityIcons
-                name="message-text-outline"
-                size={18}
-                color="#007AFF"
-              />
-              <Text style={styles.buttonText}>Message</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={[styles.button, styles.buttonSecondary]}
-            onPress={handleViewProfile}
-          >
-            <MaterialCommunityIcons name="eye-outline" size={18} color="#666" />
-            <Text style={styles.buttonTextSecondary}>View</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// PendingSuperlikikeCard Component
-// ════════════════════════════════════════════════════════════════════════════
-
-const PendingSuperlikikeCard = ({ request, navigation }) => {
-  const { superliker } = request;
-  const [accepting, setAccepting] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-
-  const handleAccept = async () => {
-    setAccepting(true);
-    try {
-      // TODO: Call acceptRequest hook
-      Alert.alert('Success!', 'SUPERLIKE accepted! You matched! 💕');
-    } finally {
-      setAccepting(false);
-    }
+      />
+    );
   };
 
-  const handleReject = async () => {
-    setRejecting(true);
-    try {
-      // TODO: Call rejectRequest hook
-      Alert.alert('Rejected', 'SUPERLIKE rejected. It will disappear soon.');
-    } finally {
-      setRejecting(false);
-    }
+  const renderMatchedTab = () => {
+    if (matchesLoading)
+      return (
+        <ActivityIndicator
+          size="large"
+          color="#FF0059"
+          style={{ marginTop: 40 }}
+        />
+      );
+
+    const filtered = applyFilter(matches);
+
+    if (filtered.length === 0)
+      return (
+        <EmptyState
+          emoji="💕"
+          title={activeFilter !== 'all' ? 'No results' : 'No matches yet'}
+          subtitle={
+            activeFilter !== 'all'
+              ? 'Try a different filter'
+              : 'Keep swiping to find your match!'
+          }
+        />
+      );
+
+    return (
+      <FlatList
+        data={filtered}
+        numColumns={2}
+        keyExtractor={item => item.matchId}
+        columnWrapperStyle={styles.row}
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#FF0059']}
+          />
+        }
+        renderItem={({ item }) => (
+          <ProfileCard
+            item={{ ...item, userId: item.userId }}
+            showOnline={true}
+            onPress={() =>
+              navigation.navigate('Conversation', {
+                matchId: item.matchId,
+                targetUserId: item.userId,
+                name: item.name,
+                image: item.image,
+              })
+            }
+          />
+        )}
+      />
+    );
   };
+
+  const renderDiscoverTab = () => {
+    if (newUsersLoading)
+      return (
+        <ActivityIndicator
+          size="large"
+          color="#FF0059"
+          style={{ marginTop: 40 }}
+        />
+      );
+
+    const filtered = applyFilter(newUsers);
+
+    if (filtered.length === 0)
+      return (
+        <EmptyState
+          emoji="🌟"
+          title={activeFilter !== 'all' ? 'No results' : 'No new users'}
+          subtitle={
+            activeFilter !== 'all'
+              ? 'Try a different filter'
+              : 'Check back soon for new faces!'
+          }
+        />
+      );
+
+    return (
+      <FlatList
+        data={filtered}
+        numColumns={2}
+        keyExtractor={item => item.userId}
+        columnWrapperStyle={styles.row}
+        contentContainerStyle={styles.grid}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#FF0059']}
+          />
+        }
+        renderItem={({ item }) => (
+          <ProfileCard
+            item={item}
+            isNew={true}
+            showOnline={true}
+            onPress={() => handleCardPress(item)}
+          />
+        )}
+      />
+    );
+  };
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════════════════════════════════════
 
   return (
-    <View style={styles.superlikikeCard}>
-      <View style={styles.superlikikeImageContainer}>
-        <Image
-          source={{ uri: superliker.image }}
-          style={styles.superlikikeImage}
-        />
-        <View style={styles.superlikeBadge}>
-          <MaterialCommunityIcons name="star" size={24} color="#FFD700" />
-        </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>
+          {topTab === 'likes' ? '❤️ Likes' : '✨ Matches'}
+        </Text>
       </View>
 
-      <View style={styles.superlikikeContent}>
-        <Text style={styles.superlikikeName}>{superliker.name}</Text>
-        <Text style={styles.superlikikeMessage}>⭐ Sent you a SUPERLIKE!</Text>
+      {/* Top Tabs */}
+      <TopTabBar
+        tabs={[
+          {
+            key: 'likes',
+            label: 'Likes',
+            count: sentLikes.length + receivedLikes.length,
+          },
+          { key: 'matches', label: 'Matches', count: matches.length },
+        ]}
+        activeTab={topTab}
+        onTabPress={tab => {
+          setTopTab(tab);
+          setActiveFilter('all'); // ✅ filter reset on tab change
+        }}
+      />
 
-        <View style={styles.superlikikeButtons}>
-          <TouchableOpacity
-            style={[styles.button, styles.buttonDanger]}
-            onPress={handleReject}
-            disabled={rejecting}
-          >
-            {rejecting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="close" size={18} color="#fff" />
-                <Text style={styles.buttonText}>Reject</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.buttonSuccess]}
-            onPress={handleAccept}
-            disabled={accepting}
-          >
-            {accepting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="check" size={18} color="#fff" />
-                <Text style={styles.buttonText}>Accept</Text>
-              </>
-            )}
-          </TouchableOpacity>
+      {/* Content */}
+      {topTab === 'likes' ? (
+        <View style={{ flex: 1 }}>
+          <SubTabBar
+            tabs={[
+              { key: 'liked', label: 'Liked', count: sentLikes.length },
+              {
+                key: 'likedYou',
+                label: 'Liked You',
+                count: receivedLikes.length,
+              },
+            ]}
+            activeTab={likesSubTab}
+            onTabPress={tab => {
+              setLikesSubTab(tab);
+              setActiveFilter('all'); // ✅ reset
+            }}
+          />
+          {/* ✅ Filter bar */}
+          <FilterBar
+            activeFilter={activeFilter}
+            onFilterPress={setActiveFilter}
+          />
+          {likesSubTab === 'liked' ? renderLikedTab() : renderLikedYouTab()}
         </View>
-      </View>
-    </View>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <SubTabBar
+            tabs={[
+              { key: 'matched', label: 'Matched', count: matches.length },
+              {
+                key: 'discover',
+                label: 'Discover ✨',
+                count: newUsers.length,
+              },
+            ]}
+            activeTab={matchesSubTab}
+            onTabPress={tab => {
+              setMatchesSubTab(tab);
+              setActiveFilter('all'); // ✅ reset
+            }}
+          />
+          {/* ✅ Filter bar */}
+          <FilterBar
+            activeFilter={activeFilter}
+            onFilterPress={setActiveFilter}
+          />
+          {matchesSubTab === 'matched'
+            ? renderMatchedTab()
+            : renderDiscoverTab()}
+        </View>
+      )}
+    </SafeAreaView>
   );
-};
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STYLES
+// ════════════════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  sceneContainer: {
-    flex: 1,
-    paddingBottom: 20,
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 15,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
-  },
+  container: { flex: 1, backgroundColor: '#fff' },
 
-  // Tabs
-  subTabs: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#f5f5f5',
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: '#0F172A' },
+
+  // ── Top Tabs ──
+  topTabBar: {
+    flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#F1F5F9',
+    paddingHorizontal: 20,
+    gap: 8,
   },
-  subTabLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
+  topTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    gap: 6,
+    marginBottom: 8,
+  },
+  topTabActive: { backgroundColor: '#FFF1F5' },
+  topTabText: { fontSize: 14, fontWeight: '600', color: '#94A3B8' },
+  topTabTextActive: { color: '#FF0059' },
+  topTabBadge: {
+    backgroundColor: '#FF0059',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  topTabBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
+  // ── Sub Tabs ──
+  subTabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 2,
+    borderBottomColor: '#F1F5F9',
+    position: 'relative',
+  },
+  subTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  subTabActive: {},
+  subTabText: { fontSize: 14, fontWeight: '600', color: '#94A3B8' },
+  subTabTextActive: { color: '#FF0059' },
+  subTabBadge: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  subTabBadgeActive: { backgroundColor: '#FFF1F5' },
+  subTabBadgeText: { color: '#64748B', fontSize: 10, fontWeight: '700' },
+  subTabIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    width: SCREEN_WIDTH / 2,
+    height: 2,
+    backgroundColor: '#FF0059',
+    borderRadius: 2,
   },
 
-  // Like Cards
-  card: {
-    margin: 12,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+  // ── Filter bar ──
+  filterBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
   },
-  cardImageContainer: {
-    width: '100%',
-    height: 180,
-    backgroundColor: '#f5f5f5',
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterChipActive: {
+    backgroundColor: '#FF0059',
+    borderColor: '#FF0059',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  filterChipTextActive: { color: '#fff' },
+
+  // ── Grid ──
+  grid: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 24,
+  },
+  row: {
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+
+  // ── Card ──
+  card: {
+    width: CARD_WIDTH,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#F8FAFC',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  cardImageWrapper: {
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    position: 'relative',
   },
   cardImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
-  blurOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  cardContent: {
-    padding: 12,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  cardName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-  },
-  cardLocation: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 10,
-  },
-  cardButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  button: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  buttonPrimary: {
-    backgroundColor: '#E8F1FF',
-  },
-  buttonSecondary: {
-    backgroundColor: '#f5f5f5',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  buttonDisabled: {
-    backgroundColor: '#f5f5f5',
-    opacity: 0.6,
-  },
-  buttonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  buttonTextSecondary: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-  },
-  buttonTextDisabled: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#999',
-  },
-
-  // Blurred Section
-  blurredContainer: {
-    margin: 12,
-    padding: 30,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
+  cardImageFallback: {
+    backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  blurredText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 15,
-    textAlign: 'center',
-  },
-  premiumButton: {
-    marginTop: 15,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-  },
-  premiumButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-
-  // SUPERLIKE Card
-  superlikikeCard: {
-    margin: 12,
-    marginBottom: 16,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#FFF8E1',
-    borderWidth: 2,
-    borderColor: '#FFD700',
-    flexDirection: 'row',
-  },
-  superlikikeImageContainer: {
-    width: 100,
-    height: 120,
-    backgroundColor: '#f5f5f5',
-    position: 'relative',
-  },
-  superlikikeImage: {
-    width: '100%',
-    height: '100%',
-  },
-  superlikeBadge: {
+  cardGradient: {
     position: 'absolute',
-    bottom: -10,
-    right: -10,
-    backgroundColor: '#FFD700',
-    borderRadius: 30,
-    width: 60,
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+  },
+
+  // ── NEW badge ──
+  newBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  newBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
+  // ── Online dot ──
+  onlineDot: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
     borderColor: '#fff',
   },
-  superlikikeContent: {
-    flex: 1,
-    padding: 12,
-    justifyContent: 'space-between',
+
+  // ── Card info ──
+  cardInfo: {
+    padding: 10,
+    backgroundColor: '#fff',
   },
-  superlikikeName: {
-    fontSize: 16,
+  cardName: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#333',
+    color: '#0F172A',
+    marginBottom: 2,
   },
-  superlikikeMessage: {
-    fontSize: 13,
-    color: '#666',
-    fontStyle: 'italic',
+  cardNameBlurred: {
+    color: '#94A3B8',
+    letterSpacing: 3,
   },
-  superlikikeButtons: {
+  cardLocation: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  cardActive: {
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+
+  // ── Blur bars ──
+  blurBar: {
+    height: 8,
+    width: '80%',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 4,
+    marginTop: 4,
+  },
+
+  // ── Premium banner ──
+  premiumBanner: {
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  premiumBannerGradient: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
   },
-  buttonSuccess: {
-    flex: 1,
-    backgroundColor: '#4CAF50',
+  premiumBannerEmoji: { fontSize: 24 },
+  premiumBannerTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
-  buttonDanger: {
+  premiumBannerSub: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  premiumBannerArrow: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+
+  // ── Empty ──
+  emptyState: {
     flex: 1,
-    backgroundColor: '#F44336',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingTop: 60,
+  },
+  emptyEmoji: { fontSize: 56, marginBottom: 16 },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 14,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });
-
-export default LikesScreen;

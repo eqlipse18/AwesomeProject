@@ -650,7 +650,7 @@ router.get('/likes/sent', authenticate, async (req, res) => {
           Users: {
             Keys: userIds,
             ProjectionExpression:
-              'userId, firstName, imageUrls, ageForSort, hometown',
+              'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, isVerified, goals',
           },
         },
       }),
@@ -681,12 +681,10 @@ router.get('/likes/sent', authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // 7. GET /likes/received - Get profiles that liked me (free: blur, premium: show)
 // ════════════════════════════════════════════════════════════════════════════
-
 router.get('/likes/received', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
 
-    // Check if user is premium
     const subResponse = await docClient.send(
       new GetCommand({
         TableName: 'Subscriptions',
@@ -697,22 +695,13 @@ router.get('/likes/received', authenticate, async (req, res) => {
 
     const isPremium = subResponse.Item?.isActive || false;
 
-    // If not premium, return empty array (frontend will show blur)
-    if (!isPremium) {
-      return res.status(200).json({
-        success: true,
-        likes: [],
-        blurred: true,
-        message: 'Upgrade to Premium to see who liked you',
-      });
-    }
-
-    // Get likes where user is likedId
+    // ✅ Premium aur free dono ke liye likes fetch karo
     const response = await docClient.send(
       new QueryCommand({
         TableName: 'flame-Likes',
         IndexName: 'likedId-index',
         KeyConditionExpression: 'likedId = :userId',
+        FilterExpression: '#type IN (:like, :superlike)',
         ProjectionExpression: 'likerId, #type, #timestamp',
         ExpressionAttributeNames: {
           '#type': 'type',
@@ -720,23 +709,23 @@ router.get('/likes/received', authenticate, async (req, res) => {
         },
         ExpressionAttributeValues: {
           ':userId': userId,
+          ':like': 'like',
+          ':superlike': 'superlike',
         },
         ScanIndexForward: false,
       }),
     );
 
-    // Batch fetch user profiles
-    const userIds = response.Items.map(item => ({ userId: item.likerId }));
-
-    // If no users liked, return empty array
-    if (userIds.length === 0) {
+    if (response.Items.length === 0) {
       return res.status(200).json({
         success: true,
         likes: [],
         total: 0,
-        blurred: false,
+        blurred: !isPremium,
       });
     }
+
+    const userIds = response.Items.map(item => ({ userId: item.likerId }));
 
     const usersResponse = await docClient.send(
       new BatchGetCommand({
@@ -744,13 +733,13 @@ router.get('/likes/received', authenticate, async (req, res) => {
           Users: {
             Keys: userIds,
             ProjectionExpression:
-              'userId, firstName, imageUrls, ageForSort, hometown',
+              'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, isVerified, goals',
           },
         },
       }),
     );
 
-    const users = usersResponse.Responses.Users || [];
+    const users = usersResponse.Responses?.Users || [];
 
     return res.status(200).json({
       success: true,
@@ -758,18 +747,131 @@ router.get('/likes/received', authenticate, async (req, res) => {
         userId: user.userId,
         name: user.firstName,
         age: user.ageForSort,
-        image: user.imageUrls?.[0],
-        hometown: user.hometown,
+        // ✅ Free users ke liye image null — frontend blur karega
+        image: isPremium ? user.imageUrls?.[0] : null,
+        hometown: isPremium ? user.hometown : null,
       })),
       total: users.length,
-      blurred: false,
+      blurred: !isPremium,
     });
   } catch (error) {
     console.error('[/likes/received] Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to fetch received likes',
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch received likes' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET /users/new - Recently joined users (last 7 days) with NEW badge
+// ════════════════════════════════════════════════════════════════════════════
+
+router.get('/users/new', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { limit = 20 } = req.query;
+    const parsedLimit = Math.min(parseInt(limit, 10), 50);
+
+    // ── 1. Get current user gender prefs ──
+    const userResp = await docClient.send(
+      new GetCommand({
+        TableName: 'Users',
+        Key: { userId },
+        ProjectionExpression: 'gender, datingPreferences',
+      }),
+    );
+
+    if (!userResp.Item)
+      return res.status(404).json({ success: false, error: 'User not found' });
+
+    const prefs = userResp.Item.datingPreferences || [];
+    let gendersToShow = [];
+    if (prefs.includes('Men')) gendersToShow.push('Male');
+    if (prefs.includes('Women')) gendersToShow.push('Female');
+    if (gendersToShow.length === 0) {
+      gendersToShow = userResp.Item.gender === 'Male' ? ['Female'] : ['Male'];
+    }
+
+    // ── 2. GSI se sirf userId fetch karo — createdAt GSI mein nahi hai ──
+    const results = await Promise.all(
+      gendersToShow.map(gender =>
+        docClient.send(
+          new QueryCommand({
+            TableName: 'Users',
+            IndexName: 'gender-age-index',
+            KeyConditionExpression: 'gender = :gender',
+            FilterExpression: 'isActive = :active AND userId <> :userId',
+            ExpressionAttributeValues: {
+              ':gender': gender,
+              ':active': true,
+              ':userId': userId,
+            },
+            ProjectionExpression: 'userId', // ✅ sirf userId
+            Limit: parsedLimit * 3, // extra fetch — baad mein filter karenge
+          }),
+        ),
+      ),
+    );
+
+    // ── 3. Merge + dedupe userIds ──
+    const seen = new Set();
+    const candidateIds = results
+      .flatMap(r => r.Items || [])
+      .map(u => u.userId)
+      .filter(id => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+
+    if (candidateIds.length === 0) {
+      return res.status(200).json({ success: true, users: [], total: 0 });
+    }
+
+    // ── 4. BatchGet main table — createdAt yahan milega ──
+    const batchResp = await docClient.send(
+      new BatchGetCommand({
+        RequestItems: {
+          Users: {
+            Keys: candidateIds.map(id => ({ userId: id })),
+            ProjectionExpression:
+              'userId, firstName, imageUrls, ageForSort, hometown, goals, createdAt',
+          },
+        },
+      }),
+    );
+
+    const allUsers = batchResp.Responses?.Users || [];
+
+    // ── 5. Filter last 7 days + sort by createdAt ──
+    const sevenDaysAgo = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const newUsers = allUsers
+      .filter(u => u.createdAt && u.createdAt > sevenDaysAgo)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, parsedLimit);
+
+    return res.status(200).json({
+      success: true,
+      users: newUsers.map(u => ({
+        userId: u.userId,
+        name: u.firstName,
+        age: u.ageForSort,
+        image: u.imageUrls?.[0] || null,
+        hometown: u.hometown || null,
+        goals: u.goals || null,
+        isNew: true,
+        joinedAt: u.createdAt,
+      })),
+      total: newUsers.length,
     });
+  } catch (err) {
+    console.error('[/users/new] Error:', err.message);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch new users' });
   }
 });
 

@@ -29,8 +29,17 @@ export const authenticate = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('[authenticate] Error:', error.message);
-    return res
-      .status(401)
-      .json({ success: false, error: 'Invalid or expired token' });
+
+    if (error.name === 'JwtExpiredError') {
+      return res.status(401).json({
+        success: false,
+        error: 'TOKEN_EXPIRED',
+      });
+    }
+
+    return res.status(401).json({
+      success: false,
+      error: 'INVALID_TOKEN',
+    });
   }
 };
