@@ -1,10 +1,10 @@
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import jwt from 'jsonwebtoken';
 
-// Verifies the Cognito IdToken sent from the app after confirmSignup
 const verifier = CognitoJwtVerifier.create({
-  userPoolId: process.env.COGNITO_USER_POOL_ID, // 'ap-south-1_GXlmQsjSF'
+  userPoolId: process.env.COGNITO_USER_POOL_ID,
   tokenUse: 'id',
-  clientId: process.env.COGNITO_CLIENT_ID, // '3gbksse66jn6m1dsquv52t9mut'
+  clientId: process.env.COGNITO_CLIENT_ID,
 });
 
 export const authenticate = async (req, res, next) => {
@@ -18,28 +18,34 @@ export const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const payload = await verifier.verify(token);
 
-    // userId = Cognito sub — this becomes the PK in DynamoDB Users table
-    req.user = {
-      userId: payload.sub,
-      email: payload.email,
-    };
+    // ← kid check — Cognito ya custom JWT
+    const decoded = jwt.decode(token, { complete: true });
+
+    if (decoded?.header?.kid) {
+      // Email flow — Cognito JWT
+      const payload = await verifier.verify(token);
+      req.user = {
+        userId: payload.sub,
+        email: payload.email,
+      };
+    } else {
+      // Google flow — Custom JWT
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = {
+        userId: payload.userId,
+        email: payload.email,
+      };
+    }
 
     next();
   } catch (error) {
     console.error('[authenticate] Error:', error.message);
 
     if (error.name === 'JwtExpiredError') {
-      return res.status(401).json({
-        success: false,
-        error: 'TOKEN_EXPIRED',
-      });
+      return res.status(401).json({ success: false, error: 'TOKEN_EXPIRED' });
     }
 
-    return res.status(401).json({
-      success: false,
-      error: 'INVALID_TOKEN',
-    });
+    return res.status(401).json({ success: false, error: 'INVALID_TOKEN' });
   }
 };

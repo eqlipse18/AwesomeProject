@@ -927,7 +927,7 @@ app.post('/google-signin', async (req, res) => {
     const ticket = await googleClient.verifyIdToken({
       idToken,
       audience:
-        '236630957782-3bcls107c8qeth7cbuj3a861rdsgrj5a.apps.googleusercontent.com', // Same as webClientId in googleAuth.js
+        '272923477279-vl2sd30rkhioohidpov1h2na6dpsd4tg.apps.googleusercontent.com',
     });
     const payload = ticket.getPayload();
     const googleSub = payload.sub; // Google user ID
@@ -987,7 +987,14 @@ app.post('/google-signin', async (req, res) => {
       expiresIn: '30d',
     });
 
-    res.json({ token, userId, isNewUser, email, name });
+    res.json({
+      token,
+      userId,
+      isNewUser,
+      isProfileComplete: !isNewUser,
+      email,
+      name,
+    });
   } catch (error) {
     console.log('Google signin error:', error);
     res.status(500).json({ error: error.message });

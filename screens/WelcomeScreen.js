@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import React, { useState } from 'react';
+import React, { useContext, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Animated, {
@@ -28,10 +28,12 @@ import { signInWithGoogle } from '../utils/googleAuth'; // ← ADD
 import axios from 'axios';
 import { BASE_URL } from '../urls/url';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthContext } from '../AuthContex';
 
 const WelcomeScreen = () => {
   const navigation = useNavigation();
   const [googleLoading, setGoogleLoading] = useState(false);
+  const { setToken, setProfileComplete } = useContext(AuthContext);
 
   const handleNext = () => navigation.navigate('SignUp');
   const handleNextSignIn = () => navigation.navigate('SignIn');
@@ -48,10 +50,7 @@ const WelcomeScreen = () => {
       }
 
       const { idToken, user } = result;
-      console.log('Google User:', user);
-      console.log('ID Token:', idToken);
 
-      // Send idToken to YOUR backend to verify and get JWT
       const response = await axios.post(`${BASE_URL}/google-signin`, {
         idToken,
         email: user.email,
@@ -63,17 +62,18 @@ const WelcomeScreen = () => {
       if (response.status === 200) {
         const { token, userId, isNewUser } = response.data;
 
-        // Save token
+        // ✅ Email flow jaisa — AsyncStorage + Context dono update karo
         await AsyncStorage.setItem('token', token);
         await AsyncStorage.setItem('userId', userId);
+        await AsyncStorage.setItem(
+          'profileComplete',
+          JSON.stringify(!isNewUser),
+        );
 
-        if (isNewUser) {
-          // New user → go through onboarding
-          navigation.navigate('Name');
-        } else {
-          // Existing user → go home
-          navigation.navigate('Home');
-        }
+        setToken(token);
+        setProfileComplete(!isNewUser); // ← Context update — StackNavigator re-render hoga
+
+        // ❌ navigation.navigate hatao — context update se automatic ho jaayega
       }
     } catch (error) {
       console.log('Google Login Error:', error);
