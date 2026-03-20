@@ -1,11 +1,16 @@
 /**
- * DailyScreen - Carousel of daily profiles
+ * DailyScreen - WITH LOCATION DISTANCE ON CARDS ✨
  *
- * Shows today's 20 profiles (superlikes + boosts)
- * Resets at midnight | Backdrop blur | Scale + parallax animation
+ * ProfileCard now shows: "📍 Kathmandu · 8 km away" or "📍 Kathmandu"
  */
 
-import React, { useCallback, useContext, useEffect, useRef } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import {
   View,
   Text,
@@ -26,12 +31,14 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 import { AuthContext } from '../AuthContex';
+import { useMyLocation } from '../LocationContext';
 import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
+import { getLocationDisplay } from '../utils/locationUtils';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const _cardWidth = SCREEN_WIDTH * 0.76;
-const _cardHeight = SCREEN_HEIGHT * 0.62; // ✅ screen height based — zyada tall
+const _cardHeight = SCREEN_HEIGHT * 0.62;
 const _spacing = 16;
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -39,22 +46,10 @@ const _spacing = 16;
 // ════════════════════════════════════════════════════════════════════════════
 
 const TAG_CONFIG = {
-  superlike: {
-    label: '⚡ Superliked You',
-    bg: 'rgba(255, 0, 89, 0.88)',
-  },
-  boost: {
-    label: '🚀 Boosted Profile',
-    bg: 'rgba(39, 169, 255, 0.88)',
-  },
-  top_liked: {
-    label: '🔥 Most Liked',
-    bg: 'rgba(255, 149, 0, 0.88)',
-  },
-  discover: {
-    label: '✨ Discover',
-    bg: 'rgba(100, 100, 100, 0.75)', // neutral grey
-  },
+  superlike: { label: '⚡ Superliked You', bg: 'rgba(255, 0, 89, 0.88)' },
+  boost: { label: '🚀 Boosted Profile', bg: 'rgba(39, 169, 255, 0.88)' },
+  top_liked: { label: '🔥 Most Liked', bg: 'rgba(255, 149, 0, 0.88)' },
+  discover: { label: '✨ Discover', bg: 'rgba(100, 100, 100, 0.75)' },
 };
 
 const TagBadge = ({ tag }) => {
@@ -65,8 +60,9 @@ const TagBadge = ({ tag }) => {
     </View>
   );
 };
+
 // ════════════════════════════════════════════════════════════════════════════
-// BACKDROP PHOTO (blurred bg)
+// BACKDROP PHOTO
 // ════════════════════════════════════════════════════════════════════════════
 
 const BackdropPhoto = ({ uri, index, scrollX }) => {
@@ -90,21 +86,29 @@ const BackdropPhoto = ({ uri, index, scrollX }) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// PROFILE CARD
+// PROFILE CARD — ✅ with distance
 // ════════════════════════════════════════════════════════════════════════════
 
 const ProfileCard = ({ item, index, scrollX }) => {
+  // ✅ Get my location from context
+  const myLocation = useMyLocation();
+
+  const locationDisplay = useMemo(
+    () => getLocationDisplay(myLocation, item),
+    [myLocation, item],
+  );
+
   const cardStyle = useAnimatedStyle(() => {
     const scale = interpolate(
       scrollX.value,
       [index - 1, index, index + 1],
-      [0.84, 1, 0.84], // ✅ side cards aur chhote
+      [0.84, 1, 0.84],
       Extrapolation.CLAMP,
     );
     const translateY = interpolate(
       scrollX.value,
       [index - 1, index, index + 1],
-      [24, 0, 24], // ✅ side cards neeche, center card upar — depth feel
+      [24, 0, 24],
       Extrapolation.CLAMP,
     );
     return { transform: [{ scale }, { translateY }] };
@@ -131,6 +135,7 @@ const ProfileCard = ({ item, index, scrollX }) => {
       changeNavigationBarColor('#000000', false);
     }
   }, []);
+
   return (
     <Animated.View style={[styles.card, cardStyle]}>
       {item.image ? (
@@ -156,11 +161,14 @@ const ProfileCard = ({ item, index, scrollX }) => {
           <Text style={styles.cardName}>{item.name}</Text>
           {item.age ? <Text style={styles.cardAge}>{item.age}</Text> : null}
         </View>
-        {item.hometown ? (
+
+        {/* ✅ "Kathmandu · 8 km away" or "Kathmandu" */}
+        {locationDisplay ? (
           <Text style={styles.cardLocation} numberOfLines={1}>
-            📍 {item.hometown}
+            {locationDisplay}
           </Text>
         ) : null}
+
         {item.goals ? (
           <Text style={styles.cardGoals} numberOfLines={2}>
             {item.goals}
@@ -188,7 +196,6 @@ export default function DailyScreen({ navigation }) {
     scrollX.value = e.contentOffset.x / (_cardWidth + _spacing);
   });
 
-  // Mark profile as seen when it snaps into focus
   const onMomentumScrollEnd = useCallback(
     e => {
       const index = Math.round(
@@ -202,7 +209,6 @@ export default function DailyScreen({ navigation }) {
     [profiles, markSeen],
   );
 
-  // ── Loading ──
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -212,7 +218,6 @@ export default function DailyScreen({ navigation }) {
     );
   }
 
-  // ── Empty / Error ──
   if (!loading && (error || profiles.length === 0)) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -244,7 +249,7 @@ export default function DailyScreen({ navigation }) {
         translucent
       />
 
-      {/* Backdrop blurred photos */}
+      {/* Backdrop */}
       <View style={StyleSheet.absoluteFillObject}>
         {profiles.map((p, i) => (
           <BackdropPhoto
@@ -256,7 +261,6 @@ export default function DailyScreen({ navigation }) {
         ))}
       </View>
 
-      {/* Dim overlay */}
       <View style={[StyleSheet.absoluteFillObject, styles.dimOverlay]} />
 
       {/* Header */}
@@ -267,7 +271,6 @@ export default function DailyScreen({ navigation }) {
         >
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Daily New</Text>
           <Text style={styles.headerSub}>
@@ -275,7 +278,6 @@ export default function DailyScreen({ navigation }) {
             at midnight
           </Text>
         </View>
-
         {unseenCount > 0 && (
           <View style={styles.unseenBadge}>
             <Text style={styles.unseenText}>{unseenCount}</Text>
@@ -300,8 +302,6 @@ export default function DailyScreen({ navigation }) {
             paddingHorizontal: (SCREEN_WIDTH - _cardWidth) / 2,
             alignItems: 'center',
           }}
-          // renderItem update karo:
-          // renderItem mein ref + measure add karo
           renderItem={({ item, index }) => (
             <TouchableOpacity
               ref={ref => {
@@ -313,6 +313,10 @@ export default function DailyScreen({ navigation }) {
                   navigation.navigate('UserProfile', {
                     targetUserId: item.userId,
                     imageUrl: item.image,
+                    // ✅ Pass coords for distance in UserProfileScreen
+                    targetLat: item.lat ?? null,
+                    targetLng: item.lng ?? null,
+                    targetHometown: item.hometown ?? null,
                     originX: pageX,
                     originY: pageY,
                     originWidth: width,
@@ -334,17 +338,12 @@ export default function DailyScreen({ navigation }) {
         />
       </View>
 
-      {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>Swipe to explore profiles</Text>
       </View>
     </SafeAreaView>
   );
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// STYLES
-// ════════════════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
@@ -356,7 +355,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   dimOverlay: { backgroundColor: 'rgba(0,0,0,0.52)' },
-
   loadingText: { color: 'rgba(255,255,255,0.5)', fontSize: 14, marginTop: 12 },
   emptyEmoji: { fontSize: 56, marginBottom: 16 },
   emptyTitle: {
@@ -372,7 +370,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,7 +400,6 @@ const styles = StyleSheet.create({
   backIcon: { fontSize: 20, color: '#fff', marginTop: -1 },
   headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff' },
   headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
-
   unseenBadge: {
     backgroundColor: '#FF0059',
     minWidth: 34,
@@ -414,14 +410,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   unseenText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-
   carouselContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 0,
   },
-
   card: {
     width: _cardWidth,
     height: _cardHeight,
@@ -432,7 +425,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.5,
     shadowRadius: 20,
-    elevation: 12, // ✅ Android shadow
+    elevation: 12,
   },
   imageFallback: {
     ...StyleSheet.absoluteFillObject,
@@ -447,13 +440,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: '55%',
   },
-  cardInfo: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 22,
-  },
+  cardInfo: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 22 },
   tagBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
@@ -461,15 +448,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 10,
   },
-  superlikeBadge: { backgroundColor: 'rgba(255,0,89,0.85)' },
-  boostBadge: { backgroundColor: 'rgba(39,169,255,0.85)' },
   tagText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-
   nameRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -480,15 +464,10 @@ const styles = StyleSheet.create({
   cardAge: { fontSize: 20, fontWeight: '500', color: 'rgba(255,255,255,0.75)' },
   cardLocation: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.85)',
     marginBottom: 5,
   },
-  cardGoals: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.6)',
-    lineHeight: 19,
-  },
-
+  cardGoals: { fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 19 },
   footer: { paddingVertical: 12, alignItems: 'center' },
   footerText: { color: 'rgba(255,255,255,0.25)', fontSize: 11 },
 });

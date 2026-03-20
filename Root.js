@@ -1,10 +1,9 @@
 import React, { useEffect, useContext, useState, useRef } from 'react';
-import { Linking } from 'react-native';
+import { Linking, View, Image, Platform, StyleSheet } from 'react-native';
 import StackNavigator from './navigation/StackNavigator';
 import { AuthContext } from './AuthContex';
+import { LocationProvider } from './LocationContext';
 import axios from 'axios';
-
-import { View, Image, Platform, StyleSheet } from 'react-native';
 import SplashScreen from 'react-native-splash-screen';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import LinearGradient from 'react-native-linear-gradient';
@@ -12,22 +11,20 @@ import AppStatusBar from './components/AppStatusBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from './urls/url';
 import { configureGoogleSignIn } from './utils/googleAuth';
+
 export default function Root() {
-  const { setProfileComplete } = useContext(AuthContext);
+  const { token, setToken, setProfileComplete } = useContext(AuthContext);
   const [showSplash, setShowSplash] = useState(true);
   const authHandledRef = useRef(false);
-  const { setToken } = useContext(AuthContext); // ✅ NOW WORKS
 
   useEffect(() => {
     const handleDeepLink = ({ url }) => {
       console.log('Deep link URL:', url);
-
       const code = url.split('code=')[1]?.split('&')[0];
       if (code) exchangeCodeForToken(code);
     };
 
     const sub = Linking.addEventListener('url', handleDeepLink);
-
     Linking.getInitialURL().then(url => {
       if (url) handleDeepLink({ url });
     });
@@ -36,26 +33,18 @@ export default function Root() {
   }, []);
 
   const exchangeCodeForToken = async code => {
-    if (authHandledRef.current) return; //  prevent double run DOUBLE NAVIGATION BUG User bolta “kabhi login hota hai kabhi nahi”
+    if (authHandledRef.current) return;
     authHandledRef.current = true;
-
     try {
       const res = await axios.post(`${BASE_URL}/googleAuth`, { code });
-
       const { access_token, isProfileComplete } = res.data;
       const profileState = isProfileComplete ?? false;
-
       if (access_token) {
-        // store token
         await AsyncStorage.setItem('token', access_token);
-
-        // store onboarding state
         await AsyncStorage.setItem(
           'profileComplete',
           JSON.stringify(profileState),
         );
-
-        // update context
         setToken(access_token);
         setProfileComplete(profileState);
       }
@@ -74,7 +63,6 @@ export default function Root() {
 
     const timer = setTimeout(() => {
       setShowSplash(false);
-
       if (Platform.OS === 'android') {
         changeNavigationBarColor('#fcd2e0', false);
       }
@@ -105,17 +93,16 @@ export default function Root() {
     );
   }
 
-  return <StackNavigator />;
+  // ✅ LocationProvider yahan — splash ke baad, token available hone ke baad
+  // Token null bhi ho sakta hai (logged out user) — LocationProvider handle karta hai
+  return (
+    <LocationProvider token={token}>
+      <StackNavigator />
+    </LocationProvider>
+  );
 }
+
 const styles = StyleSheet.create({
-  splashContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  splashContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  splashContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  splashContent: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

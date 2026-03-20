@@ -1,10 +1,10 @@
 /**
- * Swipe Routes for In Flame - GENDER FIX
+ * Swipe Routes for In Flame - GENDER FIX + LOCATION SUPPORT
  *
- * KEY FIX:
- * - Now reads logged-in user's datingPreferences
- * - Shows ONLY genders user prefers
- * - Ignores query parameter gender filter
+ * KEY CHANGES (location):
+ * - PATCH /update-location → saves lat/lng to Users table
+ * - GET /feed → BatchGet now fetches lat/lng alongside isOnline/lastActiveAt
+ * - formattedUsers now includes lat/lng fields
  */
 
 import express from 'express';
@@ -20,6 +20,56 @@ import { authenticate } from './authenticate.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
+
+// ════════════════════════════════════════════════════════════════════════════
+// PATCH /update-location - Save user's lat/lng
+// ════════════════════════════════════════════════════════════════════════════
+
+router.patch('/update-location', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { lat, lng } = req.body;
+
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      return res.status(400).json({
+        success: false,
+        error: 'lat and lng must be numbers',
+      });
+    }
+
+    // Basic sanity check
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid coordinates',
+      });
+    }
+
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'Users',
+        Key: { userId },
+        UpdateExpression: 'SET lat = :lat, lng = :lng, locationUpdatedAt = :ts',
+        ExpressionAttributeValues: {
+          ':lat': lat,
+          ':lng': lng,
+          ':ts': new Date().toISOString(),
+        },
+      }),
+    );
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[/update-location] Error:', err);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to update location' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// GET /feed
+// ════════════════════════════════════════════════════════════════════════════
 
 router.get('/feed', authenticate, async (req, res) => {
   try {
@@ -96,7 +146,7 @@ router.get('/feed', authenticate, async (req, res) => {
       }
     }
 
-    // ── 4. Query per gender — GSI se sirf basic fields ──
+    // ── 4. Query per gender ──
     const queryForGender = async gender => {
       const items = [];
       let lastKey = parsedCursor[gender] || undefined;
@@ -106,7 +156,6 @@ router.get('/feed', authenticate, async (req, res) => {
         const params = {
           TableName: 'Users',
           IndexName: hometown ? 'hometown-age-index' : 'gender-age-index',
-          // ✅ GSI mein sirf ye fields projected hain — isOnline/lastActiveAt nahi
           ProjectionExpression:
             'userId, firstName, imageUrls, gender, ageForSort, hometown, goals',
           ExpressionAttributeValues: {
@@ -142,7 +191,7 @@ router.get('/feed', authenticate, async (req, res) => {
       return { items, lastKey };
     };
 
-    // ── 5. Run with timeout (5s max) ──
+    // ── 5. Run with timeout ──
     const withTimeout = (promise, ms = 5000) =>
       Promise.race([
         promise,
@@ -168,7 +217,7 @@ router.get('/feed', authenticate, async (req, res) => {
     // ── 7. Slice to limit ──
     const users = filteredUsers.slice(0, parsedLimit);
 
-    // ── 7b. BatchGet main table — isOnline + lastActiveAt ──
+    // ── 7b. BatchGet main table — isOnline + lastActiveAt + lat + lng ──
     const sevenDaysAgo = new Date(
       Date.now() - 7 * 24 * 60 * 60 * 1000,
     ).toISOString();
@@ -181,7 +230,9 @@ router.get('/feed', authenticate, async (req, res) => {
             RequestItems: {
               Users: {
                 Keys: users.map(u => ({ userId: u.userId })),
-                ProjectionExpression: 'userId, isOnline, lastActiveAt',
+                // ✅ lat + lng added here
+                ProjectionExpression:
+                  'userId, isOnline, lastActiveAt, lat, lng',
               },
             },
           }),
@@ -190,10 +241,12 @@ router.get('/feed', authenticate, async (req, res) => {
           onlineMap[u.userId] = {
             isOnline: u.isOnline ?? false,
             lastActiveAt: u.lastActiveAt ?? null,
+            lat: u.lat ?? null,
+            lng: u.lng ?? null,
           };
         });
       } catch (e) {
-        console.warn('[/feed] BatchGet online status failed:', e.message);
+        console.warn('[/feed] BatchGet failed:', e.message);
       }
     }
 
@@ -213,8 +266,6 @@ router.get('/feed', authenticate, async (req, res) => {
     const formattedUsers = users
       .filter(u => {
         const lat = onlineMap[u.userId]?.lastActiveAt;
-        // ✅ lastActiveAt nahi hai (naya user) → dikhao
-        // ✅ lastActiveAt 7 din ke andar → dikhao
         if (!lat) return true;
         return lat > sevenDaysAgo;
       })
@@ -228,6 +279,9 @@ router.get('/feed', authenticate, async (req, res) => {
         goals: u.goals,
         isOnline: onlineMap[u.userId]?.isOnline ?? false,
         lastActiveAt: onlineMap[u.userId]?.lastActiveAt ?? null,
+        // ✅ Location fields
+        lat: onlineMap[u.userId]?.lat ?? null,
+        lng: onlineMap[u.userId]?.lng ?? null,
       }));
 
     return res.status(200).json({
@@ -247,8 +301,9 @@ router.get('/feed', authenticate, async (req, res) => {
     });
   }
 });
+
 // ════════════════════════════════════════════════════════════════════════════
-// POST /swipe - Record a swipe and detect mutual matches
+// POST /swipe
 // ════════════════════════════════════════════════════════════════════════════
 
 router.post('/swipe', authenticate, async (req, res) => {
@@ -256,7 +311,6 @@ router.post('/swipe', authenticate, async (req, res) => {
     const { userId } = req.user;
     const { likedId, type } = req.body;
 
-    // ── 1. Validation ──
     if (!likedId || !type) {
       return res.status(400).json({
         success: false,
@@ -278,7 +332,6 @@ router.post('/swipe', authenticate, async (req, res) => {
       });
     }
 
-    // ── 2. Check if target user exists and is active ──
     const targetUserResponse = await docClient.send(
       new GetCommand({
         TableName: 'Users',
@@ -294,7 +347,6 @@ router.post('/swipe', authenticate, async (req, res) => {
       });
     }
 
-    // ── 3. Record swipe in Likes table ──
     const timestamp = new Date().toISOString();
     const likeRecord = {
       likerId: userId,
@@ -311,9 +363,6 @@ router.post('/swipe', authenticate, async (req, res) => {
       }),
     );
 
-    // ─────────────────────────────────────────────
-    // ── 3b. INCREMENT likeCount on target user ──  ← YE NAI LINE HAI
-    // ─────────────────────────────────────────────
     if (type !== 'pass') {
       await docClient.send(
         new UpdateCommand({
@@ -325,7 +374,6 @@ router.post('/swipe', authenticate, async (req, res) => {
       );
     }
 
-    // ── 4. Check for mutual match ──
     let matchDetected = false;
     let matchId = null;
 
@@ -338,9 +386,7 @@ router.post('/swipe', authenticate, async (req, res) => {
           FilterExpression:
             'likerId = :likedId AND #type IN (:like, :superlike)',
           ProjectionExpression: 'likerId, likedId, #type',
-          ExpressionAttributeNames: {
-            '#type': 'type',
-          },
+          ExpressionAttributeNames: { '#type': 'type' },
           ExpressionAttributeValues: {
             ':userId': userId,
             ':likedId': likedId,
@@ -351,7 +397,6 @@ router.post('/swipe', authenticate, async (req, res) => {
       );
 
       if (reverseCheckResponse.Items.length > 0) {
-        // Pehle check karo match already exist karta hai kya
         const [existingMatch1, existingMatch2] = await Promise.all([
           docClient.send(
             new QueryCommand({
@@ -381,13 +426,10 @@ router.post('/swipe', authenticate, async (req, res) => {
         matchDetected = true;
 
         if (alreadyMatched) {
-          // ✅ Already exist karta hai — existing matchId use karo
           matchId =
             existingMatch1.Items?.[0]?.matchId ||
             existingMatch2.Items?.[0]?.matchId;
-          console.log(`[/swipe] Match already exists: ${matchId}`);
         } else {
-          // ✅ Naya match banao
           matchId = uuidv4();
           const now = new Date().toISOString();
 
@@ -409,7 +451,7 @@ router.post('/swipe', authenticate, async (req, res) => {
             new PutCommand({
               TableName: 'flame-Matches',
               Item: matchRecord,
-              ConditionExpression: 'attribute_not_exists(matchId)', //  race condition safe
+              ConditionExpression: 'attribute_not_exists(matchId)',
             }),
           );
 
@@ -433,10 +475,6 @@ router.post('/swipe', authenticate, async (req, res) => {
               }),
             ),
           ]);
-
-          console.log(
-            `[/swipe] Match created: ${matchId} between ${userId} and ${likedId}`,
-          );
         }
       }
     }
@@ -455,199 +493,36 @@ router.post('/swipe', authenticate, async (req, res) => {
   }
 });
 
-// router.post('/swipe-batch', authenticate, async (req, res) => {
-//   try {
-//     const { userId } = req.user;
-//     const { swipes } = req.body;
-
-//     if (!Array.isArray(swipes) || swipes.length === 0) {
-//       return res
-//         .status(400)
-//         .json({ success: false, error: 'Swipes array is required' });
-//     }
-
-//     // ── 1. Dedupe within batch itself ──
-//     const seen = new Set();
-//     const validSwipes = swipes.filter(({ likedId, type }) => {
-//       if (!likedId || !['like', 'superlike', 'pass'].includes(type))
-//         return false;
-//       if (likedId === userId) return false;
-//       if (seen.has(likedId)) return false;
-//       seen.add(likedId);
-//       return true;
-//     });
-
-//     if (validSwipes.length === 0) {
-//       return res.status(400).json({ success: false, error: 'No valid swipes' });
-//     }
-
-//     const timestamp = new Date().toISOString();
-
-//     // ── 2. Write all swipes in parallel ──
-//     await Promise.all(
-//       validSwipes.map(({ likedId, type }) =>
-//         docClient.send(
-//           new PutCommand({
-//             TableName: 'flame-Likes',
-//             Item: {
-//               likerId: userId,
-//               likedId,
-//               type,
-//               timestamp,
-//               isMatched: false,
-//             },
-//           }),
-//         ),
-//       ),
-//     );
-
-//     // ── 3. Check mutual matches in parallel (likes/superlikes only) ──
-//     const likeSwipes = validSwipes.filter(s => s.type !== 'pass');
-
-//     const reverseChecks = await Promise.all(
-//       likeSwipes.map(({ likedId }) =>
-//         docClient
-//           .send(
-//             new QueryCommand({
-//               TableName: 'flame-Likes',
-//               IndexName: 'likedId-index',
-//               KeyConditionExpression: 'likedId = :userId',
-//               FilterExpression:
-//                 'likerId = :likedId AND #type IN (:like, :superlike)',
-//               ProjectionExpression: 'likerId, likedId, #type, #ts',
-//               ExpressionAttributeNames: { '#type': 'type', '#ts': 'timestamp' },
-//               ExpressionAttributeValues: {
-//                 ':userId': userId,
-//                 ':likedId': likedId,
-//                 ':like': 'like',
-//                 ':superlike': 'superlike',
-//               },
-//             }),
-//           )
-//           .then(resp => ({ likedId, reverseItem: resp.Items?.[0] || null })),
-//       ),
-//     );
-
-//     // ── 4. Create matches in parallel + ConditionExpression to prevent duplicates ──
-//     const matchResults = await Promise.all(
-//       reverseChecks
-//         .filter(({ reverseItem }) => reverseItem !== null)
-//         .map(async ({ likedId, reverseItem }) => {
-//           const matchId = uuidv4();
-//           const now = new Date().toISOString();
-//           const swipe = validSwipes.find(s => s.likedId === likedId);
-
-//           try {
-//             await docClient.send(
-//               new PutCommand({
-//                 TableName: 'flame-Matches',
-//                 Item: {
-//                   matchId,
-//                   user1Id: userId,
-//                   user2Id: likedId,
-//                   chatEnabled: true,
-//                   createdAt: now,
-//                   lastMessageAt: now,
-//                   lastMessage: {
-//                     text: '👋 New match!',
-//                     senderId: 'system',
-//                     timestamp: now,
-//                   },
-//                 },
-//                 // ✅ prevent duplicate match if race condition
-//                 ConditionExpression: 'attribute_not_exists(matchId)',
-//               }),
-//             );
-
-//             // ✅ Update both likes as matched in parallel
-//             await Promise.all([
-//               docClient.send(
-//                 new PutCommand({
-//                   TableName: 'flame-Likes',
-//                   Item: {
-//                     likerId: userId,
-//                     likedId,
-//                     type: swipe.type,
-//                     timestamp,
-//                     isMatched: true,
-//                   },
-//                 }),
-//               ),
-//               docClient.send(
-//                 new PutCommand({
-//                   TableName: 'flame-Likes',
-//                   Item: {
-//                     likerId: likedId,
-//                     likedId: userId,
-//                     type: reverseItem.type,
-//                     timestamp: reverseItem.timestamp,
-//                     isMatched: true,
-//                   },
-//                 }),
-//               ),
-//             ]);
-
-//             return { likedId, matchId };
-//           } catch (e) {
-//             if (e.name === 'ConditionalCheckFailedException') {
-//               // match already exists, not an error
-//               return { likedId, matchId: null };
-//             }
-//             throw e;
-//           }
-//         }),
-//     );
-
-//     const results = validSwipes.map(({ likedId }) => {
-//       const match = matchResults.find(m => m?.likedId === likedId);
-//       return { likedId, matchId: match?.matchId || null };
-//     });
-
-//     return res.status(200).json({ success: true, results });
-//   } catch (error) {
-//     console.error('[/swipe-batch] Error:', error);
-//     return res
-//       .status(500)
-//       .json({ success: false, error: 'Failed to process swipe batch' });
-//   }
-// });
 // ════════════════════════════════════════════════════════════════════════════
-// GET /matches - Get current user's confirmed matches
+// GET /matches-legacy
 // ════════════════════════════════════════════════════════════════════════════
 
 router.get('/matches-legacy', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
-    console.log('[/matches] Fetching for userId:', userId);
     const { limit = 20, cursor } = req.query;
-
     const parsedLimit = Math.min(parseInt(limit, 10), 100);
 
-    // ── 1. Query both user1Id-index and user2Id-index ──
     const queryParamsUser1 = {
       TableName: 'flame-Matches',
       IndexName: 'user1Id-index',
       KeyConditionExpression: 'user1Id = :userId',
       ProjectionExpression:
         'matchId, user2Id, lastMessage, lastMessageAt, createdAt',
-      ExpressionAttributeValues: {
-        ':userId': userId,
-      },
+      ExpressionAttributeValues: { ':userId': userId },
       Limit: parsedLimit,
       ScanIndexForward: false,
     };
 
     if (cursor) {
       try {
-        const decodedCursor = JSON.parse(
+        queryParamsUser1.ExclusiveStartKey = JSON.parse(
           Buffer.from(cursor, 'base64').toString(),
         );
-        queryParamsUser1.ExclusiveStartKey = decodedCursor;
       } catch (e) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid cursor',
-        });
+        return res
+          .status(400)
+          .json({ success: false, error: 'Invalid cursor' });
       }
     }
 
@@ -662,16 +537,9 @@ router.get('/matches-legacy', authenticate, async (req, res) => {
       ),
     ]);
 
-    // ── 2. Merge results and sort by lastMessageAt ──
     const allMatches = [
-      ...user1Response.Items.map(m => ({
-        ...m,
-        otherUserId: m.user2Id,
-      })),
-      ...user2Response.Items.map(m => ({
-        ...m,
-        otherUserId: m.user1Id,
-      })),
+      ...user1Response.Items.map(m => ({ ...m, otherUserId: m.user2Id })),
+      ...user2Response.Items.map(m => ({ ...m, otherUserId: m.user1Id })),
     ];
 
     allMatches.sort(
@@ -681,11 +549,8 @@ router.get('/matches-legacy', authenticate, async (req, res) => {
     );
 
     const paginatedMatches = allMatches.slice(0, parsedLimit);
-
-    // ── 3. Batch fetch other user's data ──
     const otherUserIds = paginatedMatches.map(m => m.otherUserId);
 
-    // If no matches, return empty array
     if (otherUserIds.length === 0) {
       return res.status(200).json({
         success: true,
@@ -711,7 +576,6 @@ router.get('/matches-legacy', authenticate, async (req, res) => {
       userDataMap[user.userId] = user;
     });
 
-    // ── 4. Format response ──
     const formattedMatches = paginatedMatches.map(match => ({
       matchId: match.matchId,
       userId: match.otherUserId,
@@ -722,44 +586,28 @@ router.get('/matches-legacy', authenticate, async (req, res) => {
       createdAt: match.createdAt,
     }));
 
-    // ── 5. Generate next cursor ──
-    let nextCursor = null;
-    if (paginatedMatches.length > parsedLimit) {
-      const lastMatch = paginatedMatches[parsedLimit - 1];
-      nextCursor = Buffer.from(
-        JSON.stringify({
-          matchId: lastMatch.matchId,
-          user1Id: lastMatch.user1Id,
-          user2Id: lastMatch.user2Id,
-          lastMessageAt: lastMatch.lastMessageAt,
-        }),
-      ).toString('base64');
-    }
-
     return res.status(200).json({
       success: true,
       matches: formattedMatches,
-      nextCursor,
+      nextCursor: null,
       total: formattedMatches.length,
     });
   } catch (error) {
     console.error('[/matches] Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to fetch matches',
-    });
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch matches' });
   }
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// GET /user-profile - Get logged-in user's profile data
+// GET /user-profile
 // ════════════════════════════════════════════════════════════════════════════
 
 router.get('/user-profile', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
 
-    // Fetch user from Users table
     const userResponse = await docClient.send(
       new GetCommand({
         TableName: 'Users',
@@ -770,27 +618,20 @@ router.get('/user-profile', authenticate, async (req, res) => {
     );
 
     if (!userResponse.Item) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found',
-      });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    return res.status(200).json({
-      success: true,
-      user: userResponse.Item,
-    });
+    return res.status(200).json({ success: true, user: userResponse.Item });
   } catch (error) {
     console.error('[/user-profile] Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to fetch user profile',
-    });
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch user profile' });
   }
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// POST /get-user-by-id - Get user profile by userId
+// POST /get-user-by-id
 // ════════════════════════════════════════════════════════════════════════════
 
 router.post('/get-user-by-id', authenticate, async (req, res) => {
@@ -798,13 +639,10 @@ router.post('/get-user-by-id', authenticate, async (req, res) => {
     const { userId } = req.body;
 
     if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'userId is required',
-      });
+      return res
+        .status(400)
+        .json({ success: false, error: 'userId is required' });
     }
-
-    console.log('[/get-user-by-id] Fetching user:', userId);
 
     const response = await docClient.send(
       new GetCommand({
@@ -812,29 +650,20 @@ router.post('/get-user-by-id', authenticate, async (req, res) => {
         Key: { userId },
         ProjectionExpression:
           'userId, firstName, lastName, fullName, ageForSort, dateOfBirth, imageUrls, gender, hometown, goals, hobbies, jobTitle, #ht, drink, smoke, datingPreferences, isVerified, isPremium, isOnline, lastActiveAt',
-        ExpressionAttributeNames: {
-          '#ht': 'height', // height reserved word
-        },
+        ExpressionAttributeNames: { '#ht': 'height' },
       }),
     );
 
     if (!response.Item) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found',
-      });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    return res.status(200).json({
-      success: true,
-      user: response.Item,
-    });
+    return res.status(200).json({ success: true, user: response.Item });
   } catch (error) {
     console.error('[/get-user-by-id] Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to fetch user',
-    });
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch user' });
   }
 });
 

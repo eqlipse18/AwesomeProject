@@ -1,7 +1,15 @@
+/**
+ * UserProfileScreen - WITH LOCATION DISTANCE ✨
+ *
+ * Hometown row shows: "Kathmandu · 8 km away" or just "Kathmandu"
+ * Coords come from route.params (passed from HomeScreen / DailyScreen card press)
+ */
+
 import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -29,12 +37,13 @@ import Animated, {
   withTiming,
   Easing,
   Extrapolation,
-  runOnJS,
 } from 'react-native-reanimated';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
+import { useMyLocation } from '../LocationContext';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
+import { getLocationDisplay } from '../utils/locationUtils';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const IMAGE_HEIGHT = SCREEN_HEIGHT * 0.52;
@@ -155,6 +164,10 @@ export default function UserProfileScreen({ navigation, route }) {
   const {
     targetUserId,
     imageUrl: transitionImageUrl,
+    // ✅ Coords passed from HomeScreen / DailyScreen
+    targetLat = null,
+    targetLng = null,
+    targetHometown = null,
     originX = 0,
     originY = 0,
     originWidth = SCREEN_WIDTH,
@@ -162,6 +175,7 @@ export default function UserProfileScreen({ navigation, route }) {
   } = route.params;
 
   const { token } = useContext(AuthContext);
+  const myLocation = useMyLocation();
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -170,13 +184,11 @@ export default function UserProfileScreen({ navigation, route }) {
   const [actionDone, setActionDone] = useState(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [heroReady, setHeroReady] = useState(false);
   const [dataReady, setDataReady] = useState(false);
 
   const scrollY = useSharedValue(0);
   const apiClient = useRef(createApiClient(token));
 
-  // ── Hero animation shared values ──
   const heroX = useSharedValue(originX);
   const heroY = useSharedValue(originY);
   const heroW = useSharedValue(originWidth);
@@ -185,12 +197,9 @@ export default function UserProfileScreen({ navigation, route }) {
   const contentOpacity = useSharedValue(0);
   const bgOpacity = useSharedValue(0);
 
-  // ── Run hero expand animation ──
   useEffect(() => {
-    // ✅ Navigation transition complete hone ke baad animate karo
     const interaction = InteractionManager.runAfterInteractions(() => {
       const springConfig = { damping: 28, stiffness: 200, mass: 0.8 };
-
       bgOpacity.value = withTiming(1, { duration: 180 });
       heroX.value = withSpring(0, springConfig);
       heroY.value = withSpring(0, springConfig);
@@ -199,11 +208,9 @@ export default function UserProfileScreen({ navigation, route }) {
       heroBorderRadius.value = withSpring(0, springConfig);
       contentOpacity.value = withTiming(1, { duration: 350 });
     });
-
     return () => interaction.cancel();
   }, []);
 
-  // ── Fetch profile ──
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -213,7 +220,7 @@ export default function UserProfileScreen({ navigation, route }) {
         });
         if (resp.data.success) {
           setProfile(resp.data.user);
-          setDataReady(true); // ✅
+          setDataReady(true);
         } else {
           setError('Profile not found');
         }
@@ -226,11 +233,24 @@ export default function UserProfileScreen({ navigation, route }) {
     fetchProfile();
   }, [targetUserId]);
 
+  // ✅ Build location display for the Details section
+  // Use coords from route.params (passed from card) merged with fetched profile hometown
+  const locationDisplay = useMemo(() => {
+    const effectiveHometown = profile?.hometown || targetHometown;
+    const effectiveLat = targetLat; // from route.params
+    const effectiveLng = targetLng;
+
+    return getLocationDisplay(myLocation, {
+      hometown: effectiveHometown,
+      lat: effectiveLat,
+      lng: effectiveLng,
+    });
+  }, [myLocation, profile?.hometown, targetHometown, targetLat, targetLng]);
+
   const onScroll = useAnimatedScrollHandler(e => {
     scrollY.value = e.contentOffset.y;
   });
 
-  // ── Hero animated style (expansion) ──
   const heroStyle = useAnimatedStyle(() => ({
     position: 'absolute',
     left: heroX.value,
@@ -244,7 +264,6 @@ export default function UserProfileScreen({ navigation, route }) {
     zIndex: 5,
   }));
 
-  // ── Parallax + fade on scroll (after expansion) ──
   const heroScrollStyle = useAnimatedStyle(() => {
     const translateY = interpolate(
       scrollY.value,
@@ -261,7 +280,6 @@ export default function UserProfileScreen({ navigation, route }) {
     return { transform: [{ translateY }], opacity };
   });
 
-  // ── Back button fade ──
   const backBtnStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
       scrollY.value,
@@ -271,7 +289,6 @@ export default function UserProfileScreen({ navigation, route }) {
     ),
   }));
 
-  // ── Background + content opacity ──
   const bgStyle = useAnimatedStyle(() => ({ opacity: bgOpacity.value }));
   const contentStyle = useAnimatedStyle(() => ({
     opacity: contentOpacity.value,
@@ -293,16 +310,11 @@ export default function UserProfileScreen({ navigation, route }) {
     }
   }, [profile, actionDone]);
 
-  const handleMessageRequest = useCallback(() => {
-    setActionDone('requested');
-  }, []);
-
   const openPreview = useCallback(index => {
     setPreviewIndex(index);
     setPreviewVisible(true);
   }, []);
 
-  // ── Error state ──
   if (error) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -334,7 +346,7 @@ export default function UserProfileScreen({ navigation, route }) {
         translucent
       />
 
-      {/* ── Hero Image — expands from card position ── */}
+      {/* Hero Image */}
       <Animated.View style={[heroStyle, heroScrollStyle]}>
         <TouchableOpacity
           activeOpacity={0.92}
@@ -352,7 +364,6 @@ export default function UserProfileScreen({ navigation, route }) {
             </View>
           )}
         </TouchableOpacity>
-
         <LinearGradient
           colors={['rgba(0,0,0,0.3)', 'transparent', 'rgba(0,0,0,0.15)']}
           style={StyleSheet.absoluteFillObject}
@@ -360,7 +371,7 @@ export default function UserProfileScreen({ navigation, route }) {
         />
       </Animated.View>
 
-      {/* ── Back Button ── */}
+      {/* Back Button */}
       <Animated.View style={[styles.backBtnWrapper, backBtnStyle]}>
         <SafeAreaView>
           <TouchableOpacity
@@ -372,7 +383,7 @@ export default function UserProfileScreen({ navigation, route }) {
         </SafeAreaView>
       </Animated.View>
 
-      {/* ── Scrollable Sheet ── */}
+      {/* Scrollable Sheet */}
       <Animated.ScrollView
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -423,14 +434,13 @@ export default function UserProfileScreen({ navigation, route }) {
                     </>
                   )}
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[
                     styles.actionBtn,
                     styles.msgBtn,
                     actionDone === 'requested' && styles.actionBtnDone,
                   ]}
-                  onPress={handleMessageRequest}
+                  onPress={() => setActionDone('requested')}
                   disabled={!!actionDone}
                   activeOpacity={0.85}
                 >
@@ -445,7 +455,6 @@ export default function UserProfileScreen({ navigation, route }) {
 
               {/* Name */}
               <View style={styles.nameSection}>
-                {/* Left side — name + job */}
                 <View style={{ flex: 1 }}>
                   <View style={styles.nameRow}>
                     <Text style={styles.name}>
@@ -460,8 +469,6 @@ export default function UserProfileScreen({ navigation, route }) {
                     <Text style={styles.jobTitle}>💼 {profile.jobTitle}</Text>
                   ) : null}
                 </View>
-
-                {/* ✅ Right side — online status */}
                 <View style={styles.onlineRow}>
                   <View
                     style={[
@@ -510,7 +517,12 @@ export default function UserProfileScreen({ navigation, route }) {
               {/* Details */}
               <SectionHeader title="Details" />
               <View style={styles.infoGrid}>
-                <InfoRow icon="📍" label="Hometown" value={profile?.hometown} />
+                {/* ✅ Hometown row — shows "Kathmandu · 8 km away" or "Kathmandu" */}
+                <InfoRow
+                  icon="📍"
+                  label="Hometown"
+                  value={locationDisplay || profile?.hometown}
+                />
                 <InfoRow icon="📏" label="Height" value={profile?.height} />
                 <InfoRow
                   icon="🎂"
@@ -576,7 +588,6 @@ export default function UserProfileScreen({ navigation, route }) {
         </Animated.View>
       </Animated.ScrollView>
 
-      {/* Preview Modal */}
       <ImagePreviewModal
         visible={previewVisible}
         images={allImages.length > 0 ? allImages : [transitionImageUrl]}
@@ -595,11 +606,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
   },
-  sheetLoading: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  sheetLoading: { height: 200, justifyContent: 'center', alignItems: 'center' },
   heroImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   imageFallback: {
     backgroundColor: '#222',
@@ -654,11 +661,10 @@ const styles = StyleSheet.create({
   actionBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   nameSection: {
     marginBottom: 16,
-    flexDirection: 'row', // ✅ row layout
+    flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between', // ✅ name left, status right
+    justifyContent: 'space-between',
   },
-
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -744,14 +750,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   expandIcon: { color: '#fff', fontSize: 13 },
-  errorEmoji: { fontSize: 56, marginBottom: 16 },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 20,
-  },
-
   onlineRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -763,16 +761,14 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginTop: 4,
   },
-  onlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#22C55E',
-  },
-  onlineText: {
-    fontSize: 13,
-    color: '#22C55E',
-    fontWeight: '600',
+  onlineDot: { width: 8, height: 8, borderRadius: 4 },
+  onlineText: { fontSize: 13, fontWeight: '600' },
+  errorEmoji: { fontSize: 56, marginBottom: 16 },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 20,
   },
   retryBtn: {
     backgroundColor: '#FF0059',

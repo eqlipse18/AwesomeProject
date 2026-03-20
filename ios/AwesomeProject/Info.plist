@@ -26,6 +26,8 @@
 	<string>Flame app requires camera to take photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Flame app requires photo library access to uplaod images.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+<string>We use your location to show nearby profiles and distance.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
