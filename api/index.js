@@ -38,6 +38,7 @@ import dailyFeedRoutes from './dailyFeedRoutes.js';
 import { createServer } from 'http';
 import { initSocket } from './socket.js';
 import chatRoutes from './chatRoutes.js';
+import nearbyRouter from './nearbyRoutes.js';
 
 const app = express();
 app.use(express.json());
@@ -1023,3 +1024,4 @@ app.use('/', chatRoutes);
 app.use('/', swipeRouter);
 app.use('/', dailyFeedRoutes);
 app.use('/', subscriptionRoutes);
+app.use('/', nearbyRouter);

@@ -20,6 +20,7 @@ import HobbyScreen from '../screens/HobbyScreen';
 import PreFinalScreen from '../screens/PreFinalScreen';
 import SetNewPasswordScreen from '../screens/SetNewPasswordScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
+import NearbyScreen from '../screens/NearbyScreen';
 
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthContext, AuthProvider } from '../AuthContex';
@@ -54,6 +55,11 @@ function AppStack() {
         name="Daily"
         component={DailyScreen}
         options={{ animation: 'slide_from_bottom' }} // ← nice entry
+      />
+      <Stack.Screen
+        name="Nearby"
+        component={NearbyScreen}
+        options={{ animation: 'slide_from_bottom' }}
       />
       <Stack.Screen
         name="UserProfile"

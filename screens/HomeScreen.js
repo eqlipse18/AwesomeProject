@@ -546,12 +546,18 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.headerTopRow}>
             <Text style={styles.headerTitle}>Flames</Text>
             <View style={styles.tabRow}>
-              <TouchableOpacity style={styles.tabBtn} disabled>
-                <Text style={styles.tabBtnText}>Nearby</Text>
+              <TouchableOpacity
+                style={styles.tabBtn}
+                onPress={() => navigation.navigate('Nearby')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.tabBtnText, { opacity: 1, color: '#FF0059' }]}
+                >
+                  Nearby
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.tabBtn} disabled>
-                <Text style={styles.tabBtnText}>Online</Text>
-              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.dailyTabBtn}
                 onPress={() => navigation.navigate('Daily')}
