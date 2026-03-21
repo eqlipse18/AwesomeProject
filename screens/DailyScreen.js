@@ -1,7 +1,11 @@
 /**
- * DailyScreen - WITH LOCATION DISTANCE ON CARDS ✨
+ * DailyScreen - WITH LOCATION DISTANCE + END CARD ✨
  *
- * ProfileCard now shows: "📍 Kathmandu · 8 km away" or "📍 Kathmandu"
+ * End card features:
+ * - Last user's blurred image as background
+ * - "Come back tomorrow!" message
+ * - Live countdown to midnight reset
+ * - "Scroll back up" button
  */
 
 import React, {
@@ -10,6 +14,7 @@ import React, {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import {
   View,
@@ -20,6 +25,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Platform,
+  ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'react-native-linear-gradient';
@@ -40,6 +46,49 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const _cardWidth = SCREEN_WIDTH * 0.76;
 const _cardHeight = SCREEN_HEIGHT * 0.62;
 const _spacing = 16;
+
+// ════════════════════════════════════════════════════════════════════════════
+// MIDNIGHT COUNTDOWN HOOK
+// ════════════════════════════════════════════════════════════════════════════
+
+const useMidnightCountdown = () => {
+  const getTimeLeft = () => {
+    const now = new Date();
+    const midnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    );
+    const diff = midnight - now;
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return {
+      h,
+      m,
+      s,
+      formatted: `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(
+        2,
+        '0',
+      )}s`,
+    };
+  };
+
+  const [timeLeft, setTimeLeft] = useState(getTimeLeft());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeLeft(getTimeLeft());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return timeLeft;
+};
 
 // ════════════════════════════════════════════════════════════════════════════
 // TAG BADGE
@@ -74,7 +123,6 @@ const BackdropPhoto = ({ uri, index, scrollX }) => {
       Extrapolation.CLAMP,
     ),
   }));
-
   return (
     <Animated.Image
       renderToHardwareTextureAndroid
@@ -86,11 +134,10 @@ const BackdropPhoto = ({ uri, index, scrollX }) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// PROFILE CARD — ✅ with distance
+// PROFILE CARD
 // ════════════════════════════════════════════════════════════════════════════
 
 const ProfileCard = ({ item, index, scrollX }) => {
-  // ✅ Get my location from context
   const myLocation = useMyLocation();
 
   const locationDisplay = useMemo(
@@ -131,9 +178,7 @@ const ProfileCard = ({ item, index, scrollX }) => {
   });
 
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      changeNavigationBarColor('#000000', false);
-    }
+    if (Platform.OS === 'android') changeNavigationBarColor('#000000', false);
   }, []);
 
   return (
@@ -161,19 +206,95 @@ const ProfileCard = ({ item, index, scrollX }) => {
           <Text style={styles.cardName}>{item.name}</Text>
           {item.age ? <Text style={styles.cardAge}>{item.age}</Text> : null}
         </View>
-
-        {/* ✅ "Kathmandu · 8 km away" or "Kathmandu" */}
         {locationDisplay ? (
           <Text style={styles.cardLocation} numberOfLines={1}>
             {locationDisplay}
           </Text>
         ) : null}
-
         {item.goals ? (
           <Text style={styles.cardGoals} numberOfLines={2}>
             {item.goals}
           </Text>
         ) : null}
+      </View>
+    </Animated.View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// END CARD ✨ — last user blurred bg + midnight countdown
+// ════════════════════════════════════════════════════════════════════════════
+
+const EndCard = ({ index, scrollX, lastImage, onScrollBack }) => {
+  const { formatted } = useMidnightCountdown();
+
+  const cardStyle = useAnimatedStyle(() => {
+    const scale = interpolate(
+      scrollX.value,
+      [index - 1, index, index + 1],
+      [0.84, 1, 0.84],
+      Extrapolation.CLAMP,
+    );
+    const translateY = interpolate(
+      scrollX.value,
+      [index - 1, index, index + 1],
+      [24, 0, 24],
+      Extrapolation.CLAMP,
+    );
+    return { transform: [{ scale }, { translateY }] };
+  });
+
+  return (
+    <Animated.View style={[styles.card, cardStyle]}>
+      {/* Last user's blurred image */}
+      {lastImage ? (
+        <ImageBackground
+          source={{ uri: lastImage }}
+          style={StyleSheet.absoluteFillObject}
+          blurRadius={18}
+          resizeMode="cover"
+        />
+      ) : (
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: '#1a1a1a' },
+          ]}
+        />
+      )}
+
+      {/* Dark overlay */}
+      <View style={styles.endCardOverlay} />
+
+      {/* Bottom gradient */}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.65)']}
+        style={styles.cardGradient}
+      />
+
+      {/* Content */}
+      <View style={styles.endCardContent}>
+        <Text style={styles.endCardEmoji}>🌅</Text>
+
+        <Text style={styles.endCardTitle}>Come back tomorrow!</Text>
+        <Text style={styles.endCardSub}>
+          You've seen all your daily picks.{'\n'}New profiles drop at midnight.
+        </Text>
+
+        {/* Countdown */}
+        <View style={styles.countdownBox}>
+          <Text style={styles.countdownLabel}>Resets in</Text>
+          <Text style={styles.countdownTimer}>{formatted}</Text>
+        </View>
+
+        {/* Scroll back up button */}
+        <TouchableOpacity
+          style={styles.endCardBtn}
+          onPress={onScrollBack}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.endCardBtnText}>↑ Scroll back up</Text>
+        </TouchableOpacity>
       </View>
     </Animated.View>
   );
@@ -190,6 +311,7 @@ export default function DailyScreen({ navigation }) {
   });
 
   const scrollX = useSharedValue(0);
+  const flatListRef = useRef(null);
   const lastSeenIndex = useRef(-1);
 
   const onScroll = useAnimatedScrollHandler(e => {
@@ -209,6 +331,21 @@ export default function DailyScreen({ navigation }) {
     [profiles, markSeen],
   );
 
+  // ── Scroll back to first card ──
+  const handleScrollBack = useCallback(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  // ── Append end card after all profiles ──
+  const listData = useMemo(() => {
+    if (profiles.length === 0) return profiles;
+    return [...profiles, { _isEndCard: true, userId: '__end__' }];
+  }, [profiles]);
+
+  const lastProfileImage =
+    profiles.length > 0 ? profiles[profiles.length - 1]?.image : null;
+
+  // ── Loading ──
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -218,6 +355,7 @@ export default function DailyScreen({ navigation }) {
     );
   }
 
+  // ── Empty / Error ──
   if (!loading && (error || profiles.length === 0)) {
     return (
       <SafeAreaView style={styles.centered}>
@@ -249,7 +387,7 @@ export default function DailyScreen({ navigation }) {
         translucent
       />
 
-      {/* Backdrop */}
+      {/* Backdrop blurred photos — only real profiles, not end card */}
       <View style={StyleSheet.absoluteFillObject}>
         {profiles.map((p, i) => (
           <BackdropPhoto
@@ -260,7 +398,6 @@ export default function DailyScreen({ navigation }) {
           />
         ))}
       </View>
-
       <View style={[StyleSheet.absoluteFillObject, styles.dimOverlay]} />
 
       {/* Header */}
@@ -288,7 +425,8 @@ export default function DailyScreen({ navigation }) {
       {/* Carousel */}
       <View style={styles.carouselContainer}>
         <Animated.FlatList
-          data={profiles}
+          ref={flatListRef}
+          data={listData}
           horizontal
           keyExtractor={item => item.userId}
           showsHorizontalScrollIndicator={false}
@@ -302,32 +440,45 @@ export default function DailyScreen({ navigation }) {
             paddingHorizontal: (SCREEN_WIDTH - _cardWidth) / 2,
             alignItems: 'center',
           }}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              ref={ref => {
-                item._ref = ref;
-              }}
-              activeOpacity={0.95}
-              onPress={() => {
-                item._ref?.measure((x, y, width, height, pageX, pageY) => {
-                  navigation.navigate('UserProfile', {
-                    targetUserId: item.userId,
-                    imageUrl: item.image,
-                    // ✅ Pass coords for distance in UserProfileScreen
-                    targetLat: item.lat ?? null,
-                    targetLng: item.lng ?? null,
-                    targetHometown: item.hometown ?? null,
-                    originX: pageX,
-                    originY: pageY,
-                    originWidth: width,
-                    originHeight: height,
+          renderItem={({ item, index }) => {
+            // ✅ End card
+            if (item._isEndCard) {
+              return (
+                <EndCard
+                  index={index}
+                  scrollX={scrollX}
+                  lastImage={lastProfileImage}
+                  onScrollBack={handleScrollBack}
+                />
+              );
+            }
+
+            return (
+              <TouchableOpacity
+                ref={ref => {
+                  item._ref = ref;
+                }}
+                activeOpacity={0.95}
+                onPress={() => {
+                  item._ref?.measure((x, y, width, height, pageX, pageY) => {
+                    navigation.navigate('UserProfile', {
+                      targetUserId: item.userId,
+                      imageUrl: item.image,
+                      targetLat: item.lat ?? null,
+                      targetLng: item.lng ?? null,
+                      targetHometown: item.hometown ?? null,
+                      originX: pageX,
+                      originY: pageY,
+                      originWidth: width,
+                      originHeight: height,
+                    });
                   });
-                });
-              }}
-            >
-              <ProfileCard item={item} index={index} scrollX={scrollX} />
-            </TouchableOpacity>
-          )}
+                }}
+              >
+                <ProfileCard item={item} index={index} scrollX={scrollX} />
+              </TouchableOpacity>
+            );
+          }}
           onScroll={onScroll}
           scrollEventThrottle={1}
           onMomentumScrollEnd={onMomentumScrollEnd}
@@ -344,6 +495,10 @@ export default function DailyScreen({ navigation }) {
     </SafeAreaView>
   );
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// STYLES
+// ════════════════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
@@ -370,6 +525,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -410,11 +566,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   unseenText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
   carouselContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+
+  // Card
   card: {
     width: _cardWidth,
     height: _cardHeight,
@@ -440,7 +599,13 @@ const styles = StyleSheet.create({
     right: 0,
     height: '55%',
   },
-  cardInfo: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 22 },
+  cardInfo: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 22,
+  },
   tagBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
@@ -467,7 +632,84 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
     marginBottom: 5,
   },
-  cardGoals: { fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 19 },
+  cardGoals: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 19,
+  },
+
+  // ── End Card ──
+  endCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+  },
+  endCardContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+  },
+  endCardEmoji: { fontSize: 52, marginBottom: 14 },
+  endCardTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  endCardSub: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 24,
+  },
+
+  // Countdown box
+  countdownBox: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 24,
+    width: '100%',
+  },
+  countdownLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  countdownTimer: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 1,
+  },
+
+  // Scroll back button — same as nearby inactive chip style
+  endCardBtn: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    width: '100%',
+    alignItems: 'center',
+  },
+  endCardBtnText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
   footer: { paddingVertical: 12, alignItems: 'center' },
   footerText: { color: 'rgba(255,255,255,0.25)', fontSize: 11 },
 });

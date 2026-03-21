@@ -1,16 +1,10 @@
 /**
- * LikesScreen - Fully Updated
+ * LikesScreen — Polished
  *
- * Top tabs: Likes | Matches
- * Likes → Liked | Liked You (nested tabs)
- * Matches → Matched | Discover (nested tabs)
- *
- * Features:
- * - 2-column grid layout
- * - Real photo blur (BlurView) for free users
- * - Online status on cards
- * - Filter bar: All, New, Nearby, Active, With Bio, Verified
- * - Premium banner
+ * Two tabs: Received Likes (left) | Liked (right)
+ * Filter chips: All / New / Nearby — shown on both tabs
+ * Cards: info overlay on image, no white stripe
+ * Blurred cards: glassmorphism treatment
  */
 
 import React, {
@@ -41,12 +35,11 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
 import { useLikes, useSubscription } from '../src/hooks/usePremiumHooks';
-import { useMatches } from '../src/hooks/useChatHook';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
-const CARD_HEIGHT = CARD_WIDTH * 1.45;
+const CARD_HEIGHT = CARD_WIDTH * 1.55; // taller — full image, no bottom strip
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
 const createApiClient = token =>
@@ -60,127 +53,85 @@ const createApiClient = token =>
   });
 
 // ════════════════════════════════════════════════════════════════════════════
-// FILTER BAR
+// FILTER BAR — All / New / Nearby only
 // ════════════════════════════════════════════════════════════════════════════
 
 const FILTERS = [
   { key: 'all', label: 'All' },
-  { key: 'new', label: 'New' },
-  { key: 'nearby', label: 'Nearby' },
-  { key: 'active', label: 'Active' },
-  { key: 'withBio', label: 'With Bio' },
-  { key: 'verified', label: 'Verified' },
+  { key: 'new', label: '✨ New' },
+  { key: 'nearby', label: '📍 Nearby' },
 ];
 
 const FilterBar = ({ activeFilter, onFilterPress }) => (
-  <ScrollView
-    horizontal
-    showsHorizontalScrollIndicator={false}
-    contentContainerStyle={styles.filterBar}
-    style={{ flexGrow: 0 }}
-  >
-    {FILTERS.map(f => (
-      <TouchableOpacity
-        key={f.key}
-        style={[
-          styles.filterChip,
-          activeFilter === f.key && styles.filterChipActive,
-        ]}
-        onPress={() => onFilterPress(f.key)}
-        activeOpacity={0.8}
-      >
-        <Text
+  <View style={styles.filterBarWrapper}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.filterBar}
+    >
+      {FILTERS.map(f => (
+        <TouchableOpacity
+          key={f.key}
           style={[
-            styles.filterChipText,
-            activeFilter === f.key && styles.filterChipTextActive,
+            styles.filterChip,
+            activeFilter === f.key && styles.filterChipActive,
           ]}
+          onPress={() => onFilterPress(f.key)}
+          activeOpacity={0.8}
         >
-          {f.label}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </ScrollView>
-);
-
-// ════════════════════════════════════════════════════════════════════════════
-// TOP TAB BAR
-// ════════════════════════════════════════════════════════════════════════════
-
-const TopTabBar = ({ tabs, activeTab, onTabPress }) => (
-  <View style={styles.topTabBar}>
-    {tabs.map(tab => (
-      <TouchableOpacity
-        key={tab.key}
-        style={[styles.topTab, activeTab === tab.key && styles.topTabActive]}
-        onPress={() => onTabPress(tab.key)}
-        activeOpacity={0.8}
-      >
-        <Text
-          style={[
-            styles.topTabText,
-            activeTab === tab.key && styles.topTabTextActive,
-          ]}
-        >
-          {tab.label}
-        </Text>
-        {tab.count > 0 && (
-          <View style={styles.topTabBadge}>
-            <Text style={styles.topTabBadgeText}>{tab.count}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
-    ))}
-  </View>
-);
-
-// ════════════════════════════════════════════════════════════════════════════
-// SUB TAB BAR
-// ════════════════════════════════════════════════════════════════════════════
-
-const SubTabBar = ({ tabs, activeTab, onTabPress }) => (
-  <View style={styles.subTabBar}>
-    {tabs.map(tab => (
-      <TouchableOpacity
-        key={tab.key}
-        style={[styles.subTab, activeTab === tab.key && styles.subTabActive]}
-        onPress={() => onTabPress(tab.key)}
-        activeOpacity={0.8}
-      >
-        <Text
-          style={[
-            styles.subTabText,
-            activeTab === tab.key && styles.subTabTextActive,
-          ]}
-        >
-          {tab.label}
-        </Text>
-        {tab.count !== undefined && tab.count > 0 && (
-          <View
+          <Text
             style={[
-              styles.subTabBadge,
-              activeTab === tab.key && styles.subTabBadgeActive,
+              styles.filterChipText,
+              activeFilter === f.key && styles.filterChipTextActive,
             ]}
           >
-            <Text style={styles.subTabBadgeText}>{tab.count}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
-    ))}
-    <View
-      style={[
-        styles.subTabIndicator,
-        {
-          left:
-            tabs.findIndex(t => t.key === activeTab) *
-            (SCREEN_WIDTH / tabs.length),
-        },
-      ]}
-    />
+            {f.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
   </View>
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-// PROFILE CARD — 2 col grid
+// TAB BAR — Received Likes | Liked
+// ════════════════════════════════════════════════════════════════════════════
+
+const TabBar = ({ activeTab, onTabPress, receivedCount, likedCount }) => (
+  <View style={styles.tabBar}>
+    {[
+      { key: 'received', label: 'Received Likes', count: receivedCount },
+      { key: 'liked', label: 'Liked', count: likedCount },
+    ].map((tab, idx) => {
+      const isActive = activeTab === tab.key;
+      return (
+        <TouchableOpacity
+          key={tab.key}
+          style={styles.tab}
+          onPress={() => onTabPress(tab.key)}
+          activeOpacity={0.8}
+        >
+          <View style={styles.tabLabelRow}>
+            <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+              {tab.label}
+            </Text>
+            {tab.count > 0 && (
+              <View
+                style={[styles.tabBadge, isActive && styles.tabBadgeActive]}
+              >
+                <Text style={styles.tabBadgeText}>{tab.count}</Text>
+              </View>
+            )}
+          </View>
+          {isActive && <View style={styles.tabIndicator} />}
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROFILE CARD — info on image, no white stripe
 // ════════════════════════════════════════════════════════════════════════════
 
 const ProfileCard = ({
@@ -191,91 +142,93 @@ const ProfileCard = ({
   showOnline = false,
 }) => (
   <Animated.View entering={FadeIn.duration(300).springify()}>
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
-      <View style={styles.cardImageWrapper}>
-        {item.image ? (
-          <>
-            <Image source={{ uri: item.image }} style={styles.cardImage} />
-            {/* ✅ Real BlurView over actual photo */}
-            {blurred && (
-              <BlurView
-                style={StyleSheet.absoluteFillObject}
-                blurType="light"
-                blurAmount={14}
-                reducedTransparencyFallbackColor="rgba(200,200,200,0.8)"
-              />
-            )}
-          </>
-        ) : (
-          <View style={[styles.cardImage, styles.cardImageFallback]}>
-            <Text style={{ fontSize: 36 }}>📷</Text>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={onPress}
+      activeOpacity={blurred ? 1 : 0.9}
+    >
+      {/* ── Image ── */}
+      {item.image ? (
+        <Image
+          source={{ uri: item.image }}
+          style={styles.cardImage}
+          blurRadius={blurred ? 18 : 0}
+        />
+      ) : (
+        <View style={[styles.cardImage, styles.cardImageFallback]}>
+          <Text style={{ fontSize: 36 }}>📷</Text>
+        </View>
+      )}
+
+      {/* ── NEW badge ── */}
+      {isNew && !blurred && (
+        <View style={styles.newBadge}>
+          <Text style={styles.newBadgeText}>NEW</Text>
+        </View>
+      )}
+
+      {/* ════ BLURRED — glassmorphism overlay ════ */}
+      {blurred ? (
+        <>
+          {/* dark scrim */}
+          <View style={styles.blurScrim} />
+
+          {/* lock icon centered */}
+          <View style={styles.lockCenter}>
+            <View style={styles.lockIconWrapper}>
+              <Text style={styles.lockIcon}>🔒</Text>
+            </View>
+            <Text style={styles.unlockHint}>Upgrade to see</Text>
           </View>
-        )}
 
-        {/* ✅ NEW badge */}
-        {isNew && (
-          <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>NEW</Text>
+          {/* glass info strip at bottom */}
+          <View style={styles.glassStrip}>
+            <Text style={styles.blurredName}>— — — —</Text>
+            <View style={styles.blurBarRow}>
+              <View style={[styles.blurBar, { width: '60%' }]} />
+            </View>
           </View>
-        )}
-
-        {/* ✅ Online dot */}
-        {showOnline && !blurred && (
-          <View
-            style={[
-              styles.onlineDot,
-              {
-                backgroundColor: item.isOnline ? '#22C55E' : '#94A3B8',
-              },
-            ]}
-          />
-        )}
-
-        {/* Gradient overlay — only non-blurred */}
-        {!blurred && (
+        </>
+      ) : (
+        /* ════ NORMAL — gradient + info overlay ════ */
+        <>
+          {/* gradient for readability */}
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.75)']}
+            colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']}
             style={styles.cardGradient}
           />
-        )}
-      </View>
 
-      {/* Info */}
-      <View style={styles.cardInfo}>
-        {/* ✅ Blurred — dashed name placeholder */}
-        <Text
-          style={[styles.cardName, blurred && styles.cardNameBlurred]}
-          numberOfLines={1}
-        >
-          {blurred
-            ? '— — — —'
-            : `${item.name}${item.age ? `, ${item.age}` : ''}`}
-        </Text>
-
-        {!blurred ? (
-          <>
-            {item.hometown ? (
-              <Text style={styles.cardLocation} numberOfLines={1}>
-                📍 {item.hometown}
+          {/* info overlay */}
+          <View style={styles.cardInfoOverlay}>
+            {/* name row with inline online dot */}
+            <View style={styles.nameRow}>
+              {showOnline && (
+                <View
+                  style={[
+                    styles.onlineDotInline,
+                    {
+                      backgroundColor: item.isOnline
+                        ? '#22C55E'
+                        : 'rgba(255,255,255,0.35)',
+                    },
+                  ]}
+                />
+              )}
+              <Text style={styles.cardName} numberOfLines={1}>
+                {item.name}
+                {item.age ? `, ${item.age}` : ''}
               </Text>
-            ) : null}
-            {/* ✅ Online status */}
-            {showOnline && (item.isOnline || item.lastActiveAt) ? (
+            </View>
+
+            {/* active status (only if not online — online is shown via dot) */}
+            {showOnline && !item.isOnline && item.lastActiveAt && (
               <Text style={styles.cardActive} numberOfLines={1}>
-                {item.isOnline
-                  ? '🟢 Online'
-                  : formatLastActive(item.lastActiveAt, 3)}
+                {formatLastActive(item.lastActiveAt, 3)}
               </Text>
-            ) : null}
-          </>
-        ) : (
-          // ✅ Blurred — grey placeholder bars
-          <>
-            <View style={styles.blurBar} />
-            <View style={[styles.blurBar, { width: '55%' }]} />
-          </>
-        )}
-      </View>
+            )}
+          </View>
+        </>
+      )}
     </TouchableOpacity>
   </Animated.View>
 );
@@ -325,64 +278,32 @@ const EmptyState = ({ emoji, title, subtitle }) => (
 // ════════════════════════════════════════════════════════════════════════════
 
 export default function LikesScreen({ navigation }) {
-  const { token, userId } = useContext(AuthContext);
-  const [topTab, setTopTab] = useState('likes');
-  const [likesSubTab, setLikesSubTab] = useState('liked');
-  const [matchesSubTab, setMatchesSubTab] = useState('matched');
-  const [refreshing, setRefreshing] = useState(false);
-  const [newUsers, setNewUsers] = useState([]);
-  const [newUsersLoading, setNewUsersLoading] = useState(false);
+  const { token } = useContext(AuthContext);
+  const [activeTab, setActiveTab] = useState('received'); // received | liked
   const [activeFilter, setActiveFilter] = useState('all');
-
-  const apiClient = useRef(createApiClient(token));
+  const [refreshing, setRefreshing] = useState(false);
 
   const {
     sentLikes,
     receivedLikes,
     loading: likesLoading,
-    isBlurred,
     refetchSent,
     refetchReceived,
   } = useLikes({ token });
 
   const { subscription } = useSubscription({ token });
-  const {
-    matches,
-    loading: matchesLoading,
-    refetch: refetchMatches,
-  } = useMatches({ token });
-
   const isPremium = subscription?.isPremium || false;
-
-  // ── Fetch new users ──
-  const fetchNewUsers = useCallback(async () => {
-    try {
-      setNewUsersLoading(true);
-      const resp = await apiClient.current.get('/users/new', {
-        params: { limit: 20 },
-      });
-      if (resp.data.success) setNewUsers(resp.data.users || []);
-    } catch (e) {
-      console.error('[LikesScreen] fetchNewUsers error:', e.message);
-    } finally {
-      setNewUsersLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (token) fetchNewUsers();
-  }, [token, fetchNewUsers]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([
-      refetchSent(),
-      refetchReceived(),
-      refetchMatches(),
-      fetchNewUsers(),
-    ]);
+    await Promise.all([refetchSent(), refetchReceived()]);
     setRefreshing(false);
-  }, [refetchSent, refetchReceived, refetchMatches, fetchNewUsers]);
+  }, [refetchSent, refetchReceived]);
+
+  const handleTabPress = useCallback(tab => {
+    setActiveTab(tab);
+    setActiveFilter('all');
+  }, []);
 
   const handleCardPress = useCallback(
     item => {
@@ -404,19 +325,7 @@ export default function LikesScreen({ navigation }) {
             return new Date() - new Date(u.joinedAt) < 7 * 24 * 60 * 60 * 1000;
           });
         case 'nearby':
-          // Will work when currentUser hometown is available
-          return data.filter(u => u.hometown);
-        case 'active':
-          return data.filter(
-            u =>
-              u.isOnline ||
-              (u.lastActiveAt &&
-                new Date() - new Date(u.lastActiveAt) < 24 * 60 * 60 * 1000),
-          );
-        case 'withBio':
-          return data.filter(u => u.goals);
-        case 'verified':
-          return data.filter(u => u.isVerified);
+          return data.filter(u => u.lat && u.lng);
         default:
           return data;
       }
@@ -428,58 +337,7 @@ export default function LikesScreen({ navigation }) {
   // TAB RENDERS
   // ════════════════════════════════════════════════════════════════════════════
 
-  const renderLikedTab = () => {
-    if (likesLoading)
-      return (
-        <ActivityIndicator
-          size="large"
-          color="#FF0059"
-          style={{ marginTop: 40 }}
-        />
-      );
-
-    const filtered = applyFilter(sentLikes);
-
-    if (filtered.length === 0)
-      return (
-        <EmptyState
-          emoji="💝"
-          title={activeFilter !== 'all' ? 'No results' : 'No likes sent yet'}
-          subtitle={
-            activeFilter !== 'all'
-              ? 'Try a different filter'
-              : 'Start swiping to like profiles!'
-          }
-        />
-      );
-
-    return (
-      <FlatList
-        data={filtered}
-        numColumns={2}
-        keyExtractor={item => item.userId}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.grid}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#FF0059']}
-          />
-        }
-        renderItem={({ item }) => (
-          <ProfileCard
-            item={item}
-            showOnline={true}
-            onPress={() => handleCardPress(item)}
-          />
-        )}
-      />
-    );
-  };
-
-  const renderLikedYouTab = () => {
+  const renderReceivedTab = () => {
     if (likesLoading)
       return (
         <ActivityIndicator
@@ -541,8 +399,8 @@ export default function LikesScreen({ navigation }) {
     );
   };
 
-  const renderMatchedTab = () => {
-    if (matchesLoading)
+  const renderLikedTab = () => {
+    if (likesLoading)
       return (
         <ActivityIndicator
           size="large"
@@ -551,75 +409,17 @@ export default function LikesScreen({ navigation }) {
         />
       );
 
-    const filtered = applyFilter(matches);
+    const filtered = applyFilter(sentLikes);
 
     if (filtered.length === 0)
       return (
         <EmptyState
-          emoji="💕"
-          title={activeFilter !== 'all' ? 'No results' : 'No matches yet'}
+          emoji="💝"
+          title={activeFilter !== 'all' ? 'No results' : 'No likes sent yet'}
           subtitle={
             activeFilter !== 'all'
               ? 'Try a different filter'
-              : 'Keep swiping to find your match!'
-          }
-        />
-      );
-
-    return (
-      <FlatList
-        data={filtered}
-        numColumns={2}
-        keyExtractor={item => item.matchId}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.grid}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#FF0059']}
-          />
-        }
-        renderItem={({ item }) => (
-          <ProfileCard
-            item={{ ...item, userId: item.userId }}
-            showOnline={true}
-            onPress={() =>
-              navigation.navigate('Conversation', {
-                matchId: item.matchId,
-                targetUserId: item.userId,
-                name: item.name,
-                image: item.image,
-              })
-            }
-          />
-        )}
-      />
-    );
-  };
-
-  const renderDiscoverTab = () => {
-    if (newUsersLoading)
-      return (
-        <ActivityIndicator
-          size="large"
-          color="#FF0059"
-          style={{ marginTop: 40 }}
-        />
-      );
-
-    const filtered = applyFilter(newUsers);
-
-    if (filtered.length === 0)
-      return (
-        <EmptyState
-          emoji="🌟"
-          title={activeFilter !== 'all' ? 'No results' : 'No new users'}
-          subtitle={
-            activeFilter !== 'all'
-              ? 'Try a different filter'
-              : 'Check back soon for new faces!'
+              : 'Start swiping to like profiles!'
           }
         />
       );
@@ -642,7 +442,6 @@ export default function LikesScreen({ navigation }) {
         renderItem={({ item }) => (
           <ProfileCard
             item={item}
-            isNew={true}
             showOnline={true}
             onPress={() => handleCardPress(item)}
           />
@@ -661,80 +460,24 @@ export default function LikesScreen({ navigation }) {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          {topTab === 'likes' ? '❤️ Likes' : '✨ Matches'}
-        </Text>
+        <Text style={styles.headerTitle}>❤️ Likes</Text>
       </View>
 
-      {/* Top Tabs */}
-      <TopTabBar
-        tabs={[
-          {
-            key: 'likes',
-            label: 'Likes',
-            count: sentLikes.length + receivedLikes.length,
-          },
-          { key: 'matches', label: 'Matches', count: matches.length },
-        ]}
-        activeTab={topTab}
-        onTabPress={tab => {
-          setTopTab(tab);
-          setActiveFilter('all'); // ✅ filter reset on tab change
-        }}
+      {/* Tab Bar */}
+      <TabBar
+        activeTab={activeTab}
+        onTabPress={handleTabPress}
+        receivedCount={receivedLikes.length}
+        likedCount={sentLikes.length}
       />
 
+      {/* Filter Chips — sits above FlatList with proper zIndex */}
+      <FilterBar activeFilter={activeFilter} onFilterPress={setActiveFilter} />
+
       {/* Content */}
-      {topTab === 'likes' ? (
-        <View style={{ flex: 1 }}>
-          <SubTabBar
-            tabs={[
-              { key: 'liked', label: 'Liked', count: sentLikes.length },
-              {
-                key: 'likedYou',
-                label: 'Liked You',
-                count: receivedLikes.length,
-              },
-            ]}
-            activeTab={likesSubTab}
-            onTabPress={tab => {
-              setLikesSubTab(tab);
-              setActiveFilter('all'); // ✅ reset
-            }}
-          />
-          {/* ✅ Filter bar */}
-          <FilterBar
-            activeFilter={activeFilter}
-            onFilterPress={setActiveFilter}
-          />
-          {likesSubTab === 'liked' ? renderLikedTab() : renderLikedYouTab()}
-        </View>
-      ) : (
-        <View style={{ flex: 1 }}>
-          <SubTabBar
-            tabs={[
-              { key: 'matched', label: 'Matched', count: matches.length },
-              {
-                key: 'discover',
-                label: 'Discover ✨',
-                count: newUsers.length,
-              },
-            ]}
-            activeTab={matchesSubTab}
-            onTabPress={tab => {
-              setMatchesSubTab(tab);
-              setActiveFilter('all'); // ✅ reset
-            }}
-          />
-          {/* ✅ Filter bar */}
-          <FilterBar
-            activeFilter={activeFilter}
-            onFilterPress={setActiveFilter}
-          />
-          {matchesSubTab === 'matched'
-            ? renderMatchedTab()
-            : renderDiscoverTab()}
-        </View>
-      )}
+      <View style={styles.content}>
+        {activeTab === 'received' ? renderReceivedTab() : renderLikedTab()}
+      </View>
     </SafeAreaView>
   );
 }
@@ -749,81 +492,76 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
   headerTitle: { fontSize: 28, fontWeight: '800', color: '#0F172A' },
 
-  // ── Top Tabs ──
-  topTabBar: {
+  // ── Tab Bar ──
+  tabBar: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
+    borderBottomWidth: 1.5,
     borderBottomColor: '#F1F5F9',
-    paddingHorizontal: 20,
-    gap: 8,
+    zIndex: 10,
   },
-  topTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    gap: 6,
-    marginBottom: 8,
-  },
-  topTabActive: { backgroundColor: '#FFF1F5' },
-  topTabText: { fontSize: 14, fontWeight: '600', color: '#94A3B8' },
-  topTabTextActive: { color: '#FF0059' },
-  topTabBadge: {
-    backgroundColor: '#FF0059',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  topTabBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
-
-  // ── Sub Tabs ──
-  subTabBar: {
-    flexDirection: 'row',
-    borderBottomWidth: 2,
-    borderBottomColor: '#F1F5F9',
-    position: 'relative',
-  },
-  subTab: {
+  tab: {
     flex: 1,
+    alignItems: 'center',
+    paddingBottom: 0,
+  },
+  tabLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
     gap: 6,
+    paddingVertical: 12,
   },
-  subTabActive: {},
-  subTabText: { fontSize: 14, fontWeight: '600', color: '#94A3B8' },
-  subTabTextActive: { color: '#FF0059' },
-  subTabBadge: {
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  tabTextActive: {
+    color: '#FF0059',
+  },
+  tabBadge: {
     backgroundColor: '#F1F5F9',
     borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  subTabBadgeActive: { backgroundColor: '#FFF1F5' },
-  subTabBadgeText: { color: '#64748B', fontSize: 10, fontWeight: '700' },
-  subTabIndicator: {
-    position: 'absolute',
-    bottom: -2,
-    width: SCREEN_WIDTH / 2,
-    height: 2,
+  tabBadgeActive: {
+    backgroundColor: '#FFF1F5',
+  },
+  tabBadgeText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  tabIndicator: {
+    width: '70%',
+    height: 2.5,
     backgroundColor: '#FF0059',
     borderRadius: 2,
+    marginBottom: -1.5,
   },
 
-  // ── Filter bar ──
+  // ── Filter Bar ──
+  // zIndex ensures chips sit above FlatList cards on scroll
+  filterBarWrapper: {
+    backgroundColor: '#fff',
+    zIndex: 9,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+  },
   filterBar: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     gap: 8,
   },
   filterChip: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 7,
     borderRadius: 20,
     backgroundColor: '#F8FAFC',
@@ -841,11 +579,17 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: { color: '#fff' },
 
+  // ── Content area ──
+  content: {
+    flex: 1,
+    zIndex: 1,
+  },
+
   // ── Grid ──
   grid: {
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingTop: 12,
+    paddingBottom: 32,
   },
   row: {
     justifyContent: 'space-between',
@@ -855,36 +599,66 @@ const styles = StyleSheet.create({
   // ── Card ──
   card: {
     width: CARD_WIDTH,
+    height: CARD_HEIGHT,
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#1a1a1a',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  cardImageWrapper: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    position: 'relative',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 5,
   },
   cardImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+    position: 'absolute',
   },
   cardImageFallback: {
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
   },
+
+  // ── Gradient + info overlay (normal cards) ──
   cardGradient: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: '50%',
+    height: '55%',
+  },
+  cardInfoOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 10,
+    paddingBottom: 12,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  onlineDotInline: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.6)',
+  },
+  cardName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    flex: 1,
+  },
+  cardActive: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 2,
   },
 
   // ── NEW badge ──
@@ -896,6 +670,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+    zIndex: 2,
   },
   newBadgeText: {
     color: '#fff',
@@ -904,50 +679,66 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // ── Online dot ──
-  onlineDot: {
+  // ── Glassmorphism blur card ──
+  blurScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+  },
+  lockCenter: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#fff',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
   },
-
-  // ── Card info ──
-  cardInfo: {
-    padding: 10,
-    backgroundColor: '#fff',
+  lockIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  cardName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 2,
+  lockIcon: {
+    fontSize: 18,
   },
-  cardNameBlurred: {
-    color: '#94A3B8',
-    letterSpacing: 3,
-  },
-  cardLocation: {
+  unlockHint: {
     fontSize: 11,
-    color: '#94A3B8',
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.3,
   },
-  cardActive: {
-    fontSize: 10,
-    color: '#94A3B8',
-    marginTop: 2,
+  // glass info strip at bottom of blurred card
+  glassStrip: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.15)',
   },
-
-  // ── Blur bars ──
+  blurredName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+    letterSpacing: 4,
+    marginBottom: 5,
+  },
+  blurBarRow: {
+    flexDirection: 'row',
+  },
   blurBar: {
-    height: 8,
-    width: '80%',
-    backgroundColor: '#E2E8F0',
-    borderRadius: 4,
-    marginTop: 4,
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 3,
   },
 
   // ── Premium banner ──
@@ -964,21 +755,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   premiumBannerEmoji: { fontSize: 24 },
-  premiumBannerTitle: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  premiumBannerTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
   premiumBannerSub: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: 12,
     marginTop: 2,
   },
-  premiumBannerArrow: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  premiumBannerArrow: { color: '#fff', fontSize: 18, fontWeight: '700' },
 
   // ── Empty ──
   emptyState: {
@@ -986,7 +769,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
-    paddingTop: 60,
+    paddingTop: 80,
   },
   emptyEmoji: { fontSize: 56, marginBottom: 16 },
   emptyTitle: {

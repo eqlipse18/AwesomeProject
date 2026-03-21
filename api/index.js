@@ -33,12 +33,15 @@ import { OAuth2Client } from 'google-auth-library';
 import { sendOTPEmail } from './email.js';
 import registerRouter from './registerRoute.js';
 import swipeRouter from './swipeRoutes.js';
-import subscriptionRoutes from './subscriptionRoutes.js';
+
 import dailyFeedRoutes from './dailyFeedRoutes.js';
 import { createServer } from 'http';
 import { initSocket } from './socket.js';
 import chatRoutes from './chatRoutes.js';
 import nearbyRouter from './nearbyRoutes.js';
+import subscriptionRouter from './subscriptionRoutes.js';
+import likesRouter from './likesRoutes.js';
+import usersRouter from './usersRoutes.js';
 
 const app = express();
 app.use(express.json());
@@ -1023,5 +1026,7 @@ app.use('/', registerRouter);
 app.use('/', chatRoutes);
 app.use('/', swipeRouter);
 app.use('/', dailyFeedRoutes);
-app.use('/', subscriptionRoutes);
 app.use('/', nearbyRouter);
+app.use('/', subscriptionRouter); // /subscription-status  /subscribe  /superlike  /rewind
+app.use('/', likesRouter); // /likes/sent  /likes/received  /send-message-request  /match-requests/pending  /match-request/accept|reject
+app.use('/', usersRouter);
