@@ -115,7 +115,8 @@ router.post('/register', authenticate, async (req, res) => {
           isVerified = :isVerified,
           isPremium = :isPremium,
           lastActiveAt = :lastActiveAt,
-          updatedAt = :updatedAt
+          updatedAt = :updatedAt,
+          feedFilters = :feedFilters,
       `,
       ExpressionAttributeValues: {
         ':firstName': raw.firstName.trim(),
@@ -148,6 +149,15 @@ router.post('/register', authenticate, async (req, res) => {
         ':isPremium': false,
         ':lastActiveAt': now,
         ':updatedAt': now,
+        ':feedFilters': {
+          ageMin: 18,
+          ageMax: 50,
+          distance: 100,
+          expandSearch: true,
+          showMe: raw.gender === 'Male' ? 'Women' : 'Men',
+          goals: [],
+          verifiedOnly: false,
+        },
       },
       ReturnValues: 'ALL_NEW',
     });

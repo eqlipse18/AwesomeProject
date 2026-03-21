@@ -1,12 +1,9 @@
 /**
- * useSwipeStack Hook - FINAL OPTIMIZED VERSION
+ * useSwipeStackHook — with expandSearch support
  *
- * Features:
- * - Load 20 cards initially
- * - Silent background load at card 12 (10 more cards)
- * - Repeat every 10 cards
- * - ZERO visible loading during swipes
- * - Smart pagination
+ * New returns:
+ *   expandedTo        — null | number (km) — feed was auto-expanded to this radius
+ *   originalDistance  — what user set
  */
 
 import { useCallback, useState, useEffect, useRef } from 'react';
@@ -15,8 +12,8 @@ import axios from 'axios';
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || 'http://192.168.100.154:9000';
 
-const createApiClient = token => {
-  return axios.create({
+const createApiClient = token =>
+  axios.create({
     baseURL: API_BASE_URL,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -24,151 +21,135 @@ const createApiClient = token => {
     },
     timeout: 15000,
   });
-};
 
-/**
- * Custom Hook for Swipeable Stack
- * Smart pagination: 20 initial, then 10 more at card 12, repeats every 10
- */
 export function useSwipeStack({ token, filters = {} }) {
-  // State management
   const [feed, setFeed] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [nextCursor, setNextCursor] = useState(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-
-  // Match notifications
   const [matchData, setMatchData] = useState(null);
   const [showMatchNotification, setShowMatchNotification] = useState(false);
 
-  // Track state
+  // ✅ Expand state — shown as toast/banner in HomeScreen
+  const [expandedTo, setExpandedTo] = useState(null);
+  const [originalDistance, setOriginalDistance] = useState(null);
+
   const loadedUserIds = useRef(new Set());
   const apiClient = useRef(null);
   const isLoadingMore = useRef(false);
   const currentIndex = useRef(0);
 
+  const [activeFilters, setActiveFilters] = useState(filters);
+
   useEffect(() => {
-    if (token) {
-      apiClient.current = createApiClient(token);
-    }
+    if (token) apiClient.current = createApiClient(token);
   }, [token]);
 
-  /**
-   * Fetch feed from backend
-   * @param {string} cursor - Pagination cursor (null for initial load)
-   * @param {boolean} isInitial - Is this the initial 20-card load?
-   */
+  // ════════════════════════════════════════════════════════════════════════
+  // fetchFeed
+  // ════════════════════════════════════════════════════════════════════════
+
   const fetchFeed = useCallback(
     async (cursor = null, isInitial = false) => {
       if (!apiClient.current) {
         setError('Not authenticated');
         return;
       }
-
       try {
-        // Only show loading on initial fetch
-        if (isInitial) {
-          setLoading(true);
-        }
-
+        if (isInitial) setLoading(true);
         setError(null);
+        if (isInitial) setExpandedTo(null); // reset on new fetch
 
-        const limit = isInitial ? 20 : 10; // 20 for initial, 10 for pagination
+        const limit = isInitial ? 20 : 10;
 
         const params = {
           limit,
-          ...filters,
           ...(cursor && { cursor }),
+          ...(activeFilters.ageMin != null && { minAge: activeFilters.ageMin }),
+          ...(activeFilters.ageMax != null && { maxAge: activeFilters.ageMax }),
+          ...(activeFilters.distance != null && {
+            distance: activeFilters.distance,
+          }),
+          ...(activeFilters.showMe && { showMe: activeFilters.showMe }),
+          ...(activeFilters.verifiedOnly && { verifiedOnly: 'true' }),
+          ...(activeFilters.goals?.length && {
+            goals: activeFilters.goals.join(','),
+          }),
+          // ✅ expandSearch
+          expandSearch: String(activeFilters.expandSearch ?? true),
+          // ✅ customLat/customLng from city picker
+          ...(activeFilters.customLat != null && {
+            customLat: activeFilters.customLat,
+          }),
+          ...(activeFilters.customLng != null && {
+            customLng: activeFilters.customLng,
+          }),
         };
 
-        console.log('[useSwipeStack] Fetching', limit, 'cards...', {
-          isInitial,
-          cursor,
-        });
-
         const response = await apiClient.current.get('/feed', { params });
-
-        if (!response.data.success) {
+        if (!response.data.success)
           throw new Error(response.data.error || 'Failed to fetch feed');
-        }
 
         const newUsers = response.data.users || [];
-
-        // Filter out duplicates
         const uniqueUsers = newUsers.filter(
-          user => !loadedUserIds.current.has(user.userId),
+          u => !loadedUserIds.current.has(u.userId),
         );
+        uniqueUsers.forEach(u => loadedUserIds.current.add(u.userId));
 
-        // Track new user IDs
-        uniqueUsers.forEach(user => loadedUserIds.current.add(user.userId));
-
-        // Update feed
         setFeed(prev => {
           const updated = !cursor ? uniqueUsers : [...prev, ...uniqueUsers];
-          console.log(
-            '[useSwipeStack] Feed updated. Total cards:',
-            updated.length,
-          );
+          console.log('[useSwipeStack] Feed updated. Cards:', updated.length);
           return updated;
         });
 
-        // Store next cursor for pagination
         setNextCursor(response.data.nextCursor || null);
 
-        // Mark initial load complete
-        if (isInitial) {
-          setIsInitialLoading(false);
+        // ✅ Store expand info for HomeScreen banner
+        if (response.data.expandedTo) {
+          setExpandedTo(response.data.expandedTo);
+          setOriginalDistance(response.data.originalDistance);
+          console.log(
+            `[useSwipeStack] 📍 Expanded from ${response.data.originalDistance}km → ${response.data.expandedTo}km`,
+          );
         }
 
-        return {
-          success: true,
-          count: uniqueUsers.length,
-        };
+        if (isInitial) setIsInitialLoading(false);
+        return { success: true, count: uniqueUsers.length };
       } catch (err) {
-        const errorMsg =
-          err.response?.data?.error || err.message || 'Unknown error';
-        setError(errorMsg);
-        console.error('[useSwipeStack] Fetch error:', errorMsg);
-        return {
-          success: false,
-          error: errorMsg,
-        };
+        const msg = err.response?.data?.error || err.message || 'Unknown error';
+        setError(msg);
+        console.error('[useSwipeStack] Fetch error:', msg);
+        return { success: false, error: msg };
       } finally {
         setLoading(false);
       }
     },
-    [filters],
+    [activeFilters],
   );
 
-  /**
-   * Initial load - 20 cards with loading indicator
-   */
+  // ── Initial load + filter change trigger ──
   useEffect(() => {
-    if (token && feed.length === 0) {
-      fetchFeed(null, true); // isInitial = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+    if (!token) return;
+    loadedUserIds.current.clear();
+    setFeed([]);
+    setNextCursor(null);
+    setIsInitialLoading(true);
+    currentIndex.current = 0;
+    fetchFeed(null, true);
+  }, [token, activeFilters, fetchFeed]);
 
-  /**
-   * Silent background load when reaching card 12, 22, 32, etc.
-   */
+  // ── Silent pagination ──
   const checkAndLoadMore = useCallback(
     index => {
       currentIndex.current = index;
+      const shouldLoad =
+        (index === 12 || (index - 2) % 10 === 0) &&
+        !isLoadingMore.current &&
+        nextCursor;
 
-      // Check if we need to load more (at card 12, 22, 32, etc.)
-      const shouldLoadMore =
-        (index === 12 || (index - 2) % 10 === 0) && // Card 12, then every 10 after
-        !isLoadingMore.current && // Not already loading
-        nextCursor; // Has more cursor
-
-      if (shouldLoadMore) {
-        console.log('[useSwipeStack] 📦 Silent loading at card', index + 1);
+      if (shouldLoad) {
         isLoadingMore.current = true;
-
-        // Load in background (no loading indicator)
         fetchFeed(nextCursor, false).finally(() => {
           isLoadingMore.current = false;
         });
@@ -177,9 +158,7 @@ export function useSwipeStack({ token, filters = {} }) {
     [nextCursor, fetchFeed],
   );
 
-  /**
-   * Refetch feed (reset)
-   */
+  // ── Manual refetch ──
   const refetchFeed = useCallback(async () => {
     loadedUserIds.current.clear();
     setFeed([]);
@@ -189,134 +168,94 @@ export function useSwipeStack({ token, filters = {} }) {
     return fetchFeed(null, true);
   }, [fetchFeed]);
 
-  /**
-   * Handle swipe - check if need to load more
-   */
+  // ── handleSwipe ──
   const handleSwipe = useCallback(
     async (likedId, type) => {
-      if (!apiClient.current) {
-        setError('Not authenticated');
-        return {
-          success: false,
-          error: 'Not authenticated',
-        };
-      }
-
-      if (!['like', 'superlike', 'pass'].includes(type)) {
-        setError('Invalid swipe type');
-        return {
-          success: false,
-          error: 'Invalid swipe type',
-        };
-      }
-
+      if (!apiClient.current)
+        return { success: false, error: 'Not authenticated' };
+      if (!['like', 'superlike', 'pass'].includes(type))
+        return { success: false, error: 'Invalid swipe type' };
       try {
         setError(null);
-
         const response = await apiClient.current.post('/swipe', {
           likedId,
           type,
         });
-
-        if (!response.data.success) {
+        if (!response.data.success)
           throw new Error(response.data.error || 'Failed to process swipe');
-        }
-
-        // After swipe, check if we need to load more (for next index)
         checkAndLoadMore(currentIndex.current + 1);
-
-        // Match detected
         if (response.data.match) {
-          setMatchData({
-            matchId: response.data.matchId,
-            likedId: likedId,
-            type,
-          });
+          setMatchData({ matchId: response.data.matchId, likedId, type });
           setShowMatchNotification(true);
-
-          setTimeout(() => {
-            setShowMatchNotification(false);
-          }, 4000);
+          setTimeout(() => setShowMatchNotification(false), 4000);
         }
-
         return {
           success: true,
           match: response.data.match,
           matchId: response.data.matchId,
-          likedId: likedId,
+          likedId,
         };
       } catch (err) {
-        const errorMsg =
-          err.response?.data?.error || err.message || 'Unknown error';
-        setError(errorMsg);
-        console.error('[useSwipeStack] Swipe error:', errorMsg);
-        return {
-          success: false,
-          error: errorMsg,
-        };
+        const msg = err.response?.data?.error || err.message || 'Unknown error';
+        setError(msg);
+        return { success: false, error: msg };
       }
     },
     [checkAndLoadMore],
   );
 
-  /**
-   * Dismiss match notification
-   */
+  // ── updateFilters — only trigger ──
+  const updateFilters = useCallback(newFilters => {
+    setActiveFilters(newFilters);
+    loadedUserIds.current.clear();
+    setFeed([]);
+    setNextCursor(null);
+    setIsInitialLoading(true);
+    currentIndex.current = 0;
+  }, []);
+
+  // ── dismissExpand — user dismissed the expand banner ──
+  const dismissExpand = useCallback(() => {
+    setExpandedTo(null);
+    setOriginalDistance(null);
+  }, []);
+
   const dismissMatch = useCallback(() => {
     setShowMatchNotification(false);
     setMatchData(null);
   }, []);
 
-  /**
-   * Update filters and refetch
-   */
-  const updateFilters = useCallback(
-    newFilters => {
-      return refetchFeed();
-    },
-    [refetchFeed],
-  );
-
   return {
-    // Data
     feed,
-    loading, // Only true during initial load
+    loading,
     error,
-    isInitialLoading, // Better for UI check
+    isInitialLoading,
     hasMore: !!nextCursor,
-
-    // Actions
     fetchFeed,
     refetchFeed,
     handleSwipe,
     updateFilters,
     checkAndLoadMore,
-
-    // Match notifications
     matchData,
     showMatchNotification,
     dismissMatch,
-
-    // Utils
+    // ✅ expand state
+    expandedTo,
+    originalDistance,
+    dismissExpand,
     feedLength: feed.length,
     isInitialized: feed.length > 0,
   };
 }
 
-/**
- * Hook for fetching and managing matches
- */
 export function useMatches({ token }) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
   const apiClient = useRef(null);
 
   useEffect(() => {
-    if (token) {
-      apiClient.current = createApiClient(token);
-    }
+    if (token) apiClient.current = createApiClient(token);
   }, [token]);
 
   const fetchMatches = useCallback(async () => {
@@ -324,34 +263,25 @@ export function useMatches({ token }) {
       setError('Not authenticated');
       return;
     }
-
     try {
       setLoading(true);
       setError(null);
-
       const response = await apiClient.current.get('/matches');
-
-      if (!response.data.success) {
+      if (!response.data.success)
         throw new Error(response.data.error || 'Failed to fetch matches');
-      }
-
       setMatches(response.data.matches || []);
       return { success: true, count: response.data.matches?.length || 0 };
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.error || err.message || 'Unknown error';
-      setError(errorMsg);
-      console.error('[useMatches] Error:', errorMsg);
-      return { success: false, error: errorMsg };
+      const msg = err.response?.data?.error || err.message || 'Unknown error';
+      setError(msg);
+      return { success: false, error: msg };
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (token) {
-      fetchMatches();
-    }
+    if (token) fetchMatches();
   }, [token, fetchMatches]);
 
   return {

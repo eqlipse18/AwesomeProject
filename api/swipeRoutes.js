@@ -71,48 +71,107 @@ router.patch('/update-location', authenticate, async (req, res) => {
 // GET /feed
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * /feed route — with filter params from req.query
+ *
+ * Query params accepted:
+ *   minAge       (default 18)
+ *   maxAge       (default 50)
+ *   distance     (default 100, used with Haversine post-filter)
+ *   showMe       ("Women" | "Men" | "Everyone") — overrides gender prefs
+ *   goals        (comma-separated: "serious,casual")
+ *   verifiedOnly ("true")
+ *   limit        (default 50, max 100)
+ *   cursor       (base64 JSON)
+ */
+
+/**
+ * GET /feed — Full with expandSearch auto-radius
+ *
+ * expandSearch logic:
+ * 25km → 0 results → try 50km → 0 results → try 100km
+ * Returns expandedTo in response so frontend can show toast
+ */
+
 router.get('/feed', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
     const {
       minAge = 18,
-      maxAge = 60,
-      hometown,
+      maxAge = 50,
+      distance = 100,
+      showMe,
+      goals,
+      verifiedOnly,
+      expandSearch,
+      customLat, // city-based origin (overrides GPS)
+      customLng,
       limit = 50,
       cursor,
     } = req.query;
 
-    const parsedMinAge = parseInt(minAge, 10);
-    const parsedMaxAge = parseInt(maxAge, 10);
-    const parsedLimit = Math.min(Math.max(parseInt(limit, 10), 10), 100);
-
-    if (isNaN(parsedMinAge) || isNaN(parsedMaxAge)) {
-      return res
-        .status(400)
-        .json({ success: false, error: 'Invalid age range' });
-    }
-
-    // ── 1. Get logged-in user's gender and preferences ──
     const userResp = await docClient.send(
       new GetCommand({
         TableName: 'Users',
         Key: { userId },
-        ProjectionExpression: 'gender, datingPreferences',
+        ProjectionExpression:
+          'gender, datingPreferences, lat, lng, feedFilters',
       }),
     );
 
     if (!userResp.Item)
       return res.status(404).json({ success: false, error: 'User not found' });
 
-    const loggedInGender = userResp.Item.gender;
-    const prefs = userResp.Item.datingPreferences || [];
-    let gendersToShow = [];
-    if (prefs.includes('Men')) gendersToShow.push('Male');
-    if (prefs.includes('Women')) gendersToShow.push('Female');
-    if (gendersToShow.length === 0)
-      gendersToShow = loggedInGender === 'Male' ? ['Female'] : ['Male'];
+    const saved = userResp.Item.feedFilters || {};
 
-    // ── 2. Fetch ALL swiped users (paginated) ──
+    const parsedMinAge = parseInt(minAge ?? saved.ageMin ?? 18, 10);
+    const parsedMaxAge =
+      parseInt(maxAge ?? saved.ageMax ?? 50, 10) >= 50
+        ? 999
+        : parseInt(maxAge ?? saved.ageMax ?? 50, 10);
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10), 10), 100);
+    const parsedDistance =
+      parseInt(distance ?? saved.distance ?? 100, 10) || 100;
+    const resolvedShowMe = showMe ?? saved.showMe ?? null;
+    const resolvedGoals = goals ?? saved.goals?.join(',') ?? '';
+    const resolvedVerified =
+      verifiedOnly ?? String(saved.verifiedOnly ?? false);
+    const resolvedExpand = expandSearch ?? String(saved.expandSearch ?? true);
+
+    // ✅ City-based origin overrides GPS
+    const myLat = customLat ? parseFloat(customLat) : userResp.Item.lat ?? null;
+    const myLng = customLng ? parseFloat(customLng) : userResp.Item.lng ?? null;
+
+    const goalsFilter = resolvedGoals
+      ? resolvedGoals
+          .split(',')
+          .map(g => g.trim())
+          .filter(Boolean)
+      : [];
+    const verifiedFilter =
+      resolvedVerified === 'true' || resolvedVerified === true;
+    const shouldExpand = resolvedExpand === 'true' || resolvedExpand === true;
+
+    if (isNaN(parsedMinAge)) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid age range' });
+    }
+
+    // ── Gender resolution ──
+    let gendersToShow = [];
+    if (resolvedShowMe === 'Everyone') gendersToShow = ['Male', 'Female'];
+    else if (resolvedShowMe === 'Men') gendersToShow = ['Male'];
+    else if (resolvedShowMe === 'Women') gendersToShow = ['Female'];
+    else {
+      const prefs = userResp.Item.datingPreferences || [];
+      if (prefs.includes('Men')) gendersToShow.push('Male');
+      if (prefs.includes('Women')) gendersToShow.push('Female');
+      if (gendersToShow.length === 0)
+        gendersToShow = userResp.Item.gender === 'Male' ? ['Female'] : ['Male'];
+    }
+
+    // ── Fetch all swiped ──
     const fetchAllSwiped = async () => {
       const swiped = new Set();
       let lastKey;
@@ -134,64 +193,51 @@ router.get('/feed', authenticate, async (req, res) => {
       return swiped;
     };
 
-    // ── 3. Parse per-gender cursor map ──
+    // ── Parse cursor ──
     let parsedCursor = {};
     if (cursor) {
       try {
         parsedCursor = JSON.parse(Buffer.from(cursor, 'base64').toString());
-      } catch (e) {
+      } catch {
         return res
           .status(400)
           .json({ success: false, error: 'Invalid cursor' });
       }
     }
 
-    // ── 4. Query per gender ──
+    // ── Query per gender ──
     const queryForGender = async gender => {
       const items = [];
       let lastKey = parsedCursor[gender] || undefined;
       const target = parsedLimit + 20;
-
       while (items.length < target) {
-        const params = {
-          TableName: 'Users',
-          IndexName: hometown ? 'hometown-age-index' : 'gender-age-index',
-          ProjectionExpression:
-            'userId, firstName, imageUrls, gender, ageForSort, hometown, goals',
-          ExpressionAttributeValues: {
-            ':isActiveVal': true,
-            ':userId': userId,
-            ':gender': gender,
-            ':minAge': parsedMinAge,
-            ':maxAge': parsedMaxAge,
-          },
-          Limit: 100,
-          ...(lastKey && { ExclusiveStartKey: lastKey }),
-        };
-
-        if (hometown) {
-          params.KeyConditionExpression =
-            'hometown = :hometown AND ageForSort BETWEEN :minAge AND :maxAge';
-          params.FilterExpression =
-            'isActive = :isActiveVal AND userId <> :userId AND gender = :gender';
-          params.ExpressionAttributeValues[':hometown'] = hometown;
-        } else {
-          params.KeyConditionExpression =
-            'gender = :gender AND ageForSort BETWEEN :minAge AND :maxAge';
-          params.FilterExpression =
-            'isActive = :isActiveVal AND userId <> :userId';
-        }
-
-        const resp = await docClient.send(new QueryCommand(params));
+        const resp = await docClient.send(
+          new QueryCommand({
+            TableName: 'Users',
+            IndexName: 'gender-age-index',
+            KeyConditionExpression:
+              'gender = :gender AND ageForSort BETWEEN :minAge AND :maxAge',
+            FilterExpression: 'isActive = :active AND userId <> :userId',
+            ProjectionExpression:
+              'userId, firstName, imageUrls, gender, ageForSort, hometown, goals',
+            ExpressionAttributeValues: {
+              ':gender': gender,
+              ':minAge': parsedMinAge,
+              ':maxAge': parsedMaxAge,
+              ':active': true,
+              ':userId': userId,
+            },
+            Limit: 100,
+            ...(lastKey && { ExclusiveStartKey: lastKey }),
+          }),
+        );
         items.push(...(resp.Items || []));
         lastKey = resp.LastEvaluatedKey;
         if (!lastKey) break;
       }
-
       return { items, lastKey };
     };
 
-    // ── 5. Run with timeout ──
     const withTimeout = (promise, ms = 5000) =>
       Promise.race([
         promise,
@@ -204,9 +250,9 @@ router.get('/feed', authenticate, async (req, res) => {
       Promise.all([fetchAllSwiped(), ...gendersToShow.map(queryForGender)]),
     );
 
-    // ── 6. Merge + dedupe + filter swiped ──
+    // ── Merge + dedupe + exclude swiped ──
     const seen = new Set();
-    const filteredUsers = genderResults
+    const candidates = genderResults
       .flatMap(r => r.items)
       .filter(u => {
         if (alreadySwiped.has(u.userId) || seen.has(u.userId)) return false;
@@ -214,81 +260,141 @@ router.get('/feed', authenticate, async (req, res) => {
         return true;
       });
 
-    // ── 7. Slice to limit ──
-    const users = filteredUsers.slice(0, parsedLimit);
-
-    // ── 7b. BatchGet main table — isOnline + lastActiveAt + lat + lng ──
+    // ── BatchGet online + location ──
     const sevenDaysAgo = new Date(
       Date.now() - 7 * 24 * 60 * 60 * 1000,
     ).toISOString();
-
     let onlineMap = {};
-    if (users.length > 0) {
-      try {
-        const batchResp = await docClient.send(
-          new BatchGetCommand({
-            RequestItems: {
-              Users: {
-                Keys: users.map(u => ({ userId: u.userId })),
-                // ✅ lat + lng added here
-                ProjectionExpression:
-                  'userId, isOnline, lastActiveAt, lat, lng',
-              },
-            },
-          }),
-        );
-        (batchResp.Responses?.Users || []).forEach(u => {
-          onlineMap[u.userId] = {
-            isOnline: u.isOnline ?? false,
-            lastActiveAt: u.lastActiveAt ?? null,
-            lat: u.lat ?? null,
-            lng: u.lng ?? null,
-          };
+
+    if (candidates.length > 0) {
+      const chunks = [];
+      for (let i = 0; i < candidates.length; i += 100)
+        chunks.push(candidates.slice(i, i + 100));
+      await Promise.all(
+        chunks.map(async chunk => {
+          try {
+            const batchResp = await docClient.send(
+              new BatchGetCommand({
+                RequestItems: {
+                  Users: {
+                    Keys: chunk.map(u => ({ userId: u.userId })),
+                    ProjectionExpression:
+                      'userId, isOnline, lastActiveAt, lat, lng, isVerified',
+                  },
+                },
+              }),
+            );
+            (batchResp.Responses?.Users || []).forEach(u => {
+              onlineMap[u.userId] = {
+                isOnline: u.isOnline ?? false,
+                lastActiveAt: u.lastActiveAt ?? null,
+                lat: u.lat ?? null,
+                lng: u.lng ?? null,
+                isVerified: u.isVerified ?? false,
+              };
+            });
+          } catch (e) {
+            console.warn('[/feed] BatchGet chunk failed:', e.message);
+          }
+        }),
+      );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // FILTER HELPER — apply all filters except distance
+    // (distance applied separately for expand logic)
+    // ════════════════════════════════════════════════════════════════════════
+
+    const applyBaseFilters = arr =>
+      arr
+        .filter(u => {
+          const lat = onlineMap[u.userId]?.lastActiveAt;
+          return !lat || lat > sevenDaysAgo; // 7-day inactive filter
+        })
+        .filter(u => !verifiedFilter || onlineMap[u.userId]?.isVerified)
+        .filter(u => {
+          if (!goalsFilter.length) return true;
+          return u.goals && goalsFilter.includes(u.goals);
         });
-      } catch (e) {
-        console.warn('[/feed] BatchGet failed:', e.message);
+
+    const applyDistanceFilter = (arr, radiusKm) =>
+      arr.filter(u => {
+        if (radiusKm >= 100) return true; // no limit
+        if (!myLat || !myLng) return true; // no origin → skip
+        const uLat = onlineMap[u.userId]?.lat;
+        const uLng = onlineMap[u.userId]?.lng;
+        if (!uLat || !uLng) return true; // no user location → include
+        return haversineDistance(myLat, myLng, uLat, uLng) <= radiusKm;
+      });
+
+    // ── Apply base filters ──
+    const baseFiltered = applyBaseFilters(candidates);
+
+    // ════════════════════════════════════════════════════════════════════════
+    // AUTO-EXPAND LOGIC
+    // Radii tried: original → ×2 → 100km
+    // Only expands if expandSearch=true AND distance < 100
+    // ════════════════════════════════════════════════════════════════════════
+
+    let filtered = [];
+    let expandedTo = null; // null = no expansion happened
+    let radiusAttempts = [parsedDistance];
+
+    if (shouldExpand && parsedDistance < 100) {
+      // Build expand ladder: [25, 50, 100] or [10, 20, 40, 100] etc.
+      let r = parsedDistance;
+      while (r < 100) {
+        r = Math.min(r * 2, 100);
+        radiusAttempts.push(r);
       }
     }
 
-    // ── 8. Build per-gender next cursor ──
+    for (const radius of radiusAttempts) {
+      filtered = applyDistanceFilter(baseFiltered, radius);
+      if (filtered.length > 0) {
+        // Found results at this radius
+        if (radius !== parsedDistance) expandedTo = radius; // tell frontend
+        break;
+      }
+      console.log(`[/feed] 0 results at ${radius}km, trying next...`);
+    }
+
+    // ── Slice to limit ──
+    const users = filtered.slice(0, parsedLimit);
+
+    // ── Next cursor ──
     const cursorMap = {};
     genderResults.forEach((r, idx) => {
-      if (r.lastKey) {
-        cursorMap[gendersToShow[idx]] = r.lastKey;
-      }
+      if (r.lastKey) cursorMap[gendersToShow[idx]] = r.lastKey;
     });
     const nextCursor =
       Object.keys(cursorMap).length > 0
         ? Buffer.from(JSON.stringify(cursorMap)).toString('base64')
         : null;
 
-    // ── 9. Format + 7 din inactive filter ──
-    const formattedUsers = users
-      .filter(u => {
-        const lat = onlineMap[u.userId]?.lastActiveAt;
-        if (!lat) return true;
-        return lat > sevenDaysAgo;
-      })
-      .map(u => ({
-        userId: u.userId,
-        name: u.firstName,
-        age: u.ageForSort,
-        image: u.imageUrls?.[0],
-        hometown: u.hometown,
-        gender: u.gender,
-        goals: u.goals,
-        isOnline: onlineMap[u.userId]?.isOnline ?? false,
-        lastActiveAt: onlineMap[u.userId]?.lastActiveAt ?? null,
-        // ✅ Location fields
-        lat: onlineMap[u.userId]?.lat ?? null,
-        lng: onlineMap[u.userId]?.lng ?? null,
-      }));
+    // ── Format ──
+    const formattedUsers = users.map(u => ({
+      userId: u.userId,
+      name: u.firstName,
+      age: u.ageForSort,
+      image: u.imageUrls?.[0] || null,
+      hometown: u.hometown || null,
+      gender: u.gender,
+      goals: u.goals || null,
+      isOnline: onlineMap[u.userId]?.isOnline ?? false,
+      lastActiveAt: onlineMap[u.userId]?.lastActiveAt ?? null,
+      lat: onlineMap[u.userId]?.lat ?? null,
+      lng: onlineMap[u.userId]?.lng ?? null,
+      isVerified: onlineMap[u.userId]?.isVerified ?? false,
+    }));
 
     return res.status(200).json({
       success: true,
       users: formattedUsers,
       nextCursor,
       total: formattedUsers.length,
+      expandedTo, // ✅ null = no expand, 50 = expanded to 50km
+      originalDistance: parsedDistance,
     });
   } catch (err) {
     console.error('[/feed] Error:', err);
@@ -301,6 +407,19 @@ router.get('/feed', authenticate, async (req, res) => {
     });
   }
 });
+
+// ── Haversine ──
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // POST /swipe

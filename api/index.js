@@ -42,6 +42,7 @@ import nearbyRouter from './nearbyRoutes.js';
 import subscriptionRouter from './subscriptionRoutes.js';
 import likesRouter from './likesRoutes.js';
 import usersRouter from './usersRoutes.js';
+import filterRouter from './filterRoutes.js';
 
 const app = express();
 app.use(express.json());
@@ -1030,3 +1031,4 @@ app.use('/', nearbyRouter);
 app.use('/', subscriptionRouter); // /subscription-status  /subscribe  /superlike  /rewind
 app.use('/', likesRouter); // /likes/sent  /likes/received  /send-message-request  /match-requests/pending  /match-request/accept|reject
 app.use('/', usersRouter);
+app.use('/', filterRouter);

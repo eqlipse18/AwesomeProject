@@ -1,8 +1,8 @@
 /**
- * HomeScreen - WITH LOCATION DISTANCE ✨
+ * HomeScreen — with ExpandSearch banner
  *
- * Card shows: "📍 Kathmandu · 8 km away" or "📍 Kathmandu"
- * Location comes from LocationContext (permission handled there)
+ * Shows a subtle animated banner when feed auto-expands:
+ * "📍 Expanded to 50km — not enough profiles nearby"
  */
 
 import React, {
@@ -29,33 +29,33 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withSpring,
   Easing,
   interpolateColor,
+  FadeInDown,
+  FadeOutUp,
 } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import axios from 'axios';
+import Config from 'react-native-config';
 
 import { SwipeableStack } from '../src/components/swipe/SwipeableStackEnhanced';
 import { useSwipeStack } from '../src/hooks/useSwipeStackHook';
 import { MatchModal } from '../src/components/swipe/MatchModal';
 import { AuthContext } from '../AuthContex';
 import { useMyLocation } from '../LocationContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  useSubscription,
-  useSuperlike,
-  useRewind,
-} from '../src/hooks/usePremiumHooks';
-import axios from 'axios';
-import Config from 'react-native-config';
+import { useSubscription, useRewind } from '../src/hooks/usePremiumHooks';
 import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 import { getLocationDisplay } from '../utils/locationUtils';
+import FeedFilterModal from '../src/components/feed/FeedFilterModal';
+import { useLocationPermission } from '../LocationContext';
 
 const PremiumModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
     default: m.PremiumModal,
   })),
 );
-
 const DailyLimitModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
     default: m.DailyLimitModal,
@@ -64,6 +64,61 @@ const DailyLimitModal = React.lazy(() =>
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
+
+const createApiClient = token =>
+  axios.create({
+    baseURL: API_BASE_URL,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    timeout: 10000,
+  });
+
+const DEFAULT_FILTERS = {
+  ageMin: 18,
+  ageMax: 50,
+  distance: 100,
+  expandSearch: true,
+  showMe: null,
+  goals: [],
+  verifiedOnly: false,
+  selectedCity: null,
+  customLat: null,
+  customLng: null,
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// EXPAND BANNER — shown when feed auto-expanded radius
+// ════════════════════════════════════════════════════════════════════════════
+
+const ExpandBanner = ({ expandedTo, originalDistance, onDismiss }) => {
+  if (!expandedTo) return null;
+  return (
+    <Animated.View
+      entering={FadeInDown.duration(400).springify()}
+      exiting={FadeOutUp.duration(300)}
+      style={styles.expandBanner}
+    >
+      <Text style={styles.expandBannerIcon}>📍</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.expandBannerText}>
+          Expanded to{' '}
+          <Text style={styles.expandBannerBold}>{expandedTo}km</Text>
+        </Text>
+        <Text style={styles.expandBannerSub}>
+          Not enough profiles within {originalDistance}km
+        </Text>
+      </View>
+      <TouchableOpacity
+        onPress={onDismiss}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={styles.expandBannerClose}>✕</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
 
 // ════════════════════════════════════════════════════════════════════════════
 // SCAN LOADING OVERLAY
@@ -79,7 +134,7 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
         <LottieView
           source={require('../assets/animations/Scan.json')}
           autoPlay
-          loop={true}
+          loop
           style={styles.scanAnimation}
         />
       </View>
@@ -94,19 +149,17 @@ const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
 
 const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
   const myLocation = useMyLocation();
-  const [imageError, setImageError] = useState(false);
 
+  const [imageError, setImageError] = useState(false);
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     opacity: cardFadeInOpacity.value,
   }));
-
   const locationDisplay = useMemo(
     () => getLocationDisplay(myLocation, user),
     [myLocation, user],
   );
 
   if (!user) return null;
-
   const imageUrl = user.image || user.imageUrls?.[0];
   const lastActiveText = user.isOnline
     ? 'Online'
@@ -125,12 +178,10 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
           <Text style={styles.fallbackText}>📷</Text>
         </View>
       )}
-
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.85)']}
         style={styles.gradient}
       />
-
       <View style={styles.profileInfo}>
         <View style={styles.nameAgeContainer}>
           <Text style={styles.name}>{user.name}</Text>
@@ -150,12 +201,9 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
             </View>
           )}
         </View>
-
-        {/* ✅ "Kathmandu · 8 km away" or "Kathmandu" */}
         {locationDisplay && (
           <Text style={styles.hometown}>{locationDisplay}</Text>
         )}
-
         <Text style={styles.goals} numberOfLines={2} ellipsizeMode="tail">
           {user.goals || 'No goals set'}
         </Text>
@@ -174,26 +222,24 @@ const LikeOverlay = () => (
       <LottieView
         source={require('../assets/animations/like.json')}
         autoPlay
-        loop={true}
+        loop
         style={styles.scanAnimation}
       />
     </View>
   </View>
 );
-
 const PassOverlay = () => (
   <View style={[styles.overlay, styles.passOverlay]}>
     <View style={styles.crossWrapper}>
       <LottieView
         source={require('../assets/animations/cross.json')}
         autoPlay
-        loop={true}
+        loop
         style={styles.scanAnimation}
       />
     </View>
   </View>
 );
-
 const SuperlikeOverlay = () => (
   <View style={styles.superWrapper}>
     <LottieView
@@ -208,7 +254,7 @@ const SuperlikeOverlay = () => (
         { color: '#FFF', top: '-8%', left: 0, right: -1 },
       ]}
     >
-      {'SUPERLIKE'}
+      SUPERLIKE
     </Text>
     <Text style={styles.superText}>SUPERLIKE</Text>
   </View>
@@ -229,44 +275,36 @@ const AnimatedActionButton = ({
 }) => {
   const iconSize = size === 'small' ? 40 : 46;
   const buttonSize = size === 'small' ? 56 : 68;
-
-  let activeColor = '#FFF';
-  let colorThreshold = 0;
-  let isLeftDirection = false;
-  let isRightDirection = false;
-  let isUpDirection = false;
-
-  if (direction === 'left') {
-    activeColor = '#21f3dbc9';
-    colorThreshold = SCREEN_WIDTH * 0.15;
-    isLeftDirection = true;
-  } else if (direction === 'right') {
-    activeColor = '#ff2b2bdc';
-    colorThreshold = SCREEN_WIDTH * 0.15;
-    isRightDirection = true;
-  } else if (direction === 'up') {
-    activeColor = '#27a9ff';
-    colorThreshold = SCREEN_HEIGHT * 0.12;
-    isUpDirection = true;
-  }
+  const isLeft = direction === 'left';
+  const isRight = direction === 'right';
+  const isUp = direction === 'up';
+  const activeColor = isLeft
+    ? '#21f3dbc9'
+    : isRight
+    ? '#ff2b2bdc'
+    : isUp
+    ? '#27a9ff'
+    : '#FFF';
+  const colorThreshold =
+    isLeft || isRight ? SCREEN_WIDTH * 0.15 : SCREEN_HEIGHT * 0.12;
 
   const animatedStyle = useAnimatedStyle(() => {
     let progress = 0;
-    if (isLeftDirection) {
-      const absX = Math.abs(swipeProgressX.value);
-      progress = Math.max(0, Math.min(1, absX / colorThreshold));
-      if (swipeProgressX.value >= 0) progress = 0;
-    } else if (isRightDirection) {
-      progress = Math.max(
-        0,
-        Math.min(1, swipeProgressX.value / colorThreshold),
-      );
-      if (swipeProgressX.value <= 0) progress = 0;
-    } else if (isUpDirection) {
-      const absY = Math.abs(swipeProgressY.value);
-      progress = Math.max(0, Math.min(1, absY / colorThreshold));
-      if (swipeProgressY.value >= 0) progress = 0;
-    }
+    if (isLeft)
+      progress =
+        swipeProgressX.value < 0
+          ? Math.min(1, Math.abs(swipeProgressX.value) / colorThreshold)
+          : 0;
+    if (isRight)
+      progress =
+        swipeProgressX.value > 0
+          ? Math.min(1, swipeProgressX.value / colorThreshold)
+          : 0;
+    if (isUp)
+      progress =
+        swipeProgressY.value < 0
+          ? Math.min(1, Math.abs(swipeProgressY.value) / colorThreshold)
+          : 0;
     return {
       backgroundColor: interpolateColor(
         progress,
@@ -342,14 +380,27 @@ const EmptyState = ({ onReset, error }) => (
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-// MAIN HOMESCREEN
+// FILTER ICON
+// ════════════════════════════════════════════════════════════════════════════
+
+const FilterIcon = ({ hasActiveFilters }) => (
+  <View style={styles.filterIconWrapper}>
+    <View style={styles.filterLine} />
+    <View style={[styles.filterLine, styles.filterLineMid]} />
+    <View style={[styles.filterLine, styles.filterLineShort]} />
+    {hasActiveFilters && <View style={styles.filterActiveDot} />}
+  </View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// MAIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
 
 export default function HomeScreen({ navigation }) {
-  const { token, userId } = useContext(AuthContext);
+  const { token } = useContext(AuthContext);
+  const apiClient = useRef(createApiClient(token));
 
   const { subscription } = useSubscription({ token });
-  const { superlike } = useSuperlike({ token });
   const { rewind } = useRewind({ token });
 
   const stackRef = useRef(null);
@@ -363,6 +414,11 @@ export default function HomeScreen({ navigation }) {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [premiumFeature, setPremiumFeature] = useState('SUPERLIKE');
+  const [filterVisible, setFilterVisible] = useState(false);
+  const [currentCity, setCurrentCity] = useState('');
+  const [activeFilters, setActiveFilters] = useState(DEFAULT_FILTERS);
+  const requestLocationPermission = useLocationPermission();
+
   const { unseenCount } = useDailyFeed({ token });
 
   const scanFadeOutOpacity = useSharedValue(1);
@@ -372,7 +428,7 @@ export default function HomeScreen({ navigation }) {
 
   const swipeStack = useSwipeStack({
     token,
-    filters: { minAge: 18, maxAge: 60 },
+    filters: DEFAULT_FILTERS,
     limit: 20,
   });
 
@@ -381,6 +437,43 @@ export default function HomeScreen({ navigation }) {
     [cardFadeInOpacity],
   );
 
+  useEffect(() => {
+    if (!token) return;
+    const timer = setTimeout(() => {
+      requestLocationPermission();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [token]);
+
+  // ── Fetch saved filters on mount ──
+  useEffect(() => {
+    if (!token) return;
+    apiClient.current
+      .get('/filter-preferences')
+      .then(resp => {
+        if (resp.data.success) {
+          const saved = resp.data.filters;
+          setActiveFilters(saved);
+          setCurrentCity(resp.data.city || '');
+          swipeStack.updateFilters(saved);
+        }
+      })
+      .catch(e => console.log('[HomeScreen] fetchFilters:', e.message));
+  }, [token]);
+
+  // ✅ handleFilterApply — single source of truth
+  const handleFilterApply = useCallback(
+    filters => {
+      setActiveFilters(filters);
+      swipeStack.updateFilters(filters);
+      apiClient.current
+        .patch('/filter-preferences', filters)
+        .catch(console.error);
+    },
+    [swipeStack],
+  );
+
+  // ── Loading overlay ──
   useEffect(() => {
     if (swipeStack.isInitialLoading && swipeStack.loading) {
       setShowLoadingOverlay(true);
@@ -406,19 +499,16 @@ export default function HomeScreen({ navigation }) {
     swipeStack.loading,
     swipeStack.feed.length,
     showLoadingOverlay,
-    scanFadeOutOpacity,
-    cardFadeInOpacity,
   ]);
 
+  // ── Prefetch images ──
   useEffect(() => {
-    if (!swipeStack.feed || swipeStack.feed.length === 0) return;
-    Promise.all(
-      swipeStack.feed
-        .slice(0, 10)
-        .map(p => p.image || p.imageUrls?.[0])
-        .filter(Boolean)
-        .map(url => Image.prefetch(url)),
-    );
+    if (!swipeStack.feed?.length) return;
+    swipeStack.feed
+      .slice(0, 10)
+      .map(p => p.image || p.imageUrls?.[0])
+      .filter(Boolean)
+      .forEach(url => Image.prefetch(url));
   }, [swipeStack.feed]);
 
   const handleSuperlikePress = useCallback(() => {
@@ -460,8 +550,7 @@ export default function HomeScreen({ navigation }) {
   const handleSwipeComplete = useCallback(
     async (direction, user, index) => {
       if (!user || matchedUsers) return;
-      const typeMap = { left: 'pass', right: 'like', up: 'superlike' };
-      const type = typeMap[direction];
+      const type = { left: 'pass', right: 'like', up: 'superlike' }[direction];
       if (!type) return;
       currentCardIndex.current = index + 1;
       swipeProgressX.value = withTiming(0, {
@@ -478,12 +567,11 @@ export default function HomeScreen({ navigation }) {
           setLocalError(result?.error || 'Failed to process swipe');
           return;
         }
-        if (result.match) {
+        if (result.match)
           setMatchedUsers({
             user1: { name: 'You', age: '', image: null },
             user2: { name: user.name, age: user.age, image: user.image },
           });
-        }
       } catch (err) {
         setLocalError(err.message || 'Unknown error');
       }
@@ -492,16 +580,13 @@ export default function HomeScreen({ navigation }) {
   );
 
   const handleEmpty = useCallback(() => setIsEmpty(true), []);
-
   const handleReset = useCallback(async () => {
     setIsEmpty(false);
     setLocalError(null);
     currentCardIndex.current = 0;
     await swipeStack.refetchFeed();
   }, [swipeStack]);
-
   const handleKeepSwiping = useCallback(() => setMatchedUsers(null), []);
-
   const handleLetsChat = useCallback(() => {
     setMatchedUsers(null);
     navigation.navigate('Chat', {
@@ -509,6 +594,15 @@ export default function HomeScreen({ navigation }) {
       userName: matchedUsers?.user2?.name || 'Match',
     });
   }, [matchedUsers, navigation]);
+
+  const hasActiveFilters = !!(
+    activeFilters.ageMin !== 18 ||
+    activeFilters.ageMax !== 50 ||
+    activeFilters.distance !== 100 ||
+    activeFilters.goals?.length > 0 ||
+    activeFilters.verifiedOnly ||
+    activeFilters.selectedCity
+  );
 
   if (swipeStack.isInitialLoading && swipeStack.loading) {
     return (
@@ -542,6 +636,7 @@ export default function HomeScreen({ navigation }) {
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="white" />
 
+        {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
             <Text style={styles.headerTitle}>Flames</Text>
@@ -557,7 +652,6 @@ export default function HomeScreen({ navigation }) {
                   Nearby
                 </Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.dailyTabBtn}
                 onPress={() => navigation.navigate('Daily')}
@@ -573,12 +667,28 @@ export default function HomeScreen({ navigation }) {
                 )}
               </TouchableOpacity>
             </View>
+            <TouchableOpacity
+              style={styles.filterBtn}
+              onPress={() => setFilterVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <FilterIcon hasActiveFilters={hasActiveFilters} />
+            </TouchableOpacity>
           </View>
           <Text style={styles.headerSubtitle}>
             {feedCount} profile{feedCount !== 1 ? 's' : ''} available
           </Text>
         </View>
 
+        {/* ✅ Expand banner — slides in below header */}
+        <ExpandBanner
+          expandedTo={swipeStack.expandedTo}
+          originalDistance={swipeStack.originalDistance}
+          onDismiss={swipeStack.dismissExpand}
+        />
+
+        {/* Stack */}
         <View
           ref={stackContainerRef}
           style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}
@@ -589,13 +699,11 @@ export default function HomeScreen({ navigation }) {
             data={swipeStack.feed}
             keyExtractor={item => item.userId}
             renderCard={renderCard}
-            onSwipeRight={(item, index) =>
-              handleSwipeComplete('right', item, index)
+            onSwipeRight={(item, idx) =>
+              handleSwipeComplete('right', item, idx)
             }
-            onSwipeLeft={(item, index) =>
-              handleSwipeComplete('left', item, index)
-            }
-            onSwipeUp={(item, index) => handleSwipeComplete('up', item, index)}
+            onSwipeLeft={(item, idx) => handleSwipeComplete('left', item, idx)}
+            onSwipeUp={(item, idx) => handleSwipeComplete('up', item, idx)}
             onEmpty={handleEmpty}
             swipeThreshold={SCREEN_WIDTH * 0.25}
             velocityThreshold={800}
@@ -615,13 +723,11 @@ export default function HomeScreen({ navigation }) {
                   { headers: { Authorization: `Bearer ${token}` } },
                 )
                 .catch(() => {});
-
               stackContainerRef.current?.measure(
                 (x, y, width, height, pageX, pageY) => {
                   navigation.navigate('UserProfile', {
                     targetUserId: item.userId,
                     imageUrl: item.image || item.imageUrls?.[0],
-                    // ✅ Pass target user's coords for distance display
                     targetLat: item.lat ?? null,
                     targetLng: item.lng ?? null,
                     targetHometown: item.hometown ?? null,
@@ -634,12 +740,12 @@ export default function HomeScreen({ navigation }) {
               );
             }}
           />
-
           {showLoadingOverlay && (
             <ScanLoadingOverlay fadeOutOpacity={scanFadeOutOpacity} />
           )}
         </View>
 
+        {/* Buttons */}
         <View
           style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
         >
@@ -712,6 +818,14 @@ export default function HomeScreen({ navigation }) {
             resetTime="00:00"
           />
         </Suspense>
+
+        <FeedFilterModal
+          visible={filterVisible}
+          onClose={() => setFilterVisible(false)}
+          onApply={handleFilterApply}
+          initialFilters={activeFilters}
+          currentCity={currentCity}
+        />
       </View>
     </SafeAreaView>
   );
@@ -719,21 +833,17 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  onlinePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginLeft: 8,
-    gap: 4,
-  },
-  onlinePillText: { color: '#fff', fontSize: 11, fontWeight: '600' },
   header: {
     paddingHorizontal: 20,
     paddingTop: 5,
     paddingBottom: 12,
     backgroundColor: '#ffffff',
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
   headerTitle: {
     fontSize: 32,
@@ -742,12 +852,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   headerSubtitle: { fontSize: 14, color: '#64748B' },
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
   tabRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tabBtn: {
     paddingHorizontal: 10,
@@ -781,11 +885,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   notifText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  filterBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterIconWrapper: {
+    width: 20,
+    gap: 4,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  filterLine: {
+    height: 2,
+    width: 20,
+    backgroundColor: '#0F172A',
+    borderRadius: 1,
+  },
+  filterLineMid: { width: 14, alignSelf: 'center' },
+  filterLineShort: { width: 8, alignSelf: 'center' },
+  filterActiveDot: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#FF0059',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+
+  // ✅ Expand banner
+  expandBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    gap: 10,
+  },
+  expandBannerIcon: { fontSize: 16 },
+  expandBannerText: { fontSize: 13, color: '#92400E', fontWeight: '600' },
+  expandBannerBold: { fontWeight: '800', color: '#C2410C' },
+  expandBannerSub: { fontSize: 11, color: '#B45309', marginTop: 1 },
+  expandBannerClose: {
+    fontSize: 14,
+    color: '#B45309',
+    fontWeight: '700',
+    paddingLeft: 4,
+  },
+
   stackContainer: {
     flex: 1,
     paddingHorizontal: 15,
     paddingBottom: 125,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
   scanOverlayContainer: {
     position: 'absolute',
@@ -797,7 +959,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 100,
     pointerEvents: 'none',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255,255,255,0.95)',
   },
   scanAnimationWrapper: {
     width: SCREEN_WIDTH - 32,
@@ -867,13 +1029,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   name: { fontSize: 28, fontWeight: '700', color: '#ffffff', marginRight: 8 },
-  age: { fontSize: 24, fontWeight: '600', color: 'rgba(255, 255, 255, 0.8)' },
-  hometown: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginBottom: 8,
+  age: { fontSize: 24, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
+  onlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+    gap: 4,
   },
-  goals: { fontSize: 14, color: 'rgba(255, 255, 255, 0.85)', lineHeight: 20 },
+  onlinePillText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  hometown: { fontSize: 14, color: 'rgba(255,255,255,0.9)', marginBottom: 8 },
+  goals: { fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 20 },
   imageFallback: {
     backgroundColor: '#F0F0F0',
     justifyContent: 'center',
