@@ -111,17 +111,63 @@ export function LocationProvider({ token, children }) {
   const isFetching = useRef(false);
 
   // ── Fetch GPS coords + save to DB ──
+  // const fetchAndSaveLocation = useCallback(
+  //   overrideToken => {
+  //     if (isFetching.current) return;
+  //     isFetching.current = true;
+
+  //     Geolocation.getCurrentPosition(
+  //       async position => {
+  //         isFetching.current = false;
+  //         const { latitude: lat, longitude: lng } = position.coords;
+  //         setMyLocation({ lat, lng });
+  //         console.log('[LocationContext] Got coords:', lat, lng);
+
+  //         const t = overrideToken || token;
+  //         if (!t) return;
+
+  //         axios
+  //           .patch(
+  //             `${API_BASE_URL}/update-location`,
+  //             { lat, lng },
+  //             { headers: { Authorization: `Bearer ${t}` } },
+  //           )
+  //           .then(() => console.log('[LocationContext] Saved to DB'))
+  //           .catch(err =>
+  //             console.warn('[LocationContext] Save failed:', err.message),
+  //           );
+  //       },
+  //       err => {
+  //         isFetching.current = false;
+  //         console.warn('[LocationContext] GPS error:', err.message);
+  //       },
+  //       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
+  //     );
+  //   },
+  //   [token],
+  // );
+
+  // LocationContext.js — fetchAndSaveLocation mein
   const fetchAndSaveLocation = useCallback(
-    overrideToken => {
+    async overrideToken => {
       if (isFetching.current) return;
       isFetching.current = true;
+
+      const lastSaved = await AsyncStorage.getItem('location_last_saved');
+      const now = Date.now();
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+      if (lastSaved && now - parseInt(lastSaved) < TWENTY_FOUR_HOURS) {
+        console.log('[LocationContext] Location recently saved, skipping');
+        isFetching.current = false;
+        return;
+      }
 
       Geolocation.getCurrentPosition(
         async position => {
           isFetching.current = false;
           const { latitude: lat, longitude: lng } = position.coords;
           setMyLocation({ lat, lng });
-          console.log('[LocationContext] Got coords:', lat, lng);
 
           const t = overrideToken || token;
           if (!t) return;
@@ -132,12 +178,19 @@ export function LocationProvider({ token, children }) {
               { lat, lng },
               { headers: { Authorization: `Bearer ${t}` } },
             )
-            .then(() => console.log('[LocationContext] Saved to DB'))
+            .then(async () => {
+              await AsyncStorage.setItem(
+                'location_last_saved',
+                String(Date.now()),
+              );
+              console.log('[LocationContext] Saved to DB');
+            })
             .catch(err =>
               console.warn('[LocationContext] Save failed:', err.message),
             );
         },
         err => {
+          // ✅ error callback add kiya
           isFetching.current = false;
           console.warn('[LocationContext] GPS error:', err.message);
         },
@@ -146,7 +199,6 @@ export function LocationProvider({ token, children }) {
     },
     [token],
   );
-
   // ════════════════════════════════════════════════════════════════════════
   // requestLocationPermission
   // Called ONLY from HomeScreen (isProfileComplete = true users)

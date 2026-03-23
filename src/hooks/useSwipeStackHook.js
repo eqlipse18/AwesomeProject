@@ -61,7 +61,7 @@ export function useSwipeStack({ token, filters = {} }) {
         setError(null);
         if (isInitial) setExpandedTo(null); // reset on new fetch
 
-        const limit = isInitial ? 20 : 10;
+        const limit = isInitial ? 50 : 20;
 
         const params = {
           limit,
@@ -71,14 +71,16 @@ export function useSwipeStack({ token, filters = {} }) {
           ...(activeFilters.distance != null && {
             distance: activeFilters.distance,
           }),
-          ...(activeFilters.showMe && { showMe: activeFilters.showMe }),
+          // showMe sirf tab bhejo jab actual value ho — null/undefined skip
+          ...(activeFilters.showMe &&
+            activeFilters.showMe !== 'null' && {
+              showMe: activeFilters.showMe,
+            }),
           ...(activeFilters.verifiedOnly && { verifiedOnly: 'true' }),
           ...(activeFilters.goals?.length && {
             goals: activeFilters.goals.join(','),
           }),
-          // ✅ expandSearch
           expandSearch: String(activeFilters.expandSearch ?? true),
-          // ✅ customLat/customLng from city picker
           ...(activeFilters.customLat != null && {
             customLat: activeFilters.customLat,
           }),
@@ -144,7 +146,7 @@ export function useSwipeStack({ token, filters = {} }) {
     index => {
       currentIndex.current = index;
       const shouldLoad =
-        (index === 12 || (index - 2) % 10 === 0) &&
+        (index === 45 || (index - 5) % 20 === 0) &&
         !isLoadingMore.current &&
         nextCursor;
 

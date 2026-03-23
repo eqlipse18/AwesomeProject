@@ -138,7 +138,15 @@ router.patch('/filter-preferences', authenticate, async (req, res) => {
     }
     if (distance !== undefined) updates.distance = distance;
     if (expandSearch !== undefined) updates.expandSearch = expandSearch;
-    if (showMe !== undefined) updates.showMe = showMe;
+    if (
+      showMe !== undefined &&
+      showMe !== null &&
+      !['Women', 'Men', 'Everyone'].includes(showMe)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Invalid showMe value' });
+    }
     // if (goals !== undefined) updates.goals = goals;
     if (selectedCity !== undefined) updates.selectedCity = selectedCity; // { name, lat, lng } | null
     if (customLat !== undefined) updates.customLat = customLat;

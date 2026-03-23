@@ -1,18 +1,22 @@
 /**
- * HomeScreen — with ExpandSearch banner
+ * HomeScreen — Infinite Swipe + Static Layout
  *
- * Shows a subtle animated banner when feed auto-expands:
- * "📍 Expanded to 50km — not enough profiles nearby"
+ * Key changes:
+ * - Header + action buttons ALWAYS visible — no early return for empty/loading
+ * - Scan overlay shown from very first load until cards appear
+ * - handleEmpty → auto-refetchFeed (infinite) instead of setIsEmpty
+ * - "Seen all" shown as in-stack overlay card, not full screen takeover
+ * - If DB also empty → "You've seen everyone" + auto-retry every 30s
  */
 
 import React, {
   useCallback,
   useContext,
+  useEffect,
+  useMemo,
   useRef,
   useState,
-  useEffect,
   Suspense,
-  useMemo,
 } from 'react';
 import {
   View,
@@ -30,6 +34,7 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSpring,
+  withSequence,
   Easing,
   interpolateColor,
   FadeInDown,
@@ -43,13 +48,12 @@ import { SwipeableStack } from '../src/components/swipe/SwipeableStackEnhanced';
 import { useSwipeStack } from '../src/hooks/useSwipeStackHook';
 import { MatchModal } from '../src/components/swipe/MatchModal';
 import { AuthContext } from '../AuthContex';
-import { useMyLocation } from '../LocationContext';
+import { useMyLocation, useLocationPermission } from '../LocationContext';
 import { useSubscription, useRewind } from '../src/hooks/usePremiumHooks';
 import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 import { getLocationDisplay } from '../utils/locationUtils';
 import FeedFilterModal from '../src/components/feed/FeedFilterModal';
-import { useLocationPermission } from '../LocationContext';
 
 const PremiumModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
@@ -89,15 +93,175 @@ const DEFAULT_FILTERS = {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// EXPAND BANNER — shown when feed auto-expanded radius
+// DAILY BADGE (from your current version — unchanged)
+// ════════════════════════════════════════════════════════════════════════════
+
+const DailyBadge = ({ count }) => {
+  const [phase, setPhase] = useState('heart');
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (!count) return;
+    setPhase('heart');
+    scale.value = 0.6;
+    opacity.value = 0;
+    opacity.value = withTiming(1, { duration: 180 });
+    scale.value = withTiming(1, {
+      duration: 220,
+      easing: Easing.out(Easing.ease),
+    });
+
+    const holdTimer = setTimeout(() => {
+      opacity.value = withTiming(0, { duration: 150 });
+      scale.value = withTiming(0.7, { duration: 150 });
+    }, 800);
+
+    const switchTimer = setTimeout(() => {
+      setPhase('count');
+      scale.value = 0.7;
+      opacity.value = 0;
+      opacity.value = withTiming(1, { duration: 150 });
+      scale.value = withTiming(1, {
+        duration: 180,
+        easing: Easing.out(Easing.ease),
+      });
+    }, 1000);
+
+    return () => {
+      clearTimeout(holdTimer);
+      clearTimeout(switchTimer);
+    };
+  }, [count]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
+  if (!count) return null;
+  return (
+    <View style={styles.dailyBadgeSlot}>
+      <Animated.View style={animStyle}>
+        {phase === 'heart' ? (
+          <Image
+            source={require('../assets/Images/redheart.png')}
+            style={styles.heartImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={styles.countBubble}>
+            <Text style={styles.countText}>{count > 99 ? '99+' : count}</Text>
+          </View>
+        )}
+      </Animated.View>
+    </View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// NEARBY BADGE (from your current version — unchanged)
+// ════════════════════════════════════════════════════════════════════════════
+
+const NearbyBadge = ({ count }) => {
+  const scale = useSharedValue(0.85);
+  const opacity = useSharedValue(0);
+  const hasAnimated = useRef(false);
+
+  useEffect(() => {
+    if (!count || hasAnimated.current) return;
+    hasAnimated.current = true;
+    setTimeout(() => {
+      opacity.value = withTiming(1, { duration: 140 });
+      scale.value = withTiming(1, {
+        duration: 180,
+        easing: Easing.out(Easing.ease),
+      });
+    }, 250);
+  }, [count]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
+  if (!count) return null;
+  const label = count >= 20 ? '20+' : String(count);
+  return (
+    <Animated.View style={[styles.nearbyBadge, animStyle]}>
+      <Text style={styles.nearbyBadgeText}>{label}</Text>
+    </Animated.View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// SCAN LOADING OVERLAY — shown over stack area
+// ════════════════════════════════════════════════════════════════════════════
+
+const ScanLoadingOverlay = ({ visible }) => {
+  const opacity = useSharedValue(visible ? 1 : 0);
+
+  useEffect(() => {
+    opacity.value = withTiming(visible ? 1 : 0, {
+      duration: 400,
+      easing: Easing.inOut(Easing.ease),
+    });
+  }, [visible]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    pointerEvents: opacity.value > 0.1 ? 'auto' : 'none',
+  }));
+
+  return (
+    <Animated.View style={[styles.scanOverlayContainer, animStyle]}>
+      <View style={styles.scanAnimationWrapper}>
+        <LottieView
+          source={require('../assets/animations/Scan.json')}
+          autoPlay
+          loop
+          style={styles.scanAnimation}
+        />
+      </View>
+      <Text style={styles.scanText}>Scanning nearby users...</Text>
+    </Animated.View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEEN ALL CARD — shown inside stack area when DB also empty
+// ════════════════════════════════════════════════════════════════════════════
+
+const SeenAllCard = ({ onRefresh, isRetrying }) => (
+  <View style={styles.seenAllCard}>
+    <Text style={styles.seenAllEmoji}>🎉</Text>
+    <Text style={styles.seenAllTitle}>You've seen everyone!</Text>
+    <Text style={styles.seenAllSub}>
+      No new profiles right now.{'\n'}Check back soon!
+    </Text>
+    <TouchableOpacity
+      style={[styles.seenAllBtn, isRetrying && styles.seenAllBtnDisabled]}
+      onPress={onRefresh}
+      disabled={isRetrying}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.seenAllBtnText}>
+        {isRetrying ? 'Refreshing...' : '↺  Refresh'}
+      </Text>
+    </TouchableOpacity>
+  </View>
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+// EXPAND BANNER
 // ════════════════════════════════════════════════════════════════════════════
 
 const ExpandBanner = ({ expandedTo, originalDistance, onDismiss }) => {
   if (!expandedTo) return null;
   return (
     <Animated.View
-      entering={FadeInDown.duration(400).springify()}
-      exiting={FadeOutUp.duration(300)}
+      entering={FadeInDown.duration(350).springify()}
+      exiting={FadeOutUp.duration(250)}
       style={styles.expandBanner}
     >
       <Text style={styles.expandBannerIcon}>📍</Text>
@@ -121,35 +285,11 @@ const ExpandBanner = ({ expandedTo, originalDistance, onDismiss }) => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// SCAN LOADING OVERLAY
-// ════════════════════════════════════════════════════════════════════════════
-
-const ScanLoadingOverlay = ({ fadeOutOpacity }) => {
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: fadeOutOpacity.value,
-  }));
-  return (
-    <Animated.View style={[styles.scanOverlayContainer, animatedStyle]}>
-      <View style={styles.scanAnimationWrapper}>
-        <LottieView
-          source={require('../assets/animations/Scan.json')}
-          autoPlay
-          loop
-          style={styles.scanAnimation}
-        />
-      </View>
-      <Text style={styles.scanText}>Scanning nearby users...</Text>
-    </Animated.View>
-  );
-};
-
-// ════════════════════════════════════════════════════════════════════════════
 // PROFILE CARD
 // ════════════════════════════════════════════════════════════════════════════
 
 const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
   const myLocation = useMyLocation();
-
   const [imageError, setImageError] = useState(false);
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     opacity: cardFadeInOpacity.value,
@@ -211,6 +351,23 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
     </Animated.View>
   );
 });
+
+const NoFilterResults = ({ onClearFilters }) => (
+  <View style={styles.seenAllCard}>
+    <Text style={styles.seenAllEmoji}>🔍</Text>
+    <Text style={styles.seenAllTitle}>No profiles found</Text>
+    <Text style={styles.seenAllSub}>
+      No one matches your current filters.{'\n'}Try adjusting them!
+    </Text>
+    <TouchableOpacity
+      style={styles.seenAllBtn}
+      onPress={onClearFilters}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.seenAllBtnText}>Clear Filters</Text>
+    </TouchableOpacity>
+  </View>
+);
 
 // ════════════════════════════════════════════════════════════════════════════
 // OVERLAYS
@@ -358,28 +515,6 @@ const AnimatedActionButton = ({
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// EMPTY STATE
-// ════════════════════════════════════════════════════════════════════════════
-
-const EmptyState = ({ onReset, error }) => (
-  <View style={styles.emptyStateContainer}>
-    <Text style={styles.emptyStateEmoji}>🎉</Text>
-    <Text style={styles.emptyStateTitle}>{error ? 'Oops!' : 'All Done!'}</Text>
-    <Text style={styles.emptyStateMessage}>
-      {error
-        ? 'Something went wrong. Please try again.'
-        : "You've seen all available profiles. Check back later!"}
-    </Text>
-    {error && <Text style={styles.errorText}>{error}</Text>}
-    <TouchableOpacity style={styles.emptyStateButton} onPress={onReset}>
-      <Text style={styles.emptyStateButtonText}>
-        {error ? 'Retry' : 'Refresh Feed'}
-      </Text>
-    </TouchableOpacity>
-  </View>
-);
-
-// ════════════════════════════════════════════════════════════════════════════
 // FILTER ICON
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -399,6 +534,7 @@ const FilterIcon = ({ hasActiveFilters }) => (
 export default function HomeScreen({ navigation }) {
   const { token } = useContext(AuthContext);
   const apiClient = useRef(createApiClient(token));
+  const requestLocationPermission = useLocationPermission();
 
   const { subscription } = useSubscription({ token });
   const { rewind } = useRewind({ token });
@@ -406,22 +542,22 @@ export default function HomeScreen({ navigation }) {
   const stackRef = useRef(null);
   const currentCardIndex = useRef(0);
   const stackContainerRef = useRef(null);
+  const autoRetryTimer = useRef(null); // for 30s auto-retry
 
-  const [isEmpty, setIsEmpty] = useState(false);
-  const [localError, setLocalError] = useState(null);
+  const [seenAll, setSeenAll] = useState(false); // DB bhi khaali
+  const [isRetrying, setIsRetrying] = useState(false);
   const [matchedUsers, setMatchedUsers] = useState(null);
-  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [premiumFeature, setPremiumFeature] = useState('SUPERLIKE');
   const [filterVisible, setFilterVisible] = useState(false);
   const [currentCity, setCurrentCity] = useState('');
   const [activeFilters, setActiveFilters] = useState(DEFAULT_FILTERS);
-  const requestLocationPermission = useLocationPermission();
+  const [nearbyCount, setNearbyCount] = useState(0);
+  const [localError, setLocalError] = useState(null);
 
   const { unseenCount } = useDailyFeed({ token });
 
-  const scanFadeOutOpacity = useSharedValue(1);
   const cardFadeInOpacity = useSharedValue(0);
   const swipeProgressX = useSharedValue(0);
   const swipeProgressY = useSharedValue(0);
@@ -431,21 +567,35 @@ export default function HomeScreen({ navigation }) {
     filters: DEFAULT_FILTERS,
     limit: 20,
   });
+  const [stackKey, setStackKey] = useState(0);
+
+  // ── Is loading overlay visible? ──
+  // Show when: initial loading OR feed is empty but still loading (auto-refetch in progress)
+  const showScanOverlay = swipeStack.loading || swipeStack.isInitialLoading;
+
+  // ── Fade cards in when first batch arrives ──
+  useEffect(() => {
+    if (!swipeStack.isInitialLoading && swipeStack.feed.length > 0) {
+      cardFadeInOpacity.value = withTiming(1, {
+        duration: 500,
+        easing: Easing.out(Easing.ease),
+      });
+    }
+  }, [swipeStack.isInitialLoading, swipeStack.feed.length]);
 
   const renderCard = useCallback(
     item => <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />,
     [cardFadeInOpacity],
   );
 
+  // ── Location ──
   useEffect(() => {
     if (!token) return;
-    const timer = setTimeout(() => {
-      requestLocationPermission();
-    }, 1500);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => requestLocationPermission(), 1500);
+    return () => clearTimeout(t);
   }, [token]);
 
-  // ── Fetch saved filters on mount ──
+  // ── Saved filters ──
   useEffect(() => {
     if (!token) return;
     apiClient.current
@@ -455,53 +605,28 @@ export default function HomeScreen({ navigation }) {
           const saved = resp.data.filters;
           setActiveFilters(saved);
           setCurrentCity(resp.data.city || '');
-          swipeStack.updateFilters(saved);
+          // ✅ Sirf tab updateFilters karo jab DEFAULT se alag ho
+          const isDifferent =
+            JSON.stringify(saved) !== JSON.stringify(DEFAULT_FILTERS);
+          if (isDifferent) swipeStack.updateFilters(saved);
         }
       })
-      .catch(e => console.log('[HomeScreen] fetchFilters:', e.message));
+      .catch(() => {});
   }, [token]);
 
-  // ✅ handleFilterApply — single source of truth
-  const handleFilterApply = useCallback(
-    filters => {
-      setActiveFilters(filters);
-      swipeStack.updateFilters(filters);
-      apiClient.current
-        .patch('/filter-preferences', filters)
-        .catch(console.error);
-    },
-    [swipeStack],
-  );
-
-  // ── Loading overlay ──
+  // ── Nearby count ──
   useEffect(() => {
-    if (swipeStack.isInitialLoading && swipeStack.loading) {
-      setShowLoadingOverlay(true);
-      scanFadeOutOpacity.value = 1;
-      cardFadeInOpacity.value = 0;
-    } else if (
-      !swipeStack.isInitialLoading &&
-      showLoadingOverlay &&
-      swipeStack.feed.length > 0
-    ) {
-      scanFadeOutOpacity.value = withTiming(0, {
-        duration: 600,
-        easing: Easing.inOut(Easing.ease),
-      });
-      cardFadeInOpacity.value = withTiming(1, {
-        duration: 600,
-        easing: Easing.inOut(Easing.ease),
-      });
-      setTimeout(() => setShowLoadingOverlay(false), 600);
-    }
-  }, [
-    swipeStack.isInitialLoading,
-    swipeStack.loading,
-    swipeStack.feed.length,
-    showLoadingOverlay,
-  ]);
+    if (!token) return;
+    apiClient.current
+      .get('/nearby', { params: { radius: 25, limit: 20 } })
+      .then(resp => {
+        if (resp.data.success)
+          setNearbyCount(Math.min(resp.data.total || 0, 20));
+      })
+      .catch(() => {});
+  }, [token]);
 
-  // ── Prefetch images ──
+  // ── Prefetch ──
   useEffect(() => {
     if (!swipeStack.feed?.length) return;
     swipeStack.feed
@@ -510,6 +635,71 @@ export default function HomeScreen({ navigation }) {
       .filter(Boolean)
       .forEach(url => Image.prefetch(url));
   }, [swipeStack.feed]);
+
+  // ── Cleanup auto-retry on unmount ──
+  useEffect(() => {
+    return () => {
+      if (autoRetryTimer.current) clearTimeout(autoRetryTimer.current);
+    };
+  }, []);
+
+  // ════════════════════════════════════════════════════════════════════════
+  // handleEmpty — INFINITE AUTO-REFRESH
+  // Called by SwipeableStack when all cards swiped
+  // ════════════════════════════════════════════════════════════════════════
+
+  const handleEmpty = useCallback(async () => {
+    setSeenAll(false);
+    cardFadeInOpacity.value = 0;
+
+    const result = await swipeStack.refetchFeed();
+
+    if (!result?.success || result?.count === 0) {
+      setSeenAll(true);
+      autoRetryTimer.current = setTimeout(async () => {
+        setIsRetrying(true);
+        const retryResult = await swipeStack.refetchFeed();
+        setIsRetrying(false);
+        if (retryResult?.count > 0) {
+          setSeenAll(false);
+          setStackKey(k => k + 1); // ✅ force SwipeableStack remount
+        }
+      }, 30000);
+    } else {
+      // ✅ New cards aaye — stack ko reset karo
+      setStackKey(k => k + 1);
+    }
+  }, [swipeStack, cardFadeInOpacity]);
+
+  // ── Manual refresh from SeenAllCard ──
+  const handleManualRefresh = useCallback(async () => {
+    if (autoRetryTimer.current) clearTimeout(autoRetryTimer.current);
+    setIsRetrying(true);
+    cardFadeInOpacity.value = 0;
+    const result = await swipeStack.refetchFeed();
+    setIsRetrying(false);
+    if (result?.count > 0) {
+      setSeenAll(false);
+    }
+  }, [swipeStack, cardFadeInOpacity]);
+
+  const handleFilterApply = useCallback(
+    filters => {
+      setActiveFilters(filters);
+      setSeenAll(false);
+      cardFadeInOpacity.value = 0;
+      swipeStack.updateFilters(filters);
+
+      // ✅ null values strip karo before sending to backend
+      const cleanFilters = Object.fromEntries(
+        Object.entries(filters).filter(([_, v]) => v !== null),
+      );
+      apiClient.current
+        .patch('/filter-preferences', cleanFilters)
+        .catch(console.error);
+    },
+    [swipeStack, cardFadeInOpacity],
+  );
 
   const handleSuperlikePress = useCallback(() => {
     if (!subscription?.isPremium) {
@@ -579,13 +769,6 @@ export default function HomeScreen({ navigation }) {
     [swipeStack, matchedUsers, swipeProgressX, swipeProgressY],
   );
 
-  const handleEmpty = useCallback(() => setIsEmpty(true), []);
-  const handleReset = useCallback(async () => {
-    setIsEmpty(false);
-    setLocalError(null);
-    currentCardIndex.current = 0;
-    await swipeStack.refetchFeed();
-  }, [swipeStack]);
   const handleKeepSwiping = useCallback(() => setMatchedUsers(null), []);
   const handleLetsChat = useCallback(() => {
     setMatchedUsers(null);
@@ -594,6 +777,14 @@ export default function HomeScreen({ navigation }) {
       userName: matchedUsers?.user2?.name || 'Match',
     });
   }, [matchedUsers, navigation]);
+  const handleNearbyPress = useCallback(() => {
+    setNearbyCount(0);
+    navigation.navigate('Nearby');
+  }, [navigation]);
+  const handleDailyPress = useCallback(
+    () => navigation.navigate('Daily'),
+    [navigation],
+  );
 
   const hasActiveFilters = !!(
     activeFilters.ageMin !== 18 ||
@@ -604,69 +795,53 @@ export default function HomeScreen({ navigation }) {
     activeFilters.selectedCity
   );
 
-  if (swipeStack.isInitialLoading && swipeStack.loading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#FF0059" />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Discover</Text>
-        </View>
-        <View style={styles.stackContainer} />
-      </View>
-    );
-  }
-
-  if (isEmpty || swipeStack.feed.length === 0) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#FF0059" />
-        <EmptyState
-          onReset={handleReset}
-          error={swipeStack.error || localError}
-        />
-      </View>
-    );
-  }
-
   const isModalVisible = matchedUsers !== null;
   const feedCount = swipeStack.feed?.length || 0;
+
+  // ── Should show stack or seenAll? ──
+  const showStack = !seenAll && (feedCount > 0 || swipeStack.loading);
+  const showSeenAll = seenAll && !swipeStack.loading;
+  const showNoFilterResults =
+    !swipeStack.loading &&
+    !swipeStack.isInitialLoading &&
+    swipeStack.feed.length === 0 &&
+    !seenAll &&
+    hasActiveFilters;
+
+  // ════════════════════════════════════════════════════════════════════════
+  // RENDER — header + buttons ALWAYS visible, no early returns
+  // ════════════════════════════════════════════════════════════════════════
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="white" />
 
-        {/* Header */}
+        {/* ── HEADER — always visible ── */}
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
             <Text style={styles.headerTitle}>Flames</Text>
+
             <View style={styles.tabRow}>
               <TouchableOpacity
                 style={styles.tabBtn}
-                onPress={() => navigation.navigate('Nearby')}
+                onPress={handleNearbyPress}
                 activeOpacity={0.8}
               >
-                <Text
-                  style={[styles.tabBtnText, { opacity: 1, color: '#FF0059' }]}
-                >
-                  Nearby
-                </Text>
+                <Text style={styles.tabBtnText}>Nearby</Text>
+                <NearbyBadge count={nearbyCount} />
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.dailyTabBtn}
-                onPress={() => navigation.navigate('Daily')}
+                onPress={handleDailyPress}
                 activeOpacity={0.8}
               >
                 <Text style={styles.dailyTabText}>Daily New</Text>
-                {unseenCount > 0 && (
-                  <View style={styles.notifBadge}>
-                    <Text style={styles.notifText}>
-                      {unseenCount > 99 ? '99+' : unseenCount}
-                    </Text>
-                  </View>
-                )}
+                <DailyBadge count={unseenCount} />
               </TouchableOpacity>
             </View>
+
             <TouchableOpacity
               style={styles.filterBtn}
               onPress={() => setFilterVisible(true)}
@@ -676,76 +851,100 @@ export default function HomeScreen({ navigation }) {
               <FilterIcon hasActiveFilters={hasActiveFilters} />
             </TouchableOpacity>
           </View>
+
           <Text style={styles.headerSubtitle}>
-            {feedCount} profile{feedCount !== 1 ? 's' : ''} available
+            {swipeStack.loading
+              ? 'Finding profiles...'
+              : seenAll
+              ? "You're all caught up!"
+              : `${feedCount} profile${feedCount !== 1 ? 's' : ''} available`}
           </Text>
         </View>
 
-        {/* ✅ Expand banner — slides in below header */}
+        {/* Expand banner */}
         <ExpandBanner
           expandedTo={swipeStack.expandedTo}
           originalDistance={swipeStack.originalDistance}
           onDismiss={swipeStack.dismissExpand}
         />
 
-        {/* Stack */}
+        {/* ── STACK AREA — always rendered ── */}
         <View
           ref={stackContainerRef}
-          style={{ flex: 1, opacity: isModalVisible ? 0.5 : 1 }}
+          style={[styles.stackArea, isModalVisible && { opacity: 0.5 }]}
         >
-          <SwipeableStack
-            stackSize={5}
-            ref={stackRef}
-            data={swipeStack.feed}
-            keyExtractor={item => item.userId}
-            renderCard={renderCard}
-            onSwipeRight={(item, idx) =>
-              handleSwipeComplete('right', item, idx)
-            }
-            onSwipeLeft={(item, idx) => handleSwipeComplete('left', item, idx)}
-            onSwipeUp={(item, idx) => handleSwipeComplete('up', item, idx)}
-            onEmpty={handleEmpty}
-            swipeThreshold={SCREEN_WIDTH * 0.25}
-            velocityThreshold={800}
-            maxRotation={15}
-            renderLeftOverlay={() => <PassOverlay />}
-            renderRightOverlay={() => <LikeOverlay />}
-            renderSuperlikeOverlay={() => <SuperlikeOverlay />}
-            containerStyle={styles.stackContainer}
-            disabled={isModalVisible}
-            swipeProgressX={swipeProgressX}
-            swipeProgressY={swipeProgressY}
-            onCardPress={item => {
-              axios
-                .post(
-                  `${API_BASE_URL}/get-user-by-id`,
-                  { userId: item.userId },
-                  { headers: { Authorization: `Bearer ${token}` } },
-                )
-                .catch(() => {});
-              stackContainerRef.current?.measure(
-                (x, y, width, height, pageX, pageY) => {
-                  navigation.navigate('UserProfile', {
-                    targetUserId: item.userId,
-                    imageUrl: item.image || item.imageUrls?.[0],
-                    targetLat: item.lat ?? null,
-                    targetLng: item.lng ?? null,
-                    targetHometown: item.hometown ?? null,
-                    originX: pageX,
-                    originY: pageY,
-                    originWidth: width,
-                    originHeight: height,
-                  });
-                },
-              );
-            }}
-          />
-          {showLoadingOverlay && (
-            <ScanLoadingOverlay fadeOutOpacity={scanFadeOutOpacity} />
+          {/* SwipeableStack — only when we have cards */}
+          {showStack && (
+            <SwipeableStack
+              key={stackKey}
+              stackSize={5}
+              ref={stackRef}
+              data={swipeStack.feed}
+              keyExtractor={item => item.userId}
+              renderCard={renderCard}
+              onSwipeRight={(item, idx) =>
+                handleSwipeComplete('right', item, idx)
+              }
+              onSwipeLeft={(item, idx) =>
+                handleSwipeComplete('left', item, idx)
+              }
+              onSwipeUp={(item, idx) => handleSwipeComplete('up', item, idx)}
+              onEmpty={handleEmpty}
+              swipeThreshold={SCREEN_WIDTH * 0.25}
+              velocityThreshold={800}
+              maxRotation={15}
+              renderLeftOverlay={() => <PassOverlay />}
+              renderRightOverlay={() => <LikeOverlay />}
+              renderSuperlikeOverlay={() => <SuperlikeOverlay />}
+              containerStyle={styles.stackContainer}
+              disabled={isModalVisible}
+              swipeProgressX={swipeProgressX}
+              swipeProgressY={swipeProgressY}
+              onCardPress={item => {
+                axios
+                  .post(
+                    `${API_BASE_URL}/get-user-by-id`,
+                    { userId: item.userId },
+                    { headers: { Authorization: `Bearer ${token}` } },
+                  )
+                  .catch(() => {});
+                stackContainerRef.current?.measure(
+                  (x, y, width, height, pageX, pageY) => {
+                    navigation.navigate('UserProfile', {
+                      targetUserId: item.userId,
+                      imageUrl: item.image || item.imageUrls?.[0],
+                      targetLat: item.lat ?? null,
+                      targetLng: item.lng ?? null,
+                      targetHometown: item.hometown ?? null,
+                      originX: pageX,
+                      originY: pageY,
+                      originWidth: width,
+                      originHeight: height,
+                    });
+                  },
+                );
+              }}
+            />
           )}
+
+          {/* ✅ SeenAll card — inside stack area, not full screen */}
+          {showSeenAll && (
+            <SeenAllCard
+              onRefresh={handleManualRefresh}
+              isRetrying={isRetrying}
+            />
+          )}
+          {showNoFilterResults && (
+            <NoFilterResults
+              onClearFilters={() => handleFilterApply(DEFAULT_FILTERS)}
+            />
+          )}
+
+          {/* ✅ Scan overlay — shown from start until cards arrive */}
+          <ScanLoadingOverlay visible={showScanOverlay} />
         </View>
 
-        {/* Buttons */}
+        {/* ── ACTION BUTTONS — always visible ── */}
         <View
           style={[styles.buttonsContainer, isModalVisible && { opacity: 0.5 }]}
         >
@@ -753,7 +952,7 @@ export default function HomeScreen({ navigation }) {
             iconSource={require('../assets/Images/rewind.png')}
             onPress={handleRewindPress}
             size="small"
-            disabled={isModalVisible}
+            disabled={isModalVisible || seenAll || swipeStack.loading}
             swipeProgressX={swipeProgressX}
             swipeProgressY={swipeProgressY}
             direction="center"
@@ -762,7 +961,7 @@ export default function HomeScreen({ navigation }) {
             iconSource={require('../assets/Images/cross.png')}
             onPress={() => stackRef.current?.swipeLeft()}
             size="medium"
-            disabled={isModalVisible}
+            disabled={isModalVisible || seenAll || swipeStack.loading}
             swipeProgressX={swipeProgressX}
             swipeProgressY={swipeProgressY}
             direction="left"
@@ -771,7 +970,7 @@ export default function HomeScreen({ navigation }) {
             iconSource={require('../assets/Images/circle.png')}
             onPress={() => stackRef.current?.swipeRight()}
             size="medium"
-            disabled={isModalVisible}
+            disabled={isModalVisible || seenAll || swipeStack.loading}
             swipeProgressX={swipeProgressX}
             swipeProgressY={swipeProgressY}
             direction="right"
@@ -780,13 +979,14 @@ export default function HomeScreen({ navigation }) {
             iconSource={require('../assets/Images/star.png')}
             onPress={handleSuperlikePress}
             size="small"
-            disabled={isModalVisible}
+            disabled={isModalVisible || seenAll || swipeStack.loading}
             swipeProgressX={swipeProgressX}
             swipeProgressY={swipeProgressY}
             direction="up"
           />
         </View>
 
+        {/* Error toast */}
         {localError && (
           <View style={styles.errorToast}>
             <Text style={styles.errorToastText}>{localError}</Text>
@@ -831,8 +1031,14 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// STYLES
+// ════════════════════════════════════════════════════════════════════════════
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
+
+  // ── Header ──
   header: {
     paddingHorizontal: 20,
     paddingTop: 5,
@@ -852,17 +1058,42 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   headerSubtitle: { fontSize: 14, color: '#64748B' },
+
   tabRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+
+  // Nearby tab
   tabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-    opacity: 0.5,
+    borderColor: '#FFD6E0',
+    backgroundColor: '#FFF1F5',
   },
-  tabBtnText: { fontSize: 12, color: '#94A3B8', fontWeight: '500' },
+  tabBtnText: { fontSize: 12, fontWeight: '600', color: '#FF0059' },
+  nearbyBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -6,
+    backgroundColor: '#FF3040',
+    borderRadius: 999,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  nearbyBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
+  // Daily tab
   dailyTabBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -872,19 +1103,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'pink',
     backgroundColor: '#fff',
-    gap: 6,
+    gap: 5,
+    position: 'relative',
   },
   dailyTabText: { fontSize: 12, color: '#FF0059', fontWeight: '700' },
-  notifBadge: {
-    backgroundColor: '#FF0059',
+  dailyBadgeSlot: { position: 'absolute', top: -4, right: -6 },
+  heartImage: { width: 18, height: 18 },
+  countBubble: {
+    backgroundColor: '#FF3040',
+    borderRadius: 999,
     minWidth: 18,
     height: 18,
-    borderRadius: 9,
+    paddingHorizontal: 5,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
   },
-  notifText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  countText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
+  // Filter
   filterBtn: {
     padding: 8,
     borderRadius: 12,
@@ -918,7 +1159,7 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
   },
 
-  // ✅ Expand banner
+  // Expand banner
   expandBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -943,23 +1184,27 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
 
+  // ── Stack area — flex: 1, contains stack + overlays ──
+  stackArea: {
+    flex: 1,
+    position: 'relative',
+  },
+
+  // ── SwipeableStack container ──
   stackContainer: {
     flex: 1,
     paddingHorizontal: 15,
     paddingBottom: 125,
     backgroundColor: 'rgba(255,255,255,0.25)',
   },
+
+  // ── Scan overlay — absolute over stack area ──
   scanOverlayContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
-    pointerEvents: 'none',
-    backgroundColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: 'rgba(255,255,255,0.96)',
   },
   scanAnimationWrapper: {
     width: SCREEN_WIDTH - 32,
@@ -967,6 +1212,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  scanAnimation: { width: '100%', height: '100%' },
+  scanText: { fontSize: 14, color: '#666', opacity: 0.6, fontWeight: '500' },
+
+  // ── Seen All card — centered in stack area ──
+  seenAllCard: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingBottom: 80,
+  },
+  seenAllEmoji: { fontSize: 64, marginBottom: 16 },
+  seenAllTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  seenAllSub: {
+    fontSize: 15,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 28,
+  },
+  seenAllBtn: {
+    backgroundColor: '#FF0059',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  seenAllBtnDisabled: { backgroundColor: '#FFA0B4' },
+  seenAllBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // Overlays
   crossWrapper: {
     width: SCREEN_WIDTH * 0.5,
     height: SCREEN_WIDTH * 0.5 * 1.3,
@@ -979,8 +1260,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scanAnimation: { width: '100%', height: '100%' },
-  scanText: { fontSize: 14, color: '#666', opacity: 0.6, fontWeight: '500' },
+  overlay: { borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
+  likeOverlay: { borderColor: '#EC4899', transform: [{ rotate: '20deg' }] },
+  passOverlay: { transform: [{ rotate: '20deg' }] },
   superText: {
     position: 'absolute',
     top: '-10%',
@@ -995,6 +1277,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     letterSpacing: 5,
   },
+
+  // Cards
   cardContainer: {
     width: '100%',
     height: '100%',
@@ -1048,9 +1332,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fallbackText: { fontSize: 48 },
-  overlay: { borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
-  likeOverlay: { borderColor: '#EC4899', transform: [{ rotate: '20deg' }] },
-  passOverlay: { transform: [{ rotate: '20deg' }] },
+
+  // ── Action buttons — always rendered at bottom ──
   buttonsContainer: {
     position: 'absolute',
     bottom: 40,
@@ -1064,34 +1347,8 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingBottom: 50,
   },
-  emptyStateContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyStateEmoji: { fontSize: 64, marginBottom: 16 },
-  emptyStateTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptyStateMessage: {
-    fontSize: 16,
-    color: '#64748B',
-    marginBottom: 24,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  emptyStateButton: {
-    backgroundColor: '#FF0059',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  emptyStateButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+
+  // Error toast
   errorToast: {
     position: 'absolute',
     bottom: 20,
@@ -1108,10 +1365,4 @@ const styles = StyleSheet.create({
   },
   errorToastText: { color: '#FFF', fontSize: 14, fontWeight: '600', flex: 1 },
   errorToastClose: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-  errorText: {
-    fontSize: 12,
-    color: '#EF4444',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
 });

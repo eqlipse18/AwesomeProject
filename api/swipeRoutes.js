@@ -142,11 +142,18 @@ router.get('/feed', authenticate, async (req, res) => {
     const myLat = customLat ? parseFloat(customLat) : userResp.Item.lat ?? null;
     const myLng = customLng ? parseFloat(customLng) : userResp.Item.lng ?? null;
 
+    const VALID_GOALS = [
+      'Long-term Parter',
+      'Short-term Fun',
+      'Making new Friends',
+      'Still Figuring Out',
+    ];
+
     const goalsFilter = resolvedGoals
       ? resolvedGoals
           .split(',')
           .map(g => g.trim())
-          .filter(Boolean)
+          .filter(g => VALID_GOALS.includes(g))
       : [];
     const verifiedFilter =
       resolvedVerified === 'true' || resolvedVerified === true;
@@ -167,9 +174,18 @@ router.get('/feed', authenticate, async (req, res) => {
       const prefs = userResp.Item.datingPreferences || [];
       if (prefs.includes('Men')) gendersToShow.push('Male');
       if (prefs.includes('Women')) gendersToShow.push('Female');
-      if (gendersToShow.length === 0)
-        gendersToShow = userResp.Item.gender === 'Male' ? ['Female'] : ['Male'];
+      if (gendersToShow.length === 0) {
+        // Last resort fallback — show both genders
+        gendersToShow = ['Male', 'Female'];
+        console.warn('[/feed] gendersToShow empty, falling back to both');
+      }
     }
+
+    console.log('[/feed] userId:', userId);
+    console.log('[/feed] gendersToShow:', gendersToShow);
+    console.log('[/feed] resolvedShowMe:', resolvedShowMe);
+    console.log('[/feed] datingPreferences:', userResp.Item.datingPreferences);
+    console.log('[/feed] feedFilters from DB:', userResp.Item.feedFilters);
 
     // ── Fetch all swiped ──
     const fetchAllSwiped = async () => {
@@ -250,6 +266,8 @@ router.get('/feed', authenticate, async (req, res) => {
       Promise.all([fetchAllSwiped(), ...gendersToShow.map(queryForGender)]),
     );
 
+    console.log('[/feed] alreadySwiped count:', alreadySwiped.size);
+
     // ── Merge + dedupe + exclude swiped ──
     const seen = new Set();
     const candidates = genderResults
@@ -259,6 +277,7 @@ router.get('/feed', authenticate, async (req, res) => {
         seen.add(u.userId);
         return true;
       });
+    console.log('[/feed] total candidates before filter:', candidates.length);
 
     // ── BatchGet online + location ──
     const sevenDaysAgo = new Date(
@@ -307,10 +326,10 @@ router.get('/feed', authenticate, async (req, res) => {
 
     const applyBaseFilters = arr =>
       arr
-        .filter(u => {
-          const lat = onlineMap[u.userId]?.lastActiveAt;
-          return !lat || lat > sevenDaysAgo; // 7-day inactive filter
-        })
+        // .filter(u => {
+        //   const lat = onlineMap[u.userId]?.lastActiveAt;
+        //   return !lat || lat > sevenDaysAgo; // 7-day inactive filter
+        // })
         .filter(u => !verifiedFilter || onlineMap[u.userId]?.isVerified)
         .filter(u => {
           if (!goalsFilter.length) return true;
@@ -358,6 +377,7 @@ router.get('/feed', authenticate, async (req, res) => {
       }
       console.log(`[/feed] 0 results at ${radius}km, trying next...`);
     }
+    console.log('[/feed] baseFiltered length:', baseFiltered.length);
 
     // ── Slice to limit ──
     const users = filtered.slice(0, parsedLimit);
