@@ -95,9 +95,32 @@ export const MatchModal = ({
       onRequestClose={onKeepSwiping}
     >
       {/* Dark Background */}
-      <View style={styles.overlay}>
+
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 20,
+        }}
+      >
         {/* Hearts Particles Overlay - Behind Modal */}
-        <Animated.View style={[styles.heartsOverlay, heartsAnimatedStyle]}>
+
+        <Animated.View
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: SCREEN_WIDTH,
+              height: SCREEN_HEIGHT,
+              pointerEvents: 'none',
+              zIndex: 1,
+            },
+            heartsAnimatedStyle,
+          ]}
+        >
           <LottieView
             source={require('../../../assets/animations/Hearts_feedback.json')}
             autoPlay
@@ -108,14 +131,30 @@ export const MatchModal = ({
         </Animated.View>
 
         {/* Modal Card with Entrance Animation */}
-        <Animated.View style={[styles.modalContainer, modalAnimatedStyle]}>
+        <Animated.View
+          style={[
+            {
+              width: '100%',
+              borderRadius: 40,
+              overflow: 'hidden',
+              backgroundColor: '#ffffff',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 20 },
+              shadowOpacity: 0.5,
+              shadowRadius: 40,
+              elevation: 25,
+              zIndex: 10,
+            },
+            modalAnimatedStyle,
+          ]}
+        >
           <LinearGradient
             colors={['#FFFFFF', '#F5F5F5']}
             style={styles.gradientContainer}
           >
             {/* Title */}
             <View style={styles.titleSection}>
-              <Text style={styles.titleText}>It's a Match! 🔥</Text>
+              <Text style={styles.titleText}>It's a Match!</Text>
               <Text style={styles.subtitleText}>You two liked each other!</Text>
             </View>
 
@@ -161,7 +200,7 @@ export const MatchModal = ({
                 onPress={onKeepSwiping}
                 activeOpacity={0.7}
               >
-                <Text style={styles.outlineButtonText}>Keep Swiping</Text>
+                <Text style={styles.outlineButtonText}>Maybe Later</Text>
               </TouchableOpacity>
 
               {/* Let's Chat */}
@@ -174,7 +213,10 @@ export const MatchModal = ({
                   colors={['#FF0059', '#FF6B6B']}
                   style={styles.solidButtonGradient}
                 >
-                  <Text style={styles.solidButtonText}>Let's Chat 💬</Text>
+                  <Text style={styles.solidButtonText}>Send Message</Text>
+                  <Text style={{ fontSize: 11, opacity: 0.6 }}>
+                    Start your conversation now
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -187,54 +229,24 @@ export const MatchModal = ({
 
 const styles = StyleSheet.create({
   // Overlay
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
 
   // Hearts Overlay - Behind Modal
-  heartsOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
-    pointerEvents: 'none',
-    zIndex: 1,
-  },
 
   heartsLottie: {
     width: '100%',
     height: '100%',
   },
 
-  // Modal Container
-  modalContainer: {
-    width: '100%',
-    borderRadius: 30,
-    overflow: 'hidden',
-    backgroundColor: '#FFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.5,
-    shadowRadius: 40,
-    elevation: 25,
-    zIndex: 10,
-  },
-
   // Gradient
   gradientContainer: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 30,
     paddingVertical: 32,
   },
 
   // Title Section
   titleSection: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
 
   titleText: {

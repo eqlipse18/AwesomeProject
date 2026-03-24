@@ -156,93 +156,81 @@ export function useCreateSubscription({ token }) {
 export function useLikes({ token }) {
   const [sentLikes, setSentLikes] = useState([]);
   const [receivedLikes, setReceivedLikes] = useState([]);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isBlurred, setIsBlurred] = useState(false);
   const apiClient = useRef(null);
 
   useEffect(() => {
-    if (token) {
-      apiClient.current = createApiClient(token);
-    }
+    if (token) apiClient.current = createApiClient(token);
   }, [token]);
 
   const fetchSentLikes = useCallback(async () => {
-    if (!apiClient.current) {
-      setError('Not authenticated');
-      return;
-    }
-
+    if (!apiClient.current) return;
     try {
-      setLoading(true);
-      setError(null);
-
       const response = await apiClient.current.get('/likes/sent');
-
-      if (!response.data.success) {
-        throw new Error(response.data.error || 'Failed to fetch sent likes');
-      }
-
-      setSentLikes(response.data.likes || []);
+      if (response.data.success) setSentLikes(response.data.likes || []);
       return response.data.likes;
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.error || err.message || 'Unknown error';
-      setError(errorMsg);
-      console.error('[useLikes/sent] Error:', errorMsg);
+      console.error('[useLikes/sent]', err.message);
       return [];
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   const fetchReceivedLikes = useCallback(async () => {
-    if (!apiClient.current) {
-      setError('Not authenticated');
-      return;
-    }
-
+    if (!apiClient.current) return;
     try {
-      setLoading(true);
-      setError(null);
-
       const response = await apiClient.current.get('/likes/received');
-
-      if (!response.data.success) {
-        throw new Error(
-          response.data.error || 'Failed to fetch received likes',
-        );
+      if (response.data.success) {
+        setReceivedLikes(response.data.likes || []);
+        setIsBlurred(response.data.blurred || false);
       }
-
-      setReceivedLikes(response.data.likes || []);
-      setIsBlurred(response.data.blurred || false);
       return response.data;
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.error || err.message || 'Unknown error';
-      setError(errorMsg);
-      console.error('[useLikes/received] Error:', errorMsg);
+      console.error('[useLikes/received]', err.message);
       return { likes: [], blurred: true };
-    } finally {
-      setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    if (token) {
-      fetchSentLikes();
-      fetchReceivedLikes();
+  const fetchStats = useCallback(async () => {
+    if (!apiClient.current) return;
+    try {
+      const response = await apiClient.current.get('/likes/stats');
+      if (response.data.success) setStats(response.data.stats);
+      return response.data.stats;
+    } catch (err) {
+      console.error('[useLikes/stats]', err.message);
     }
-  }, [token, fetchSentLikes, fetchReceivedLikes]);
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await Promise.all([fetchSentLikes(), fetchReceivedLikes(), fetchStats()]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchSentLikes, fetchReceivedLikes, fetchStats]);
+
+  useEffect(() => {
+    if (token) fetchAll();
+  }, [token, fetchAll]);
 
   return {
     sentLikes,
     receivedLikes,
+    stats,
     loading,
     error,
     isBlurred,
     refetchSent: fetchSentLikes,
     refetchReceived: fetchReceivedLikes,
+    refetchStats: fetchStats,
+    refetch: fetchAll,
     sentCount: sentLikes.length,
     receivedCount: receivedLikes.length,
   };

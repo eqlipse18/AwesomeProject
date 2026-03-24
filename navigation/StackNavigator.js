@@ -27,6 +27,7 @@ import { AuthContext, AuthProvider } from '../AuthContex';
 import { ActivityIndicator, View } from 'react-native';
 import DailyScreen from '../screens/DailyScreen';
 import ConversationScreen from '../screens/ConversationScreen';
+import VisitorsScreen from '../screens/VisitorsScreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -71,7 +72,7 @@ function AppStack() {
           cardStyle: { backgroundColor: 'transparent' },
 
           cardOverlayEnabled: false,
-          detachPreviousScreen: false, //  Previous screen render rehti hai — no black flash
+          detachPreviousScreen: false,
         }}
       />
       <Stack.Screen
@@ -79,6 +80,7 @@ function AppStack() {
         component={ConversationScreen}
         options={{ animation: 'slide_from_right' }}
       />
+      <Stack.Screen name="Visitors" component={VisitorsScreen} />
     </Stack.Navigator>
   );
 }

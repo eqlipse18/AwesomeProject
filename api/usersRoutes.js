@@ -125,4 +125,80 @@ router.get('/users/new', authenticate, async (req, res) => {
   }
 });
 
+// GET /profile-visitors
+router.get('/profile-visitors', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { limit = 50 } = req.query;
+
+    const visitorsResp = await docClient.send(
+      new QueryCommand({
+        TableName: 'ProfileVisitors',
+        KeyConditionExpression: 'visitedId = :userId',
+        ExpressionAttributeValues: { ':userId': userId },
+        Limit: parseInt(limit, 10),
+        ScanIndexForward: false, // newest first
+        ProjectionExpression: 'visitorId, visitedAt',
+      }),
+    );
+
+    if (!visitorsResp.Items?.length)
+      return res.status(200).json({ success: true, visitors: [], total: 0 });
+
+    // Dedupe — ek user ke multiple visits mein sirf latest rakho
+    const latestVisitMap = {};
+    visitorsResp.Items.forEach(item => {
+      if (
+        !latestVisitMap[item.visitorId] ||
+        item.visitedAt > latestVisitMap[item.visitorId].visitedAt
+      ) {
+        latestVisitMap[item.visitorId] = item;
+      }
+    });
+
+    const uniqueVisitorIds = Object.keys(latestVisitMap);
+
+    // BatchGet visitor profiles
+    const usersResp = await docClient.send(
+      new BatchGetCommand({
+        RequestItems: {
+          Users: {
+            Keys: uniqueVisitorIds.map(id => ({ userId: id })),
+            ProjectionExpression:
+              'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, goals',
+          },
+        },
+      }),
+    );
+
+    const users = usersResp.Responses?.Users || [];
+
+    // Sort by visitedAt newest first
+    const sorted = users
+      .map(u => ({
+        userId: u.userId,
+        name: u.firstName,
+        age: u.ageForSort,
+        image: u.imageUrls?.[0] || null,
+        hometown: u.hometown || null,
+        isOnline: u.isOnline || false,
+        lastActiveAt: u.lastActiveAt || null,
+        goals: u.goals || null,
+        visitedAt: latestVisitMap[u.userId]?.visitedAt || null,
+      }))
+      .sort((a, b) => new Date(b.visitedAt) - new Date(a.visitedAt));
+
+    return res.status(200).json({
+      success: true,
+      visitors: sorted,
+      total: sorted.length,
+    });
+  } catch (error) {
+    console.error('[/profile-visitors] Error:', error);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch visitors' });
+  }
+});
+
 export default router;

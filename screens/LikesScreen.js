@@ -40,6 +40,7 @@ import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
 import { useLikes, useSubscription } from '../src/hooks/usePremiumHooks';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
+import { MatchModal } from '../src/components/swipe/MatchModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
@@ -489,12 +490,26 @@ export default function LikesScreen({ navigation }) {
   const [activeSort, setActiveSort] = useState('recent');
   const [refreshing, setRefreshing] = useState(false);
   const [actionSheetUser, setActionSheetUser] = useState(null);
+  const [matchedUsers, setMatchedUsers] = useState(null);
+  const [currentUserImage, setCurrentUserImage] = useState(null);
 
   const { sentLikes, receivedLikes, stats, loading, refetch } = useLikes({
     token,
   });
   const { subscription } = useSubscription({ token });
   const isPremium = subscription?.isPremium || false;
+
+  useEffect(() => {
+    if (!token) return;
+    apiClient.current
+      .get('/user-profile')
+      .then(resp => {
+        if (resp.data.success) {
+          setCurrentUserImage(resp.data.user?.imageUrls?.[0] || null);
+        }
+      })
+      .catch(e => console.log('[LikesScreen] fetchProfile:', e.message));
+  }, [token]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -528,18 +543,36 @@ export default function LikesScreen({ navigation }) {
     [navigation],
   );
 
-  const handleLikeBack = useCallback(async item => {
-    try {
-      await apiClient.current.post('/swipe', {
-        likedId: item.userId,
-        type: 'like',
-      });
-      setActionSheetUser(null);
-      // Optimistic update
-    } catch (e) {
-      console.error('[LikeBack]', e.message);
-    }
-  }, []);
+  const handleLikeBack = useCallback(
+    async item => {
+      try {
+        const resp = await apiClient.current.post('/swipe', {
+          likedId: item.userId,
+          type: 'like',
+        });
+
+        setActionSheetUser(null);
+
+        if (resp.data.success && resp.data.match) {
+          setMatchedUsers({
+            user1: {
+              name: 'You',
+              age: '',
+              image: currentUserImage, //  actual image
+            },
+            user2: {
+              name: item.name,
+              age: item.age,
+              image: item.image,
+            },
+          });
+        }
+      } catch (e) {
+        console.error('[LikeBack]', e.message);
+      }
+    },
+    [currentUserImage],
+  );
 
   // ── Filter + Sort logic ──
   const processData = useCallback(
@@ -740,15 +773,12 @@ export default function LikesScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Likes</Text>
       </View>
-
       {/* Stats Row */}
       <StatsRow stats={stats} loading={loading} />
-
       {/* Tab Bar */}
       <TabBar
         activeTab={activeTab}
@@ -756,7 +786,6 @@ export default function LikesScreen({ navigation }) {
         receivedCount={receivedLikes.length}
         likedCount={sentLikes.length}
       />
-
       {/* Filter + Sort Bar */}
       <FilterSortBar
         activeFilter={activeFilter}
@@ -764,7 +793,6 @@ export default function LikesScreen({ navigation }) {
         activeSort={activeSort}
         onSortPress={setActiveSort}
       />
-
       {/* Content */}
       <View style={styles.content}>
         {loading && !refreshing ? (
@@ -819,7 +847,6 @@ export default function LikesScreen({ navigation }) {
           />
         )}
       </View>
-
       {/* Like-back Action Sheet */}
       <LikeBackSheet
         visible={!!actionSheetUser}
@@ -835,6 +862,20 @@ export default function LikesScreen({ navigation }) {
           });
         }}
       />
+      <MatchModal
+        visible={matchedUsers !== null}
+        user1={matchedUsers?.user1}
+        user2={matchedUsers?.user2}
+        onKeepSwiping={() => setMatchedUsers(null)}
+        onLetsChat={() => {
+          setMatchedUsers(null);
+          navigation.navigate('Chat', {
+            matchId: null,
+            userName: matchedUsers?.user2?.name || 'Match',
+          });
+        }}
+      />
+      ;
     </SafeAreaView>
   );
 }

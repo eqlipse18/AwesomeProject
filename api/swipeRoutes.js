@@ -772,29 +772,64 @@ router.get('/user-profile', authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // POST /get-user-by-id
 // ════════════════════════════════════════════════════════════════════════════
-
 router.post('/get-user-by-id', authenticate, async (req, res) => {
   try {
     const { userId } = req.body;
+    const { userId: viewerId } = req.user; // viewer = logged in user
 
-    if (!userId) {
+    if (!userId)
       return res
         .status(400)
         .json({ success: false, error: 'userId is required' });
-    }
 
-    const response = await docClient.send(
-      new GetCommand({
-        TableName: 'Users',
-        Key: { userId },
-        ProjectionExpression:
-          'userId, firstName, lastName, fullName, ageForSort, dateOfBirth, imageUrls, gender, hometown, goals, hobbies, jobTitle, #ht, drink, smoke, datingPreferences, isVerified, isPremium, isOnline, lastActiveAt',
-        ExpressionAttributeNames: { '#ht': 'height' },
-      }),
-    );
+    // Fetch profile + silently record visit (parallel)
+    const [response] = await Promise.all([
+      docClient.send(
+        new GetCommand({
+          TableName: 'Users',
+          Key: { userId },
+          ProjectionExpression:
+            'userId, firstName, lastName, fullName, ageForSort, dateOfBirth, imageUrls, gender, hometown, goals, hobbies, jobTitle, #ht, drink, smoke, datingPreferences, isVerified, isPremium, isOnline, lastActiveAt',
+          ExpressionAttributeNames: { '#ht': 'height' },
+        }),
+      ),
+      // Don't record if viewing own profile
+      viewerId !== userId
+        ? docClient.send(
+            new PutCommand({
+              TableName: 'ProfileVisitors',
+              Item: {
+                visitedId: userId, // PK
+                'visitorId#visitedAt': `${viewerId}#${new Date().toISOString()}`, // SK
+                visitorId: viewerId,
+                visitedAt: new Date().toISOString(),
+                expiresAt: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days TTL
+              },
+            }),
+          )
+        : Promise.resolve(), // skip if own profile
+    ]);
 
-    if (!response.Item) {
+    if (!response.Item)
       return res.status(404).json({ success: false, error: 'User not found' });
+
+    // Increment profileViews on visited user
+    if (viewerId !== userId) {
+      docClient
+        .send(
+          new UpdateCommand({
+            TableName: 'Users',
+            Key: { userId },
+            UpdateExpression: 'ADD profileViews :inc',
+            ExpressionAttributeValues: { ':inc': 1 },
+          }),
+        )
+        .catch(e =>
+          console.warn(
+            '[/get-user-by-id] profileViews increment failed:',
+            e.message,
+          ),
+        );
     }
 
     return res.status(200).json({ success: true, user: response.Item });

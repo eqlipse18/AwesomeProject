@@ -536,6 +536,7 @@ export default function HomeScreen({ navigation }) {
   const apiClient = useRef(createApiClient(token));
   const requestLocationPermission = useLocationPermission();
 
+  const [myImage, setMyImage] = useState(null);
   const { subscription } = useSubscription({ token });
   const { rewind } = useRewind({ token });
 
@@ -582,6 +583,16 @@ export default function HomeScreen({ navigation }) {
       });
     }
   }, [swipeStack.isInitialLoading, swipeStack.feed.length]);
+  useEffect(() => {
+    if (!token) return;
+    apiClient.current
+      .get('/user-profile')
+      .then(resp => {
+        if (resp.data.success)
+          setMyImage(resp.data.user?.imageUrls?.[0] || null);
+      })
+      .catch(() => {});
+  }, [token]);
 
   const renderCard = useCallback(
     item => <ProfileCard user={item} cardFadeInOpacity={cardFadeInOpacity} />,
@@ -759,7 +770,7 @@ export default function HomeScreen({ navigation }) {
         }
         if (result.match)
           setMatchedUsers({
-            user1: { name: 'You', age: '', image: null },
+            user1: { name: 'You', age: '', image: myImage },
             user2: { name: user.name, age: user.age, image: user.image },
           });
       } catch (err) {

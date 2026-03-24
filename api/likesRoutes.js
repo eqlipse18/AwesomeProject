@@ -43,9 +43,10 @@ const getTomorrowMidnightUnix = () => {
 router.get('/likes/sent', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
-    const { limit = 20, cursor } = req.query;
+    const { limit = 50, cursor } = req.query;
 
-    const response = await docClient.send(
+    // Step 1: GSI — keys only (likerId-timestamp-index projects only keys)
+    const gsiResp = await docClient.send(
       new QueryCommand({
         TableName: 'flame-Likes',
         IndexName: 'likerId-timestamp-index',
@@ -63,25 +64,50 @@ router.get('/likes/sent', authenticate, async (req, res) => {
       }),
     );
 
-    const userIds = response.Items.map(item => ({ userId: item.likedId }));
+    const likedIds = gsiResp.Items.map(i => i.likedId);
+    const timestampMap = {};
+    gsiResp.Items.forEach(i => {
+      timestampMap[i.likedId] = i.timestamp;
+    });
 
-    if (userIds.length === 0) {
+    if (likedIds.length === 0)
       return res.status(200).json({ success: true, likes: [], total: 0 });
-    }
 
-    const usersResponse = await docClient.send(
-      new BatchGetCommand({
-        RequestItems: {
-          Users: {
-            Keys: userIds,
-            ProjectionExpression:
-              'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, isVerified, goals',
+    // Step 2: Main table BatchGet — type + isMatched (primary key: likerId + likedId)
+    const [likesBatch, usersBatch] = await Promise.all([
+      docClient.send(
+        new BatchGetCommand({
+          RequestItems: {
+            'flame-Likes': {
+              Keys: likedIds.map(id => ({ likerId: userId, likedId: id })),
+              ProjectionExpression: 'likedId, #type, isMatched',
+              ExpressionAttributeNames: { '#type': 'type' },
+            },
           },
-        },
-      }),
-    );
+        }),
+      ),
+      docClient.send(
+        new BatchGetCommand({
+          RequestItems: {
+            Users: {
+              Keys: likedIds.map(id => ({ userId: id })),
+              ProjectionExpression:
+                'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, isVerified, goals,lat,lng',
+            },
+          },
+        }),
+      ),
+    ]);
 
-    const users = usersResponse.Responses?.Users || [];
+    const likeMetaMap = {};
+    (likesBatch.Responses?.['flame-Likes'] || []).forEach(item => {
+      likeMetaMap[item.likedId] = {
+        type: item.type || 'like',
+        isMatched: item.isMatched || false,
+      };
+    });
+
+    const users = usersBatch.Responses?.Users || [];
 
     return res.status(200).json({
       success: true,
@@ -95,6 +121,11 @@ router.get('/likes/sent', authenticate, async (req, res) => {
         lastActiveAt: u.lastActiveAt || null,
         isVerified: u.isVerified || false,
         goals: u.goals || null,
+        type: likeMetaMap[u.userId]?.type || 'like',
+        isMatched: likeMetaMap[u.userId]?.isMatched || false,
+        likedAt: timestampMap[u.userId] || null,
+        lat: u.lat || null,
+        lng: u.lng || null,
       })),
       total: users.length,
     });
@@ -105,7 +136,6 @@ router.get('/likes/sent', authenticate, async (req, res) => {
       .json({ success: false, error: 'Failed to fetch sent likes' });
   }
 });
-
 // ════════════════════════════════════════════════════════════════════════════
 // GET /likes/received
 // ════════════════════════════════════════════════════════════════════════════
@@ -121,10 +151,10 @@ router.get('/likes/received', authenticate, async (req, res) => {
         ProjectionExpression: 'isActive',
       }),
     );
-
     const isPremium = subResponse.Item?.isActive || false;
 
-    const response = await docClient.send(
+    // GSI projects: likedId, timestamp, type, likerId ✅
+    const likesResp = await docClient.send(
       new QueryCommand({
         TableName: 'flame-Likes',
         IndexName: 'likedId-index',
@@ -144,27 +174,53 @@ router.get('/likes/received', authenticate, async (req, res) => {
       }),
     );
 
-    if (response.Items.length === 0) {
+    if (likesResp.Items.length === 0)
       return res
         .status(200)
         .json({ success: true, likes: [], total: 0, blurred: !isPremium });
-    }
 
-    const userIds = response.Items.map(item => ({ userId: item.likerId }));
+    const likerIds = likesResp.Items.map(i => i.likerId);
 
-    const usersResponse = await docClient.send(
-      new BatchGetCommand({
-        RequestItems: {
-          Users: {
-            Keys: userIds,
-            ProjectionExpression:
-              'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, isVerified, goals',
+    // GSI meta map
+    const gsiMetaMap = {};
+    likesResp.Items.forEach(item => {
+      gsiMetaMap[item.likerId] = {
+        type: item.type || 'like',
+        likedAt: item.timestamp || null,
+      };
+    });
+
+    // Main table BatchGet — isMatched fetch karo
+    const [likesBatch, usersBatch] = await Promise.all([
+      docClient.send(
+        new BatchGetCommand({
+          RequestItems: {
+            'flame-Likes': {
+              Keys: likerIds.map(id => ({ likerId: id, likedId: userId })),
+              ProjectionExpression: 'likerId, isMatched',
+            },
           },
-        },
-      }),
-    );
+        }),
+      ),
+      docClient.send(
+        new BatchGetCommand({
+          RequestItems: {
+            Users: {
+              Keys: likerIds.map(id => ({ userId: id })),
+              ProjectionExpression:
+                'userId, firstName, imageUrls, ageForSort, hometown, isOnline, lastActiveAt, isVerified, goals,lat,lng',
+            },
+          },
+        }),
+      ),
+    ]);
 
-    const users = usersResponse.Responses?.Users || [];
+    const isMatchedMap = {};
+    (likesBatch.Responses?.['flame-Likes'] || []).forEach(item => {
+      isMatchedMap[item.likerId] = item.isMatched || false;
+    });
+
+    const users = usersBatch.Responses?.Users || [];
 
     return res.status(200).json({
       success: true,
@@ -172,11 +228,15 @@ router.get('/likes/received', authenticate, async (req, res) => {
         userId: u.userId,
         name: isPremium ? u.firstName : null,
         age: isPremium ? u.ageForSort : null,
-        image: u.imageUrls?.[0] || null, // always send — frontend blurs
+        image: u.imageUrls?.[0] || null,
         hometown: isPremium ? u.hometown : null,
         isOnline: isPremium ? u.isOnline || false : null,
         lastActiveAt: isPremium ? u.lastActiveAt || null : null,
-        joinedAt: u.createdAt || null,
+        isVerified: isPremium ? u.isVerified || false : false,
+        goals: isPremium ? u.goals || null : null,
+        type: gsiMetaMap[u.userId]?.type || 'like',
+        isMatched: isMatchedMap[u.userId] || false,
+        likedAt: gsiMetaMap[u.userId]?.likedAt || null,
         lat: isPremium ? u.lat || null : null,
         lng: isPremium ? u.lng || null : null,
       })),
@@ -190,6 +250,79 @@ router.get('/likes/received', authenticate, async (req, res) => {
       .json({ success: false, error: 'Failed to fetch received likes' });
   }
 });
+router.get('/likes/stats', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    const [receivedResp, sentResp, userResp] = await Promise.all([
+      // Total received likes
+      docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Likes',
+          IndexName: 'likedId-index',
+          KeyConditionExpression: 'likedId = :userId',
+          FilterExpression: '#type IN (:like, :superlike)',
+          Select: 'COUNT',
+          ExpressionAttributeNames: { '#type': 'type' },
+          ExpressionAttributeValues: {
+            ':userId': userId,
+            ':like': 'like',
+            ':superlike': 'superlike',
+          },
+        }),
+      ),
+      // Total sent likes
+      docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Likes',
+          IndexName: 'likerId-timestamp-index',
+          KeyConditionExpression: 'likerId = :userId',
+          Select: 'COUNT',
+          ExpressionAttributeValues: { ':userId': userId },
+        }),
+      ),
+      // Profile views + likeCount from Users table
+      docClient.send(
+        new GetCommand({
+          TableName: 'Users',
+          Key: { userId },
+          ProjectionExpression: 'likeCount, profileViews',
+        }),
+      ),
+    ]);
+
+    // Superlikes received count
+    const superlikesResp = await docClient.send(
+      new QueryCommand({
+        TableName: 'flame-Likes',
+        IndexName: 'likedId-index',
+        KeyConditionExpression: 'likedId = :userId',
+        FilterExpression: '#type = :superlike',
+        Select: 'COUNT',
+        ExpressionAttributeNames: { '#type': 'type' },
+        ExpressionAttributeValues: {
+          ':userId': userId,
+          ':superlike': 'superlike',
+        },
+      }),
+    );
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        totalReceived: receivedResp.Count || 0,
+        totalSent: sentResp.Count || 0,
+        superlikesReceived: superlikesResp.Count || 0,
+        profileViews: userResp.Item?.profileViews || 0,
+      },
+    });
+  } catch (error) {
+    console.error('[/likes/stats] Error:', error);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch stats' });
+  }
+});
 
 // ════════════════════════════════════════════════════════════════════════════
 // POST /send-message-request
@@ -201,12 +334,10 @@ router.post('/send-message-request', authenticate, async (req, res) => {
     const { recipientId, message } = req.body;
 
     if (!recipientId || !message) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: 'recipientId and message are required',
-        });
+      return res.status(400).json({
+        success: false,
+        error: 'recipientId and message are required',
+      });
     }
 
     const subResponse = await docClient.send(
@@ -218,13 +349,11 @@ router.post('/send-message-request', authenticate, async (req, res) => {
     );
 
     if (!subResponse.Item?.isActive) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          error: 'Premium subscription required to send messages',
-          requiresPremium: true,
-        });
+      return res.status(403).json({
+        success: false,
+        error: 'Premium subscription required to send messages',
+        requiresPremium: true,
+      });
     }
 
     const { v4: uuidv4 } = await import('uuid');
@@ -358,13 +487,11 @@ router.post('/match-request/accept', authenticate, async (req, res) => {
       }),
     );
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: 'SUPERLIKE accepted, match is now active',
-        matchId,
-      });
+    return res.status(200).json({
+      success: true,
+      message: 'SUPERLIKE accepted, match is now active',
+      matchId,
+    });
   } catch (error) {
     console.error('[/match-request/accept] Error:', error);
     return res
@@ -437,12 +564,10 @@ router.post('/match-request/reject', authenticate, async (req, res) => {
       );
     }
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: 'SUPERLIKE rejected. Will disappear in 24 hours.',
-      });
+    return res.status(200).json({
+      success: true,
+      message: 'SUPERLIKE rejected. Will disappear in 24 hours.',
+    });
   } catch (error) {
     console.error('[/match-request/reject] Error:', error);
     return res

@@ -120,6 +120,7 @@ const WelcomeScreen = () => {
             color: '#3e3d3dff',
             fontWeight: 'bold',
             marginBottom: 10,
+            fontFamily: 'Playfair Display',
           }}
         >
           New to Flame Dating ?
