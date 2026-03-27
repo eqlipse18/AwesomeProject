@@ -109,6 +109,57 @@ router.get('/likes/sent', authenticate, async (req, res) => {
 
     const users = usersBatch.Responses?.Users || [];
 
+    const matchedIds = users
+      .filter(u => likeMetaMap[u.userId]?.isMatched)
+      .map(u => u.userId);
+
+    const matchIdMap = {};
+    if (matchedIds.length > 0) {
+      await Promise.all(
+        matchedIds.map(async otherUserId => {
+          try {
+            // user1Id-index — saare matches fetch, JS mein filter
+            const r1 = await docClient.send(
+              new QueryCommand({
+                TableName: 'flame-Matches',
+                IndexName: 'user1Id-index',
+                KeyConditionExpression: 'user1Id = :uid',
+                ExpressionAttributeValues: { ':uid': userId },
+              }),
+            );
+            const match1 = r1.Items?.find(m => m.user2Id === otherUserId);
+            if (match1) {
+              matchIdMap[otherUserId] = match1.matchId;
+              return;
+            }
+
+            // user2Id-index — same
+            const r2 = await docClient.send(
+              new QueryCommand({
+                TableName: 'flame-Matches',
+                IndexName: 'user2Id-index',
+                KeyConditionExpression: 'user2Id = :uid',
+                ExpressionAttributeValues: { ':uid': userId },
+              }),
+            );
+            const match2 = r2.Items?.find(m => m.user1Id === otherUserId);
+            matchIdMap[otherUserId] = match2?.matchId || null;
+
+            // debug log — fix confirm hone ke baad hata dena
+            console.log(
+              '[matchId fetch]',
+              otherUserId,
+              '→',
+              matchIdMap[otherUserId],
+            );
+          } catch (e) {
+            console.error('[matchId fetch error]', otherUserId, e.message);
+            matchIdMap[otherUserId] = null;
+          }
+        }),
+      );
+    }
+
     return res.status(200).json({
       success: true,
       likes: users.map(u => ({
@@ -123,6 +174,9 @@ router.get('/likes/sent', authenticate, async (req, res) => {
         goals: u.goals || null,
         type: likeMetaMap[u.userId]?.type || 'like',
         isMatched: likeMetaMap[u.userId]?.isMatched || false,
+        matchId: likeMetaMap[u.userId]?.isMatched
+          ? matchIdMap[u.userId] || null
+          : null,
         likedAt: timestampMap[u.userId] || null,
         lat: u.lat || null,
         lng: u.lng || null,
@@ -221,6 +275,57 @@ router.get('/likes/received', authenticate, async (req, res) => {
     });
 
     const users = usersBatch.Responses?.Users || [];
+    // matchId fetch for matched users--> for chat icon
+    const matchedIds = users
+      .filter(u => isMatchedMap[u.userId])
+      .map(u => u.userId);
+
+    const matchIdMap = {};
+    if (matchedIds.length > 0) {
+      await Promise.all(
+        matchedIds.map(async otherUserId => {
+          try {
+            // user1Id-index — saare matches fetch, JS mein filter
+            const r1 = await docClient.send(
+              new QueryCommand({
+                TableName: 'flame-Matches',
+                IndexName: 'user1Id-index',
+                KeyConditionExpression: 'user1Id = :uid',
+                ExpressionAttributeValues: { ':uid': userId },
+              }),
+            );
+            const match1 = r1.Items?.find(m => m.user2Id === otherUserId);
+            if (match1) {
+              matchIdMap[otherUserId] = match1.matchId;
+              return;
+            }
+
+            // user2Id-index — same
+            const r2 = await docClient.send(
+              new QueryCommand({
+                TableName: 'flame-Matches',
+                IndexName: 'user2Id-index',
+                KeyConditionExpression: 'user2Id = :uid',
+                ExpressionAttributeValues: { ':uid': userId },
+              }),
+            );
+            const match2 = r2.Items?.find(m => m.user1Id === otherUserId);
+            matchIdMap[otherUserId] = match2?.matchId || null;
+
+            // debug log — fix confirm hone ke baad hata dena
+            console.log(
+              '[matchId fetch]',
+              otherUserId,
+              '→',
+              matchIdMap[otherUserId],
+            );
+          } catch (e) {
+            console.error('[matchId fetch error]', otherUserId, e.message);
+            matchIdMap[otherUserId] = null;
+          }
+        }),
+      );
+    }
 
     return res.status(200).json({
       success: true,
@@ -236,6 +341,7 @@ router.get('/likes/received', authenticate, async (req, res) => {
         goals: isPremium ? u.goals || null : null,
         type: gsiMetaMap[u.userId]?.type || 'like',
         isMatched: isMatchedMap[u.userId] || false,
+        matchId: isMatchedMap[u.userId] ? matchIdMap[u.userId] || null : null,
         likedAt: gsiMetaMap[u.userId]?.likedAt || null,
         lat: isPremium ? u.lat || null : null,
         lng: isPremium ? u.lng || null : null,

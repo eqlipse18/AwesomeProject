@@ -170,45 +170,55 @@ export function useConversation({ token, matchId, userId }) {
 
     socket.current = getSocket(token);
 
-    if (socket.current.connected) {
+    // named handler — proper cleanup ke liye
+    const handleConnect = () => {
       socket.current.emit('join_room', { matchId });
-    } else {
-      socket.current.on('connect', () => {
-        socket.current.emit('join_room', { matchId });
-      });
-    }
+    };
 
-    socket.current.on('new_message', message => {
+    const handleNewMessage = message => {
       if (message.matchId !== matchId) return;
       setMessages(prev => {
         if (prev.find(m => m.messageId === message.messageId)) return prev;
         return [...prev, message];
       });
-    });
+    };
 
-    socket.current.on('user_typing', ({ userId: typingUserId }) => {
+    const handleTyping = ({ userId: typingUserId }) => {
       if (typingUserId !== userId) setIsTyping(true);
-    });
+    };
 
-    socket.current.on('user_stop_typing', () => setIsTyping(false));
+    const handleStopTyping = () => setIsTyping(false);
 
-    socket.current.on('messages_read', ({ readBy }) => {
+    const handleMessagesRead = ({ readBy }) => {
       if (readBy !== userId) {
         setMessages(prev =>
           prev.map(m => (m.senderId === userId ? { ...m, status: 'read' } : m)),
         );
       }
-    });
+    };
+
+    // ALWAYS listen for connect — handles reconnects bhi
+    socket.current.on('connect', handleConnect);
+    socket.current.on('new_message', handleNewMessage);
+    socket.current.on('user_typing', handleTyping);
+    socket.current.on('user_stop_typing', handleStopTyping);
+    socket.current.on('messages_read', handleMessagesRead);
+
+    // Agar already connected hai toh abhi bhi join karo
+    if (socket.current.connected) {
+      socket.current.emit('join_room', { matchId });
+    }
 
     apiClient.current.put('/messages/read', { matchId }).catch(() => {});
 
     return () => {
       socket.current.emit('leave_room', { matchId });
-      socket.current.off('connect');
-      socket.current.off('new_message');
-      socket.current.off('user_typing');
-      socket.current.off('user_stop_typing');
-      socket.current.off('messages_read');
+      // named handlers hata rahe hain — sirf ye wale, baaki safe
+      socket.current.off('connect', handleConnect);
+      socket.current.off('new_message', handleNewMessage);
+      socket.current.off('user_typing', handleTyping);
+      socket.current.off('user_stop_typing', handleStopTyping);
+      socket.current.off('messages_read', handleMessagesRead);
     };
   }, [token, matchId, userId]);
 
