@@ -73,7 +73,7 @@ const WelcomeScreen = () => {
         setToken(token);
         setProfileComplete(!isNewUser); // ← Context update — StackNavigator re-render hoga
 
-        // ❌ navigation.navigate hatao — context update se automatic ho jaayega
+        //navigation.navigate hatao — context update se automatic ho jaayega
       }
     } catch (error) {
       console.log('Google Login Error:', error);
@@ -116,11 +116,10 @@ const WelcomeScreen = () => {
       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
         <Text
           style={{
-            fontSize: responsiveFontSize(1.6),
+            fontSize: responsiveFontSize(1.7),
             color: '#3e3d3dff',
-            fontWeight: 'bold',
+            fontFamily: 'PlayfairDisplay-SemiBoldItalic',
             marginBottom: 10,
-            fontFamily: 'Playfair Display',
           }}
         >
           New to Flame Dating ?
@@ -209,8 +208,7 @@ const WelcomeScreen = () => {
                     style={{
                       fontSize: responsiveFontSize(2.1),
                       color: 'Black',
-
-                    
+                      fontWeight: 'bold',
                     }}
                   >
                     Sign up using Google

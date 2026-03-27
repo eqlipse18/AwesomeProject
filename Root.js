@@ -64,7 +64,7 @@ export default function Root() {
     const timer = setTimeout(() => {
       setShowSplash(false);
       if (Platform.OS === 'android') {
-        changeNavigationBarColor('#fcd2e0', false);
+        changeNavigationBarColor('#ffffff', false);
       }
     }, 3000);
 

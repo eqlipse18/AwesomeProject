@@ -134,13 +134,13 @@ const styles = StyleSheet.create({
     height: 70,
     borderRadius: 25,
     overflow: 'hidden',
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    // elevation: 10,
+    // shadowColor: '#000',
+    // shadowOpacity: 0.08,
+    // shadowRadius: 10,
+    // shadowOffset: { width: 0, height: 5 },
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgb(255, 255, 255)',
   },
   blurView: {
     flex: 1,
@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
   // ✅ Android frosted glass alternative
   androidBar: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    backgroundColor: 'rgb(255, 255, 255)',
   },
   innerRow: {
     flex: 1,
