@@ -209,7 +209,8 @@ const WelcomeScreen = () => {
                     style={{
                       fontSize: responsiveFontSize(2.1),
                       color: 'Black',
-                      fontWeight: 'bold',
+
+                    
                     }}
                   >
                     Sign up using Google
