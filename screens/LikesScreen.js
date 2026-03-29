@@ -90,7 +90,7 @@ const SkeletonCard = () => {
   });
   return (
     <Animated.View style={[styles.card, { opacity }]}>
-      <View style={[styles.cardImage, { backgroundColor: '#E2E8F0' }]} />
+      <View style={[styles.cardImage, { backgroundColor: '#e0e0e0' }]} />
       <View style={styles.skeletonInfo}>
         <View style={styles.skeletonName} />
         <View style={styles.skeletonAge} />
@@ -1230,7 +1230,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
 
   header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: '#0F172A' },
+  headerTitle: {
+    fontSize: 28,
+    fontFamily: 'LobsterTwo-BoldItalic',
+    color: '#0F172A',
+    letterSpacing: 1.5,
+  },
 
   // ── Stats Glassmorphism ──
   statsGlassWrapper: {

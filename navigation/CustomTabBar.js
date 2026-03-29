@@ -15,21 +15,28 @@ import Animated, {
 } from 'react-native-reanimated';
 import LinearGradient from 'react-native-linear-gradient';
 
+import HomeIcon from '../assets/SVG/home';
+import like from '../assets/SVG/like';
+import chat from '../assets/SVG/chat';
+import user from '../assets/SVG/user';
+
 const { width } = Dimensions.get('window');
 const TAB_COUNT = 4;
 const TAB_WIDTH = (width - 40) / TAB_COUNT;
 
 const icons = {
-  Home: require('../assets/Images/home.png'),
-  Like: require('../assets/Images/like.png'),
-  Chat: require('../assets/Images/chat.png'),
-  Profile: require('../assets/Images/user.png'),
+  // Home: require('../assets/SVG/heart.svg'),
+  Home: HomeIcon,
+  Like: like,
+  Chat: chat,
+  Profile: user,
 };
 
 const TabItem = ({ route, isFocused, scaleValue, onPress }) => {
   const iconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scaleValue.value }],
   }));
+  const IconComponent = icons[route.name];
 
   return (
     <TouchableOpacity
@@ -38,13 +45,21 @@ const TabItem = ({ route, isFocused, scaleValue, onPress }) => {
       activeOpacity={0.7}
     >
       <Animated.View style={[styles.iconWrapper, iconStyle]}>
-        <Image
-          source={icons[route.name]}
-          style={[
-            styles.icon,
-            { tintColor: isFocused ? '#ff0059' : '#8a8a8a' },
-          ]}
-        />
+        {typeof IconComponent === 'function' ? (
+          <IconComponent
+            width={28}
+            height={28}
+            fill={isFocused ? '#ff0059' : '#8a8a8a'}
+          />
+        ) : (
+          <Image
+            source={IconComponent}
+            style={[
+              styles.icon,
+              { tintColor: isFocused ? '#ff0059' : '#8a8a8a' },
+            ]}
+          />
+        )}
       </Animated.View>
     </TouchableOpacity>
   );
@@ -53,14 +68,14 @@ const TabItem = ({ route, isFocused, scaleValue, onPress }) => {
 // ✅ Inner content alag nikala — BlurView ke andar ya bahar dono pe same layout
 const TabBarContent = ({ state, navigation, scales, indicatorStyle }) => (
   <View style={styles.innerRow}>
-    <Animated.View style={[styles.indicator, indicatorStyle]}>
+    {/* <Animated.View style={[styles.indicator, indicatorStyle]}>
       <LinearGradient
         colors={['#fe73ad', '#ffffff']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.gradient}
       />
-    </Animated.View>
+    </Animated.View> */}
 
     {state.routes.map((route, index) => (
       <TabItem
@@ -129,18 +144,18 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 0,
-    left: 10,
-    width: width - 20,
-    height: 70,
-    borderRadius: 25,
+    // left: 10,
+    width: width,
+    height: 50,
+    // borderRadius: 25,
     overflow: 'hidden',
     // elevation: 10,
     // shadowColor: '#000',
     // shadowOpacity: 0.08,
     // shadowRadius: 10,
     // shadowOffset: { width: 0, height: 5 },
-    borderWidth: 1,
-    borderColor: 'rgb(255, 255, 255)',
+    // borderWidth: 1,
+    // borderColor: 'rgb(255, 255, 255)',
   },
   blurView: {
     flex: 1,
@@ -148,7 +163,7 @@ const styles = StyleSheet.create({
   // ✅ Android frosted glass alternative
   androidBar: {
     flex: 1,
-    backgroundColor: 'rgb(255, 255, 255)',
+    backgroundColor: '#fef3fe',
   },
   innerRow: {
     flex: 1,

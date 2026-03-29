@@ -2,8 +2,28 @@
   "migIndex": 1,
   "data": [
     {
+      "path": "assets/fonts/Aladin-Regular.ttf",
+      "sha1": "77d1b8377bf66fcf917a52ba3b55128476362ee8"
+    },
+    {
       "path": "assets/fonts/BebasNeue-Regular.ttf",
       "sha1": "8b3aaeb978f3cb5f575860774b50c332338563c1"
+    },
+    {
+      "path": "assets/fonts/LobsterTwo-Bold.ttf",
+      "sha1": "8dbc11120e34a747d8d45a53fc1a36c0e147f512"
+    },
+    {
+      "path": "assets/fonts/LobsterTwo-BoldItalic.ttf",
+      "sha1": "12a94b10bc505695b419640abbb322cc7158b5d1"
+    },
+    {
+      "path": "assets/fonts/LobsterTwo-Italic.ttf",
+      "sha1": "c586d68ae32a6c07f7a1651341a2e788a23382e3"
+    },
+    {
+      "path": "assets/fonts/LobsterTwo-Regular.ttf",
+      "sha1": "3d956d7255a5330701eded7e8c6d3c06593b4af1"
     },
     {
       "path": "assets/fonts/Nunito-Bold.ttf",

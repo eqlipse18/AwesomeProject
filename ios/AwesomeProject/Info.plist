@@ -53,7 +53,12 @@
 	<false/>
 	<key>UIAppFonts</key>
 	<array>
+		<string>Aladin-Regular.ttf</string>
 		<string>BebasNeue-Regular.ttf</string>
+		<string>LobsterTwo-Bold.ttf</string>
+		<string>LobsterTwo-BoldItalic.ttf</string>
+		<string>LobsterTwo-Italic.ttf</string>
+		<string>LobsterTwo-Regular.ttf</string>
 		<string>Nunito-Bold.ttf</string>
 		<string>Nunito-SemiBold.ttf</string>
 		<string>Playfair Display.ttf</string>

@@ -16,9 +16,9 @@ export const haversineDistance = (lat1, lng1, lat2, lng2) => {
 };
 
 const formatDistance = km => {
-  if (km < 1) return '< 1 km away';
-  if (km < 10) return `${Math.round(km)} km away`;
-  return `${Math.round(km / 5) * 5} km away`; // rounds to nearest 5 for privacy
+  if (km < 1) return '1km away';
+  if (km < 10) return `${Math.round(km)}km away`;
+  return `${Math.round(km / 5) * 5}km away`; // rounds to nearest 5 for privacy
 };
 
 /**
@@ -41,10 +41,10 @@ export const getLocationDisplay = (myLocation, user) => {
       user.lat,
       user.lng,
     );
-    return `📍 ${hometown} · ${formatDistance(km)}`;
+    return ` ${hometown} · ${formatDistance(km)}`;
   }
 
-  if (hometown) return `📍 ${hometown}`;
+  if (hometown) return ` ${hometown}`;
 
   return null;
 };

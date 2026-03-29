@@ -26,6 +26,8 @@ import {
   StatusBar,
   Dimensions,
   Image,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'react-native-linear-gradient';
 import LottieView from 'lottie-react-native';
@@ -40,6 +42,8 @@ import Animated, {
   FadeInDown,
   FadeOutUp,
 } from 'react-native-reanimated';
+
+import FilterSvg from '../assets/SVG/filter';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import Config from 'react-native-config';
@@ -54,6 +58,8 @@ import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 import { getLocationDisplay } from '../utils/locationUtils';
 import FeedFilterModal from '../src/components/feed/FeedFilterModal';
+import changeNavigationBarColor from 'react-native-navigation-bar-color';
+import { useFocusEffect } from '@react-navigation/native';
 
 const PremiumModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
@@ -354,7 +360,13 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
 
 const NoFilterResults = ({ onClearFilters }) => (
   <View style={styles.seenAllCard}>
-    <Text style={styles.seenAllEmoji}>🔍</Text>
+    <LottieView
+      source={require('../assets/animations/hearts.json')}
+      autoPlay
+      loop
+      style={styles.emptyLottie}
+      resizeMode="contain"
+    />
     <Text style={styles.seenAllTitle}>No profiles found</Text>
     <Text style={styles.seenAllSub}>
       No one matches your current filters.{'\n'}Try adjusting them!
@@ -438,12 +450,16 @@ const AnimatedActionButton = ({
   const activeColor = isLeft
     ? '#21f3dbc9'
     : isRight
-    ? '#ff2b2bdc'
+    ? '#ff8fab'
     : isUp
     ? '#27a9ff'
     : '#FFF';
   const colorThreshold =
     isLeft || isRight ? SCREEN_WIDTH * 0.15 : SCREEN_HEIGHT * 0.12;
+  const isSvg =
+    typeof iconSource === 'function' ||
+    (typeof iconSource === 'object' && iconSource?.displayName);
+  const IconComponent = isSvg ? iconSource : null;
 
   const animatedStyle = useAnimatedStyle(() => {
     let progress = 0;
@@ -462,11 +478,18 @@ const AnimatedActionButton = ({
         swipeProgressY.value < 0
           ? Math.min(1, Math.abs(swipeProgressY.value) / colorThreshold)
           : 0;
+
     return {
       backgroundColor: interpolateColor(
         progress,
         [0, 1],
-        ['#FFF', activeColor],
+        isRight
+          ? ['#ffffff', '#ff0059']
+          : isLeft
+          ? ['#ffffff', '#3e2f43']
+          : isUp
+          ? ['#ffffff', '#60a5fa']
+          : ['#ffffff', '#ffffff'],
       ),
     };
   });
@@ -504,11 +527,15 @@ const AnimatedActionButton = ({
           animatedStyle,
         ]}
       >
-        <Image
-          source={iconSource}
-          style={{ width: iconSize, height: iconSize }}
-          resizeMode="contain"
-        />
+        {isSvg ? (
+          <IconComponent width={iconSize} height={iconSize} />
+        ) : (
+          <Image
+            source={iconSource}
+            style={{ width: iconSize, height: iconSize }}
+            resizeMode="contain"
+          />
+        )}
       </Animated.View>
     </TouchableOpacity>
   );
@@ -520,9 +547,11 @@ const AnimatedActionButton = ({
 
 const FilterIcon = ({ hasActiveFilters }) => (
   <View style={styles.filterIconWrapper}>
-    <View style={styles.filterLine} />
-    <View style={[styles.filterLine, styles.filterLineMid]} />
-    <View style={[styles.filterLine, styles.filterLineShort]} />
+    <FilterSvg
+      width={20}
+      height={20}
+      fill={hasActiveFilters ? '#ff0059' : '#8a8a8a'}
+    />
     {hasActiveFilters && <View style={styles.filterActiveDot} />}
   </View>
 );
@@ -654,6 +683,11 @@ export default function HomeScreen({ navigation }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      changeNavigationBarColor('#fef3fe', true);
+    }
+  }, []);
   // ════════════════════════════════════════════════════════════════════════
   // handleEmpty — INFINITE AUTO-REFRESH
   // Called by SwipeableStack when all cards swiped
@@ -822,54 +856,94 @@ export default function HomeScreen({ navigation }) {
   // ════════════════════════════════════════════════════════════════════════
   // RENDER — header + buttons ALWAYS visible, no early returns
   // ════════════════════════════════════════════════════════════════════════
-
+  useFocusEffect(
+    useCallback(() => {
+      StatusBar.setBackgroundColor('#fef3fe');
+      StatusBar.setBarStyle('dark-content');
+    }, []),
+  );
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
       <View style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="white" />
-
         {/* ── HEADER — always visible ── */}
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
-            <Text style={styles.headerTitle}>Flames</Text>
-
-            <View style={styles.tabRow}>
-              <TouchableOpacity
-                style={styles.tabBtn}
-                onPress={handleNearbyPress}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.tabBtnText}>Nearby</Text>
-                <NearbyBadge count={nearbyCount} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.dailyTabBtn}
-                onPress={handleDailyPress}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.dailyTabText}>Daily New</Text>
-                <DailyBadge count={unseenCount} />
-              </TouchableOpacity>
+            {/* Left: Hearts + Title */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                position: 'relative',
+              }}
+            >
+              <Text style={styles.headerTitle}>Flames</Text>
+              <LottieView
+                source={require('../assets/animations/hearts.json')}
+                autoPlay
+                loop
+                style={{
+                  width: 80, // smaller size like a badge
+                  height: 80,
+                  position: 'absolute', // absolute to overlap
+                  right: -45, // tweak to sit very close to text end
+                  top: -25, // adjust vertical alignment if needed
+                }}
+                resizeMode="contain"
+              />
             </View>
 
-            <TouchableOpacity
-              style={styles.filterBtn}
-              onPress={() => setFilterVisible(true)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.7}
+            {/* Right: Tabs + Filter */}
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 30 }}
             >
-              <FilterIcon hasActiveFilters={hasActiveFilters} />
-            </TouchableOpacity>
-          </View>
+              <View style={styles.tabRow}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.tabBtn,
+                    {
+                      transform: [{ scale: pressed ? 0.96 : 1 }],
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}
+                  onPress={handleNearbyPress}
+                >
+                  <Text style={styles.tabBtnText}>Nearby</Text>
+                  <NearbyBadge count={nearbyCount} />
+                </Pressable>
 
-          <Text style={styles.headerSubtitle}>
-            {swipeStack.loading
-              ? 'Finding profiles...'
-              : seenAll
-              ? "You're all caught up!"
-              : `${feedCount} profile${feedCount !== 1 ? 's' : ''} available`}
-          </Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.dailyTabBtn,
+                    {
+                      transform: [{ scale: pressed ? 0.96 : 1 }],
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}
+                  onPress={handleDailyPress}
+                >
+                  <Text style={styles.dailyTabText}>Daily New</Text>
+                  <DailyBadge count={unseenCount} />
+                </Pressable>
+              </View>
+
+              <TouchableOpacity
+                style={styles.filterBtn}
+                onPress={() => setFilterVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <FilterIcon hasActiveFilters={hasActiveFilters} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={{ marginLeft: 6 }}>
+            <Text style={styles.headerSubtitle}>
+              {swipeStack.loading
+                ? 'Finding profiles...'
+                : seenAll
+                ? "You're all caught up!"
+                : `${feedCount} profile${feedCount !== 1 ? 's' : ''} available`}
+            </Text>
+          </View>
         </View>
 
         {/* Expand banner */}
@@ -1054,37 +1128,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 5,
     paddingBottom: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fef3fe',
+    marginLeft: 5,
   },
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
   },
   headerTitle: {
-    fontSize: 32,
-    fontWeight: '800',
+    fontSize: 31,
+    fontFamily: 'LobsterTwo-Bold',
     color: '#ff0059',
-    marginBottom: 2,
+    marginTop: 2,
+    letterSpacing: 3,
   },
-  headerSubtitle: { fontSize: 14, color: '#64748B' },
+  headerSubtitle: { fontSize: 9, color: '#64748b96' },
 
-  tabRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tabRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+    marginTop: 7,
+  },
 
   // Nearby tab
   tabBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    gap: 6,
+    paddingHorizontal: 17,
+    paddingVertical: 6,
+    borderRadius: 35,
     borderWidth: 1,
-    borderColor: '#FFD6E0',
-    backgroundColor: '#FFF1F5',
+    borderColor: 'pink',
+    backgroundColor: '#ffffff',
   },
-  tabBtnText: { fontSize: 12, fontWeight: '600', color: '#FF0059' },
+  tabBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ff0059',
+    letterSpacing: 1,
+  },
   nearbyBadge: {
     position: 'absolute',
     top: -5,
@@ -1108,16 +1193,21 @@ const styles = StyleSheet.create({
   dailyTabBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingHorizontal: 17,
+    paddingVertical: 6,
+    borderRadius: 35,
     borderWidth: 1,
     borderColor: 'pink',
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     gap: 5,
     position: 'relative',
   },
-  dailyTabText: { fontSize: 12, color: '#FF0059', fontWeight: '700' },
+  dailyTabText: {
+    fontSize: 12,
+    color: '#FF0059',
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
   dailyBadgeSlot: { position: 'absolute', top: -4, right: -6 },
   heartImage: { width: 18, height: 18 },
   countBubble: {
@@ -1138,7 +1228,8 @@ const styles = StyleSheet.create({
 
   // Filter
   filterBtn: {
-    padding: 8,
+    marginTop: 6,
+    padding: 6,
     borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
@@ -1150,14 +1241,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
-  filterLine: {
-    height: 2,
-    width: 20,
-    backgroundColor: '#0F172A',
-    borderRadius: 1,
-  },
-  filterLineMid: { width: 14, alignSelf: 'center' },
-  filterLineShort: { width: 8, alignSelf: 'center' },
+
   filterActiveDot: {
     position: 'absolute',
     top: -6,
@@ -1167,7 +1251,7 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
     backgroundColor: '#FF0059',
     borderWidth: 1.5,
-    borderColor: '#fff',
+    borderColor: '#ffffff',
   },
 
   // Expand banner
@@ -1205,8 +1289,8 @@ const styles = StyleSheet.create({
   stackContainer: {
     flex: 1,
     paddingHorizontal: 15,
-    paddingBottom: 125,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingBottom: 80,
+    backgroundColor: '#fef3fe',
   },
 
   // ── Scan overlay — absolute over stack area ──
@@ -1215,7 +1299,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 100,
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    backgroundColor: '#fef3fe',
   },
   scanAnimationWrapper: {
     width: SCREEN_WIDTH - 32,
@@ -1233,6 +1317,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 40,
     paddingBottom: 80,
+    backgroundColor: '#fef3fe',
   },
   seenAllEmoji: { fontSize: 64, marginBottom: 16 },
   seenAllTitle: {
@@ -1250,7 +1335,7 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   seenAllBtn: {
-    backgroundColor: '#FF0059',
+    backgroundColor: '#ff0059',
     paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 14,
@@ -1308,46 +1393,67 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: '35%',
+    height: '25%',
   },
   profileInfo: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 24,
+    padding: 26,
     zIndex: 5,
+    marginBottom: 40,
   },
   nameAgeContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    marginBottom: 8,
   },
-  name: { fontSize: 28, fontWeight: '700', color: '#ffffff', marginRight: 8 },
-  age: { fontSize: 24, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
+  name: {
+    fontSize: 42,
+    fontFamily: 'Nunito-Bold',
+    color: '#ffffff',
+    marginRight: 5,
+    letterSpacing: 0.5,
+  },
+  age: {
+    fontSize: 38,
+    fontFamily: 'Poppins-Regular',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
   onlinePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 12,
-    marginLeft: 8,
+    marginLeft: 10,
+    top: -5,
     gap: 4,
   },
   onlinePillText: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  hometown: { fontSize: 14, color: 'rgba(255,255,255,0.9)', marginBottom: 8 },
-  goals: { fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 20 },
+  hometown: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '600',
+  },
+  goals: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
   imageFallback: {
     backgroundColor: '#F0F0F0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   fallbackText: { fontSize: 48 },
+  emptyLottie: { width: 230, height: 230 },
 
   // ── Action buttons — always rendered at bottom ──
   buttonsContainer: {
     position: 'absolute',
-    bottom: 40,
+    bottom: 20,
     left: 0,
     right: 0,
     flexDirection: 'row',
