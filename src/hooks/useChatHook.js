@@ -10,6 +10,7 @@ import axios from 'axios';
 
 import Config from 'react-native-config';
 import { io } from 'socket.io-client';
+import { AppState } from 'react-native';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -43,11 +44,13 @@ const getSocket = token => {
 // useMatches — Match list
 // ════════════════════════════════════════════════════════════════════════════
 
-export function useMatches({ token }) {
+export function useMatches({ token, userId }) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const apiClient = useRef(createApiClient(token));
+  const pollingRef = useRef(null); // ✅ ADD
+  const appStateRef = useRef(AppState.currentState); // ✅ ADD
 
   useEffect(() => {
     if (token) apiClient.current = createApiClient(token);
@@ -73,7 +76,38 @@ export function useMatches({ token }) {
     if (token) fetchMatches();
   }, [token, fetchMatches]);
 
-  // ✅ Sirf new_message listen karo — no matchId needed
+  // ✅ POLLING — har 30s mein silent refresh
+  useEffect(() => {
+    if (!token) return;
+
+    pollingRef.current = setInterval(() => {
+      fetchMatches();
+    }, 30000); // 30 seconds
+
+    return () => {
+      clearInterval(pollingRef.current);
+    };
+  }, [token, fetchMatches]);
+
+  // ✅ APPSTATE — background se foreground aane pe refetch
+  useEffect(() => {
+    if (!token) return;
+
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextState === 'active'
+      ) {
+        console.log('[useMatches] App foreground — refetching matches');
+        fetchMatches();
+      }
+      appStateRef.current = nextState;
+    });
+
+    return () => subscription.remove();
+  }, [token, fetchMatches]);
+
+  // ✅ SOCKET — new_message + new_match
   useEffect(() => {
     if (!token) return;
     const socket = getSocket(token);
@@ -97,12 +131,19 @@ export function useMatches({ token }) {
       );
     };
 
+    const handleNewMatch = async () => {
+      console.log('[useMatches] new_match received — refetching');
+      await fetchMatches();
+    };
+
     socket.on('new_message', handleNewMessage);
+    socket.on(`new_match_${userId}`, handleNewMatch);
 
     return () => {
       socket.off('new_message', handleNewMessage);
+      socket.off(`new_match_${userId}`, handleNewMatch);
     };
-  }, [token]);
+  }, [token, userId, fetchMatches]);
 
   return { matches, loading, error, refetch: fetchMatches };
 }

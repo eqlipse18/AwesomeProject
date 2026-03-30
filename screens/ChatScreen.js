@@ -33,6 +33,7 @@ import {
 } from '../src/hooks/useOnlineStatus';
 import Config from 'react-native-config';
 import axios from 'axios';
+import { useFocusEffect } from '@react-navigation/native';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -386,8 +387,8 @@ const EmptyState = ({ onSwipe }) => (
 // ─────────────────────────────────────────────
 export default function ChatScreen({ navigation }) {
   const { token, userId } = useContext(AuthContext);
-  const { matches, loading, refetch } = useMatches({ token });
-  const { getStatus } = useOnlineStatus({ token, userId });
+  const { matches, loading, refetch } = useMatches({ token, userId });
+  const { getStatus, onlineMap } = useOnlineStatus({ token, userId });
 
   const [refreshing, setRefreshing] = useState(false);
   const [likedUsers, setLikedUsers] = useState([]);
@@ -411,9 +412,13 @@ export default function ChatScreen({ navigation }) {
     }
   }, [token]);
 
-  useEffect(() => {
-    fetchLikedUsers();
-  }, [fetchLikedUsers]);
+  useFocusEffect(
+    useCallback(() => {
+      // Har baar screen focus pe aaye tab refetch
+      refetch();
+      fetchLikedUsers();
+    }, [refetch, fetchLikedUsers]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -471,6 +476,7 @@ export default function ChatScreen({ navigation }) {
             showsHorizontalScrollIndicator={false}
             keyExtractor={item => item.matchId}
             contentContainerStyle={styles.bubblesContainer}
+            extraData={onlineMap}
             renderItem={({ item }) => {
               const status = getStatus(item.userId, item);
               return (
@@ -521,6 +527,7 @@ export default function ChatScreen({ navigation }) {
         keyExtractor={item => item.matchId}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
+        extraData={onlineMap}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

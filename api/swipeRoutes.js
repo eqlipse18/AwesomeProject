@@ -18,6 +18,7 @@ import {
 } from './db.js';
 import { authenticate } from './authenticate.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getIO } from './socket.js';
 
 const router = express.Router();
 
@@ -614,6 +615,20 @@ router.post('/swipe', authenticate, async (req, res) => {
               }),
             ),
           ]);
+          try {
+            const io = getIO();
+            const matchPayload = {
+              matchId,
+              createdAt: now,
+              lastMessage: '👋 New match!',
+              lastMessageAt: now,
+            };
+            // Dono users ko notify karo
+            io.emit(`new_match_${userId}`, matchPayload);
+            io.emit(`new_match_${likedId}`, matchPayload);
+          } catch (e) {
+            console.warn('[/swipe] Socket emit failed:', e.message);
+          }
         }
       }
     }

@@ -34,17 +34,34 @@ import {
   Modal,
   Pressable,
   Animated,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'react-native-linear-gradient';
 import LottieView from 'lottie-react-native';
-import ReAnimated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import ReAnimated, {
+  FadeIn,
+  FadeInDown,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+  ZoomIn,
+  Easing,
+  withSequence,
+} from 'react-native-reanimated';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
 import { useLikes, useSubscription } from '../src/hooks/usePremiumHooks';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 import { MatchModal } from '../src/components/swipe/MatchModal';
+import Footprint from '../assets/SVG/footprint';
+import Redheart from '../assets/SVG/redheart';
+import Staricon from '../assets/SVG/staricon';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
@@ -143,7 +160,7 @@ const STAT_CONFIGS = [
   {
     key: 'views',
     label: 'Views',
-    icon: '👀',
+    icon: Footprint,
     colors: ['#EFF6FF', '#DBEAFE'],
     valueColor: '#1D4ED8',
     iconBg: 'rgba(59,130,246,0.13)',
@@ -152,7 +169,7 @@ const STAT_CONFIGS = [
   {
     key: 'likes',
     label: 'Likes',
-    icon: '❤️',
+    icon: Redheart,
     colors: ['#FFF1F5', '#FFE4EE'],
     valueColor: '#FF0059',
     iconBg: 'rgba(255,0,89,0.1)',
@@ -161,7 +178,7 @@ const STAT_CONFIGS = [
   {
     key: 'superlikes',
     label: 'Superlikes',
-    icon: '⭐',
+    icon: Staricon,
     colors: ['#FFFBEB', '#FEF3C7'],
     valueColor: '#D97706',
     iconBg: 'rgba(217,119,6,0.12)',
@@ -189,6 +206,7 @@ const StatsRow = ({ stats, loading }) => {
     );
   }
 
+  // ✅ make sure values is defined here inside StatsRow
   const values = [
     stats.profileViews || 0,
     stats.totalReceived || 0,
@@ -200,27 +218,11 @@ const StatsRow = ({ stats, loading }) => {
       entering={FadeIn.duration(400)}
       style={styles.statsGlassWrapper}
     >
-      {/* outer glass card */}
       <View style={styles.statsGlassCard}>
         {STAT_CONFIGS.map((cfg, i) => (
           <React.Fragment key={cfg.key}>
-            <LinearGradient
-              colors={cfg.colors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[styles.statBubble, { borderColor: cfg.borderColor }]}
-            >
-              {/* icon pill */}
-              <View
-                style={[styles.statIconBubble, { backgroundColor: cfg.iconBg }]}
-              >
-                <Text style={styles.statIconText}>{cfg.icon}</Text>
-              </View>
-              <Text style={[styles.statValue, { color: cfg.valueColor }]}>
-                {values[i] > 999 ? '999+' : values[i]}
-              </Text>
-              <Text style={styles.statLabel}>{cfg.label}</Text>
-            </LinearGradient>
+            {/* ✅ pass value[i] to StatItem */}
+            <StatItem cfg={cfg} value={values[i]} index={i} />
             {i < STAT_CONFIGS.length - 1 && (
               <View style={styles.statVertDivider} />
             )}
@@ -228,6 +230,91 @@ const StatsRow = ({ stats, loading }) => {
         ))}
       </View>
     </ReAnimated.View>
+  );
+};
+
+const AnimatedTextInput = ReAnimated.createAnimatedComponent(TextInput);
+
+const AnimatedNumber = ({ value, color, delay = 400 }) => {
+  const animVal = useSharedValue(0);
+  const scale = useSharedValue(1);
+
+  useEffect(() => {
+    animVal.value = withDelay(
+      delay,
+      withTiming(
+        value,
+        { duration: 800, easing: Easing.out(Easing.cubic) },
+        finished => {
+          if (finished) {
+            scale.value = withDelay(
+              delay + 800,
+              withSequence(
+                withSpring(1.3, { damping: 5, stiffness: 200 }),
+                withSpring(1, { damping: 10, stiffness: 180 }),
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }, [value]);
+
+  const animatedProps = useAnimatedProps(() => ({
+    text: animVal.value > 999 ? '999+' : Math.floor(animVal.value).toString(),
+    defaultValue: '0',
+  }));
+
+  return (
+    <AnimatedTextInput
+      underlineColorAndroid="transparent"
+      editable={false}
+      style={[styles.statValue, { color }]}
+      animatedProps={animatedProps}
+    />
+  );
+};
+
+// StatItem with animated icon
+const StatItem = ({ cfg, value, index }) => {
+  return (
+    <LinearGradient
+      colors={cfg.colors}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[
+        styles.statBubble,
+        {
+          borderColor: cfg.borderColor,
+          shadowColor: cfg.valueColor,
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 3,
+        },
+      ]}
+    >
+      <View style={[styles.statIconBubble, { backgroundColor: cfg.iconBg }]}>
+        <ReAnimated.View
+          entering={FadeInDown.delay(index * 120)
+            .springify()
+            .damping(14)
+            .stiffness(80)
+            .overshootClamping(false)
+            .restDisplacementThreshold(0.01)
+            .restSpeedThreshold(0.01)}
+        >
+          <cfg.icon width={18} height={18} fill={cfg.valueColor} />
+        </ReAnimated.View>
+      </View>
+
+      <AnimatedNumber
+        value={value}
+        color={cfg.valueColor}
+        delay={index * 120 + 200}
+      />
+
+      <Text style={styles.statLabel}>{cfg.label}</Text>
+    </LinearGradient>
   );
 };
 
@@ -258,8 +345,8 @@ const ParentTabBar = ({ activeParent, onPress, likesCount, visitorsCount }) => {
   });
 
   const tabs = [
-    { key: 'likes', label: '❤️ Likes', count: likesCount },
-    { key: 'visitors', label: '👀 Visitors', count: visitorsCount },
+    { key: 'likes', label: ' Likes', count: likesCount },
+    { key: 'visitors', label: ' Visitors', count: visitorsCount },
   ];
 
   return (
@@ -391,10 +478,10 @@ const ChildTabBar = ({ activeTab, onTabPress, receivedCount, likedCount }) => (
 
 const FILTERS = [
   { key: 'all', label: 'All' },
-  { key: 'new', label: '✨ New' },
-  { key: 'nearby', label: '📍 Nearby' },
-  { key: 'superliked', label: '⭐ Superliked' },
-  { key: 'mutual', label: '💜 Mutual' },
+  { key: 'new', label: 'New' },
+  { key: 'nearby', label: 'Nearby' },
+  { key: 'superliked', label: 'Superliked' },
+  { key: 'mutual', label: 'Mutual' },
 ];
 
 const SORTS = [
@@ -880,6 +967,16 @@ export default function LikesScreen({ navigation }) {
   });
   const { subscription } = useSubscription({ token });
   const isPremium = subscription?.isPremium || false;
+  useFocusEffect(() => {
+    StatusBar.setBackgroundColor('#e8f2ff');
+    StatusBar.setBarStyle('dark-content');
+
+    return () => {
+      // optional reset (agar dusre screen ka alag color hai)
+      StatusBar.setBackgroundColor('#e8f2ff');
+      StatusBar.setBarStyle('dark-content');
+    };
+  });
 
   useEffect(() => {
     if (!token) return;
@@ -1009,7 +1106,7 @@ export default function LikesScreen({ navigation }) {
     if (newItems.length > 0) {
       result.push({
         _separator: true,
-        _label: `🔥 ${newItems.length} New`,
+        _label: ` ${newItems.length} New`,
         _key: 'sep_new',
       });
       result.push(...newItems);
@@ -1227,7 +1324,7 @@ export default function LikesScreen({ navigation }) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#e8f2ff' },
 
   header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   headerTitle: {
@@ -1245,25 +1342,31 @@ const styles = StyleSheet.create({
   statsGlassCard: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(226,232,240,0.8)',
+    backgroundColor: 'rgb(179, 221, 255)',
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: 'rgba(203, 226, 255, 0.8)',
     overflow: 'hidden',
-    shadowColor: '#94A3B8',
+    shadowColor: '#5c7599',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
-    elevation: 4,
+    elevation: 6,
+    paddingVertical: 5,
+    paddingStart: 10,
+    paddingEnd: 7,
   },
   statBubble: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     gap: 4,
     borderWidth: 0,
     borderRightWidth: 0,
+    transform: [{ translateY: -3 }],
+    transform: [{ translateX: -3 }],
+    borderRadius: 40,
   },
   statIconBubble: {
     width: 32,
@@ -1271,20 +1374,25 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: -10,
+    marginTop: 8,
   },
-  statIconText: { fontSize: 15 },
+  statIconText: { fontSize: 25, color: '#fff', fontWeight: '700' },
   statValue: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
   statLabel: {
-    fontSize: 10,
-    color: '#94A3B8',
-    fontWeight: '600',
+    fontSize: 12,
+    color: '#424242',
+    fontFamily: 'Nunito-Bold',
     textAlign: 'center',
+    letterSpacing: 0.3,
   },
   statVertDivider: {
     width: 1,
-    backgroundColor: 'rgba(226,232,240,0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0)',
     alignSelf: 'stretch',
+    borderRadius: 30,
+    marginHorizontal: 8,
+    marginVertical: 6,
   },
 
   // skeleton stats
@@ -1293,42 +1401,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     gap: 6,
+    backgroundColor: 'transparent',
   },
   statSkeletonIcon: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#e2e8f055',
   },
   statSkeletonNum: {
     width: 40,
     height: 20,
     borderRadius: 4,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#e2e8f055',
   },
   statSkeletonLabel: {
     width: 52,
     height: 10,
     borderRadius: 4,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#e2e8f055',
   },
 
   // ── Parent Tabs ──
   parentTabWrapper: { paddingHorizontal: 16, paddingBottom: 12 },
   parentTabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 14,
+    backgroundColor: 'rgb(204, 232, 255)',
+    borderRadius: 30,
     padding: 4,
     position: 'relative',
+    paddingRight: -4,
+    paddingHorizontal: 16,
   },
   // animated sliding pill — absolutely positioned behind labels
   parentTabPill: {
     position: 'absolute',
-    top: 4,
-    left: 4,
-    bottom: 4,
-    borderRadius: 10,
+    top: 1,
+    left: 1,
+    bottom: 1,
+    borderRadius: 30,
     overflow: 'hidden',
   },
   parentTab: { flex: 1, borderRadius: 10, zIndex: 1 },
@@ -1350,10 +1461,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     gap: 6,
   },
-  parentTabText: { fontSize: 13, fontWeight: '700', color: '#94A3B8' },
-  parentTabTextActive: { color: '#fff' },
+  parentTabText: { fontSize: 13, fontWeight: '700', color: '#9e9eb9' },
+  parentTabTextActive: { color: '#ffffff' },
   parentTabBadge: {
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#e2e8f0ad',
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -1362,32 +1473,46 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.25)',
     borderRadius: 8,
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 4,
   },
   parentTabBadgeText: { fontSize: 10, fontWeight: '700', color: '#94A3B8' },
-  parentTabBadgeTextActive: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  parentTabBadgeTextActive: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
 
   // ── Child Tabs ──
   childTabBar: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomWidth: 0,
+    borderBottomColor: '#e2e8f0ad',
     marginHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#d6eaffb9',
+    borderRadius: 20,
   },
-  childTab: { flex: 1, alignItems: 'center' },
+  childTab: { flex: 1, alignItems: 'center', paddingBottom: 8 },
   childTabLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
-  childTabText: { fontSize: 13, fontWeight: '600', color: '#CBD5E1' },
+  childTabText: {
+    fontSize: 13,
+    fontFamily: 'Poppins-SemiBold',
+    color: '#b8c5d5',
+    marginBottom: -2,
+  },
   childTabTextActive: { color: '#0F172A' },
   childTabBadge: {
     backgroundColor: '#F1F5F9',
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 1,
+    marginBottom: 2,
   },
   childTabBadgeActive: { backgroundColor: '#FEE2E2' },
   childTabBadgeText: { fontSize: 10, fontWeight: '700', color: '#94A3B8' },
@@ -1395,29 +1520,35 @@ const styles = StyleSheet.create({
   childTabIndicator: {
     width: '60%',
     height: 2,
-    backgroundColor: '#FF0059',
+    backgroundColor: '#ff94b92f',
     borderRadius: 2,
     marginBottom: -1,
   },
 
   // Filter Bar
-  filterBarWrapper: { backgroundColor: '#fff', paddingTop: 2 },
+  filterBarWrapper: {
+    backgroundColor: 'rgb(199, 228, 252)',
+    paddingTop: 2,
+    borderRadius: 20,
+    marginHorizontal: 10,
+    marginVertical: 8,
+  },
   filterBar: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
     gap: 6,
     flexDirection: 'row',
     alignItems: 'center',
   },
   filterChip: {
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 9,
     borderRadius: 20,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderWidth: 0.5,
+    borderColor: 'pink',
+    backgroundColor: 'white',
   },
-  filterChipActive: { backgroundColor: '#FF0059', borderColor: '#FF0059' },
+  filterChipActive: { backgroundColor: '#FF0059', borderColor: '#fc86abff' },
   sortChip: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -1426,9 +1557,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  sortChipActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
-  filterChipText: { fontSize: 11, fontWeight: '600', color: '#64748B' },
-  filterChipTextActive: { color: '#fff' },
+  sortChipActive: { backgroundColor: '#546586', borderColor: '#3d4b6a' },
+  filterChipText: {
+    fontSize: 13,
+    fontFamily: 'Nunito-Bold',
+    color: '#75757599',
+    letterSpacing: 0.3,
+  },
+  filterChipTextActive: { color: '#ffffff' },
   sortDivider: {
     width: 1,
     height: 18,
