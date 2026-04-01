@@ -1,10 +1,8 @@
 import { Server } from 'socket.io';
-import { docClient, UpdateCommand } from './db.js';
+import { docClient, UpdateCommand, QueryCommand } from './db.js'; // ✅ QueryCommand add
 
 let io = null;
-
-// ── Online users in-memory map ──
-const onlineUsers = new Map(); // userId → socketId
+const onlineUsers = new Map();
 
 export const initSocket = httpServer => {
   io = new Server(httpServer, {
@@ -15,16 +13,10 @@ export const initSocket = httpServer => {
   io.on('connection', socket => {
     console.log('[Socket] Connected:', socket.id);
 
-    // ── User comes online ──
     socket.on('user_online', async ({ userId }) => {
       if (!userId) return;
-
       socket.userId = userId;
       onlineUsers.set(userId, socket.id);
-
-      console.log(`[Socket] User online: ${userId}`);
-
-      // ✅ Update DB
       try {
         await docClient.send(
           new UpdateCommand({
@@ -40,12 +32,9 @@ export const initSocket = httpServer => {
       } catch (e) {
         console.error('[Socket] user_online DB update failed:', e.message);
       }
-
-      // ✅ Broadcast to everyone
       io.emit('online_status_changed', { userId, isOnline: true });
     });
 
-    // ── User activity ping (every 60s) ──
     socket.on('user_activity', async ({ userId }) => {
       if (!userId) return;
       try {
@@ -54,9 +43,7 @@ export const initSocket = httpServer => {
             TableName: 'Users',
             Key: { userId },
             UpdateExpression: 'SET lastActiveAt = :now',
-            ExpressionAttributeValues: {
-              ':now': new Date().toISOString(),
-            },
+            ExpressionAttributeValues: { ':now': new Date().toISOString() },
           }),
         );
       } catch (e) {
@@ -64,84 +51,110 @@ export const initSocket = httpServer => {
       }
     });
 
-    // ── Room join/leave ──
-    socket.on('join_room', ({ matchId }) => {
+    // ✅ join_room — now async + delivers unread messages
+    socket.on('join_room', async ({ matchId, userId: roomUserId }) => {
       socket.join(matchId);
       console.log(`[Socket] ${socket.id} joined room: ${matchId}`);
+
+      if (!roomUserId || !matchId) return;
+
+      try {
+        // Fetch all 'sent' messages NOT from this user
+        const resp = await docClient.send(
+          new QueryCommand({
+            TableName: 'flame-Messages',
+            IndexName: 'matchId-createdAt-index',
+            KeyConditionExpression: 'matchId = :matchId',
+            FilterExpression: 'senderId <> :uid AND #s = :sent',
+            ExpressionAttributeNames: { '#s': 'status' },
+            ExpressionAttributeValues: {
+              ':matchId': matchId,
+              ':uid': roomUserId,
+              ':sent': 'sent',
+            },
+            ProjectionExpression: 'matchId, messageId',
+          }),
+        );
+
+        if (!resp.Items?.length) return;
+
+        // Batch update to 'delivered'
+        await Promise.all(
+          resp.Items.map(msg =>
+            docClient.send(
+              new UpdateCommand({
+                TableName: 'flame-Messages',
+                Key: { matchId: msg.matchId, messageId: msg.messageId },
+                UpdateExpression: 'SET #s = :delivered',
+                ExpressionAttributeNames: { '#s': 'status' },
+                ExpressionAttributeValues: { ':delivered': 'delivered' },
+              }),
+            ),
+          ),
+        );
+
+        // Emit to room so sender updates their UI
+        io.to(matchId).emit('messages_delivered', {
+          matchId,
+          deliveredTo: roomUserId,
+          messageIds: resp.Items.map(m => m.messageId),
+        });
+      } catch (e) {
+        console.warn('[Socket] delivered update failed:', e.message);
+      }
     });
 
     socket.on('leave_room', ({ matchId }) => {
       socket.leave(matchId);
     });
 
-    // ── Typing ──
     socket.on('typing', ({ matchId, userId }) => {
       socket.to(matchId).emit('user_typing', { userId });
     });
-
     socket.on('stop_typing', ({ matchId, userId }) => {
       socket.to(matchId).emit('user_stop_typing', { userId });
     });
 
-    // ── Disconnect ──
     socket.on('disconnect', async () => {
       const userId = socket.userId;
-      console.log(`[Socket] Disconnected: ${socket.id}, userId: ${userId}`);
-
       if (!userId) return;
-
       onlineUsers.delete(userId);
-
       const now = new Date().toISOString();
-
-      // ✅ Update DB — offline
       try {
         await docClient.send(
           new UpdateCommand({
             TableName: 'Users',
             Key: { userId },
             UpdateExpression: 'SET isOnline = :offline, lastActiveAt = :now',
-            ExpressionAttributeValues: {
-              ':offline': false,
-              ':now': now,
-            },
+            ExpressionAttributeValues: { ':offline': false, ':now': now },
           }),
         );
       } catch (e) {
         console.error('[Socket] disconnect DB update failed:', e.message);
       }
-
-      socket.on('user_offline', async ({ userId }) => {
-        if (!userId) return;
-
-        console.log(`[Socket] User offline: ${userId}`);
-        onlineUsers.delete(userId);
-
-        const now = new Date().toISOString();
-        try {
-          await docClient.send(
-            new UpdateCommand({
-              TableName: 'Users',
-              Key: { userId },
-              UpdateExpression: 'SET isOnline = :offline, lastActiveAt = :now',
-              ExpressionAttributeValues: {
-                ':offline': false,
-                ':now': now,
-              },
-            }),
-          );
-        } catch (e) {
-          console.error('[Socket] user_offline DB update failed:', e.message);
-        }
-
-        io.emit('online_status_changed', {
-          userId,
-          isOnline: false,
-          lastActiveAt: now,
-        });
+      io.emit('online_status_changed', {
+        userId,
+        isOnline: false,
+        lastActiveAt: now,
       });
+    });
 
-      // ✅ Broadcast offline
+    socket.on('user_offline', async ({ userId }) => {
+      if (!userId) return;
+      onlineUsers.delete(userId);
+      const now = new Date().toISOString();
+      try {
+        await docClient.send(
+          new UpdateCommand({
+            TableName: 'Users',
+            Key: { userId },
+            UpdateExpression: 'SET isOnline = :offline, lastActiveAt = :now',
+            ExpressionAttributeValues: { ':offline': false, ':now': now },
+          }),
+        );
+      } catch (e) {
+        console.error('[Socket] user_offline DB update failed:', e.message);
+      }
       io.emit('online_status_changed', {
         userId,
         isOnline: false,
@@ -157,6 +170,4 @@ export const getIO = () => {
   if (!io) throw new Error('Socket.io not initialized');
   return io;
 };
-
-// ✅ Check if user is online
 export const isUserOnline = userId => onlineUsers.has(userId);

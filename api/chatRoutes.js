@@ -382,4 +382,64 @@ router.put('/messages/read', authenticate, async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// PATCH /messages/react — Add/toggle emoji reaction
+// ════════════════════════════════════════════════════════════════════════════
+
+router.patch('/messages/react', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { messageId, matchId, emoji } = req.body;
+
+    if (!messageId || !matchId) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'messageId and matchId required' });
+    }
+
+    // Fetch current reactions
+    const msgResp = await docClient.send(
+      new GetCommand({
+        TableName: 'flame-Messages',
+        Key: { matchId, messageId },
+        ProjectionExpression: 'reactions',
+      }),
+    );
+
+    if (!msgResp.Item) {
+      return res
+        .status(404)
+        .json({ success: false, error: 'Message not found' });
+    }
+
+    const current = msgResp.Item.reactions || {};
+    const updated = { ...current };
+
+    // Toggle: same emoji = remove, different = set
+    if (!emoji || current[userId] === emoji) {
+      delete updated[userId];
+    } else {
+      updated[userId] = emoji;
+    }
+
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'flame-Messages',
+        Key: { matchId, messageId },
+        UpdateExpression: 'SET reactions = :rx',
+        ExpressionAttributeValues: { ':rx': updated },
+      }),
+    );
+
+    // Broadcast to room
+    getIO()
+      .to(matchId)
+      .emit('message_reacted', { messageId, matchId, reactions: updated });
+
+    return res.status(200).json({ success: true, reactions: updated });
+  } catch (err) {
+    console.error('[PATCH /messages/react] Error:', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to react' });
+  }
+});
 export default router;

@@ -1,16 +1,8 @@
-/**
- * useChatHook - Real-time chat with Socket.io
- *
- * - useMatches: Match list
- * - useConversation: Messages for a specific match
- */
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-
+import { AppState } from 'react-native';
 import Config from 'react-native-config';
 import { io } from 'socket.io-client';
-import { AppState } from 'react-native';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -24,9 +16,7 @@ const createApiClient = token =>
     timeout: 15000,
   });
 
-// ── Singleton socket ──
 let socketInstance = null;
-
 const getSocket = token => {
   if (!socketInstance || !socketInstance.connected) {
     socketInstance = io(API_BASE_URL, {
@@ -41,7 +31,7 @@ const getSocket = token => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// useMatches — Match list
+// useMatches
 // ════════════════════════════════════════════════════════════════════════════
 
 export function useMatches({ token, userId }) {
@@ -49,8 +39,8 @@ export function useMatches({ token, userId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const apiClient = useRef(createApiClient(token));
-  const pollingRef = useRef(null); // ✅ ADD
-  const appStateRef = useRef(AppState.currentState); // ✅ ADD
+  const pollingRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
 
   useEffect(() => {
     if (token) apiClient.current = createApiClient(token);
@@ -62,7 +52,6 @@ export function useMatches({ token, userId }) {
       setLoading(true);
       setError(null);
       const resp = await apiClient.current.get('/matches');
-      console.log('[useMatches] response:', JSON.stringify(resp.data));
       if (!resp.data.success) throw new Error(resp.data.error);
       setMatches(resp.data.matches || []);
     } catch (err) {
@@ -76,38 +65,29 @@ export function useMatches({ token, userId }) {
     if (token) fetchMatches();
   }, [token, fetchMatches]);
 
-  // ✅ POLLING — har 30s mein silent refresh
+  // 30s polling
   useEffect(() => {
     if (!token) return;
-
-    pollingRef.current = setInterval(() => {
-      fetchMatches();
-    }, 30000); // 30 seconds
-
-    return () => {
-      clearInterval(pollingRef.current);
-    };
+    pollingRef.current = setInterval(fetchMatches, 30000);
+    return () => clearInterval(pollingRef.current);
   }, [token, fetchMatches]);
 
-  // ✅ APPSTATE — background se foreground aane pe refetch
+  // AppState foreground refetch
   useEffect(() => {
     if (!token) return;
-
-    const subscription = AppState.addEventListener('change', nextState => {
+    const sub = AppState.addEventListener('change', next => {
       if (
         appStateRef.current.match(/inactive|background/) &&
-        nextState === 'active'
+        next === 'active'
       ) {
-        console.log('[useMatches] App foreground — refetching matches');
         fetchMatches();
       }
-      appStateRef.current = nextState;
+      appStateRef.current = next;
     });
-
-    return () => subscription.remove();
+    return () => sub.remove();
   }, [token, fetchMatches]);
 
-  // ✅ SOCKET — new_message + new_match
+  // Socket — new_message + new_match
   useEffect(() => {
     if (!token) return;
     const socket = getSocket(token);
@@ -131,17 +111,14 @@ export function useMatches({ token, userId }) {
       );
     };
 
-    const handleNewMatch = async () => {
-      console.log('[useMatches] new_match received — refetching');
-      await fetchMatches();
-    };
+    const handleNewMatch = () => fetchMatches();
 
     socket.on('new_message', handleNewMessage);
-    socket.on(`new_match_${userId}`, handleNewMatch);
+    if (userId) socket.on(`new_match_${userId}`, handleNewMatch);
 
     return () => {
       socket.off('new_message', handleNewMessage);
-      socket.off(`new_match_${userId}`, handleNewMatch);
+      if (userId) socket.off(`new_match_${userId}`, handleNewMatch);
     };
   }, [token, userId, fetchMatches]);
 
@@ -149,8 +126,9 @@ export function useMatches({ token, userId }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// useConversation — Messages for one match
+// useConversation
 // ════════════════════════════════════════════════════════════════════════════
+
 export function useConversation({ token, matchId, userId }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -158,6 +136,8 @@ export function useConversation({ token, matchId, userId }) {
   const [error, setError] = useState(null);
   const [nextCursor, setNextCursor] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [reactionsMap, setReactionsMap] = useState({}); // ✅ { [messageId]: { [userId]: emoji } }
+
   const typingTimeout = useRef(null);
   const apiClient = useRef(createApiClient(token));
   const socket = useRef(null);
@@ -174,16 +154,23 @@ export function useConversation({ token, matchId, userId }) {
 
         const newMessages = resp.data.messages || [];
 
+        // ✅ Extract reactions from fetched messages
+        const rxMap = {};
+        newMessages.forEach(msg => {
+          if (msg.reactions && Object.keys(msg.reactions).length > 0) {
+            rxMap[msg.messageId] = msg.reactions;
+          }
+        });
+        setReactionsMap(prev => ({ ...prev, ...rxMap }));
+
         setMessages(prev => {
           if (cursor) {
-            // ✅ Load more — purane messages upar add karo
             const existingIds = new Set(prev.map(m => m.messageId));
             const unique = newMessages.filter(
               m => !existingIds.has(m.messageId),
             );
             return [...unique, ...prev];
           }
-          // ✅ Initial load — socket se aaye messages preserve karo
           const existingIds = new Set(newMessages.map(m => m.messageId));
           const socketMessages = prev.filter(
             m => !existingIds.has(m.messageId),
@@ -205,15 +192,14 @@ export function useConversation({ token, matchId, userId }) {
     if (token && matchId) fetchMessages();
   }, [token, matchId, fetchMessages]);
 
-  // ✅ Socket — matchId yahan properly exist karta hai
+  // Socket setup
   useEffect(() => {
     if (!token || !matchId) return;
-
     socket.current = getSocket(token);
 
-    // named handler — proper cleanup ke liye
     const handleConnect = () => {
-      socket.current.emit('join_room', { matchId });
+      // ✅ Pass userId so backend can mark delivered
+      socket.current.emit('join_room', { matchId, userId });
     };
 
     const handleNewMessage = message => {
@@ -224,13 +210,28 @@ export function useConversation({ token, matchId, userId }) {
       });
     };
 
-    const handleTyping = ({ userId: typingUserId }) => {
-      if (typingUserId !== userId) setIsTyping(true);
+    // ✅ delivered — update status of sent messages
+    const handleDelivered = ({ messageIds }) => {
+      setMessages(prev =>
+        prev.map(m =>
+          messageIds.includes(m.messageId) && m.status === 'sent'
+            ? { ...m, status: 'delivered' }
+            : m,
+        ),
+      );
     };
 
+    // ✅ reaction — update reactionsMap
+    const handleReacted = ({ messageId, reactions }) => {
+      setReactionsMap(prev => ({ ...prev, [messageId]: reactions }));
+    };
+
+    const handleTyping = ({ userId: tid }) => {
+      if (tid !== userId) setIsTyping(true);
+    };
     const handleStopTyping = () => setIsTyping(false);
 
-    const handleMessagesRead = ({ readBy }) => {
+    const handleRead = ({ readBy }) => {
       if (readBy !== userId) {
         setMessages(prev =>
           prev.map(m => (m.senderId === userId ? { ...m, status: 'read' } : m)),
@@ -238,28 +239,29 @@ export function useConversation({ token, matchId, userId }) {
       }
     };
 
-    // ALWAYS listen for connect — handles reconnects bhi
     socket.current.on('connect', handleConnect);
     socket.current.on('new_message', handleNewMessage);
+    socket.current.on('messages_delivered', handleDelivered);
+    socket.current.on('message_reacted', handleReacted);
     socket.current.on('user_typing', handleTyping);
     socket.current.on('user_stop_typing', handleStopTyping);
-    socket.current.on('messages_read', handleMessagesRead);
+    socket.current.on('messages_read', handleRead);
 
-    // Agar already connected hai toh abhi bhi join karo
     if (socket.current.connected) {
-      socket.current.emit('join_room', { matchId });
+      socket.current.emit('join_room', { matchId, userId });
     }
 
     apiClient.current.put('/messages/read', { matchId }).catch(() => {});
 
     return () => {
       socket.current.emit('leave_room', { matchId });
-      // named handlers hata rahe hain — sirf ye wale, baaki safe
       socket.current.off('connect', handleConnect);
       socket.current.off('new_message', handleNewMessage);
+      socket.current.off('messages_delivered', handleDelivered);
+      socket.current.off('message_reacted', handleReacted);
       socket.current.off('user_typing', handleTyping);
       socket.current.off('user_stop_typing', handleStopTyping);
-      socket.current.off('messages_read', handleMessagesRead);
+      socket.current.off('messages_read', handleRead);
     };
   }, [token, matchId, userId]);
 
@@ -300,10 +302,10 @@ export function useConversation({ token, matchId, userId }) {
         });
         if (!urlResp.data.success) throw new Error(urlResp.data.error);
         const { uploadUrl, publicUrl } = urlResp.data;
-        const fileBlob = await fetch(fileUri).then(r => r.blob());
+        const blob = await fetch(fileUri).then(r => r.blob());
         await fetch(uploadUrl, {
           method: 'PUT',
-          body: fileBlob,
+          body: blob,
           headers: { 'Content-Type': fileType },
         });
         const resp = await apiClient.current.post('/messages', {
@@ -338,6 +340,20 @@ export function useConversation({ token, matchId, userId }) {
     if (nextCursor && !loading) fetchMessages(nextCursor);
   }, [nextCursor, loading, fetchMessages]);
 
+  // ✅ reactToMessage
+  const reactToMessage = useCallback(async (messageId, msgMatchId, emoji) => {
+    try {
+      await apiClient.current.patch('/messages/react', {
+        messageId,
+        matchId: msgMatchId,
+        emoji,
+      });
+      // Socket will broadcast message_reacted → UI updates via handleReacted
+    } catch (err) {
+      console.error('[reactToMessage]', err.message);
+    }
+  }, []);
+
   return {
     messages,
     loading,
@@ -349,5 +365,7 @@ export function useConversation({ token, matchId, userId }) {
     sendMedia,
     emitTyping,
     loadMore,
+    reactToMessage,
+    reactionsMap, // ✅ NEW
   };
 }
