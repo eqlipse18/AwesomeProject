@@ -591,7 +591,7 @@ const ProfileCard = ({
         {/* ── Mutual badge — top right ── */}
         {isMutual && !blurred && (
           <View style={styles.mutualBadge}>
-            <Text style={styles.badgeText}>💜 Matched</Text>
+            <Text style={styles.badgeText}> Matched</Text>
           </View>
         )}
 
@@ -720,7 +720,7 @@ const VisitorCard = ({ item, onPress }) => (
       {item.isOnline && <View style={styles.onlineBadge} />}
 
       <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.75)']}
+        colors={['transparent', 'rgba(0, 0, 0, 0.2)', 'rgba(0, 0, 0, 0.88)']}
         style={styles.cardGradient}
       />
       <View style={styles.cardInfoOverlay}>
@@ -741,7 +741,7 @@ const VisitorCard = ({ item, onPress }) => (
         {/* line 2 — when they visited your profile */}
         {item.visitedAt && (
           <Text style={styles.visitedAtText} numberOfLines={1}>
-            👀 Seen {formatLastActive(item.visitedAt, 1) || 'recently'}
+            visited {formatLastActive(item.visitedAt, 1) || 'recently'}
           </Text>
         )}
       </View>
@@ -1588,14 +1588,14 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     gap: 8,
   },
-  separatorLine: { flex: 1, height: 1, backgroundColor: '#F1F5F9' },
-  separatorText: { fontSize: 11, fontWeight: '700', color: '#94A3B8' },
+  separatorLine: { flex: 1, height: 1, backgroundColor: '#f5fafe' },
+  separatorText: { fontSize: 12, fontWeight: '700', color: '#778495' },
 
   // Card
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    borderRadius: 20,
+    borderRadius: 30,
     overflow: 'hidden',
     backgroundColor: '#1a1a1a',
     shadowColor: '#000',
@@ -1609,9 +1609,10 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
     position: 'absolute',
+    borderRadius: 30,
   },
   cardImageFallback: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#59555c',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1639,7 +1640,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.5)',
   },
   cardName: { fontSize: 13, fontWeight: '700', color: '#fff', flex: 1 },
-  cardActive: { fontSize: 10, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
+  cardActive: { fontSize: 9, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
   visitedAtText: {
     fontSize: 10,
     color: 'rgba(255,255,255,0.45)',
@@ -1650,6 +1651,11 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.45)',
     marginTop: 2,
     fontWeight: '500',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignSelf: 'flex-start',
+    borderRadius: 12,
   },
 
   // ── Match CTA — bottom-right overlay ──

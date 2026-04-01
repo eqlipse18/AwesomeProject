@@ -259,13 +259,16 @@ router.post('/messages', authenticate, async (req, res) => {
     );
 
     // ── Update match lastMessage ──
+    const displayText =
+      type === 'image' ? '📷 Photo' : type === 'video' ? '🎥 Video' : content;
+
     await docClient.send(
       new UpdateCommand({
         TableName: 'flame-Matches',
         Key: { matchId },
         UpdateExpression: 'SET lastMessage = :msg, lastMessageAt = :now',
         ExpressionAttributeValues: {
-          ':msg': { text: content, senderId: userId, timestamp: now },
+          ':msg': { text: displayText, senderId: userId, timestamp: now },
           ':now': now,
         },
       }),

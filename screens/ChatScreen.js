@@ -51,6 +51,14 @@ const formatTime = ts => {
   if (diff < 10080) return `${Math.floor(diff / 1440)}d`;
   return date.toLocaleDateString();
 };
+const formatLastMsg = msg => {
+  if (!msg || msg === '👋 New match!') return msg || '👋 Say hi!';
+  if (msg.includes('amazonaws.com') || msg.includes('flameapp-user-images')) {
+    if (msg.match(/\.(mp4|mov|avi|mkv)/i)) return '🎥 Video';
+    return '📷 Photo';
+  }
+  return msg;
+};
 
 // ─────────────────────────────────────────────
 // Animated cycling text hook
@@ -283,7 +291,7 @@ const ChatRow = ({ match, onPress, isOnline, lastActiveText }) => {
             style={[styles.chatRowMsg, hasUnread && styles.chatRowMsgUnread]}
             numberOfLines={1}
           >
-            {match.lastMessage || '👋 Say hi!'}
+            {formatLastMsg(match.lastMessage)}
           </Text>
           {hasUnread ? (
             <View style={styles.unreadBadge}>
