@@ -445,4 +445,126 @@ router.patch('/messages/react', authenticate, async (req, res) => {
     return res.status(500).json({ success: false, error: 'Failed to react' });
   }
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// DELETE /messages/:messageId — WhatsApp style soft delete
+// ════════════════════════════════════════════════════════════════════════════
+
+router.delete('/messages/:messageId', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { messageId } = req.params;
+    const { matchId } = req.body;
+
+    if (!matchId)
+      return res
+        .status(400)
+        .json({ success: false, error: 'matchId required' });
+
+    const msgResp = await docClient.send(
+      new GetCommand({
+        TableName: 'flame-Messages',
+        Key: { matchId, messageId },
+      }),
+    );
+
+    if (!msgResp.Item)
+      return res
+        .status(404)
+        .json({ success: false, error: 'Message not found' });
+
+    if (msgResp.Item.senderId !== userId)
+      return res.status(403).json({ success: false, error: 'Not authorized' });
+
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'flame-Messages',
+        Key: { matchId, messageId },
+        UpdateExpression:
+          'SET #type = :deleted, content = :placeholder, deletedAt = :now',
+        ExpressionAttributeNames: { '#type': 'type' },
+        ExpressionAttributeValues: {
+          ':deleted': 'deleted',
+          ':placeholder': 'This message was deleted',
+          ':now': new Date().toISOString(),
+        },
+      }),
+    );
+
+    getIO().to(matchId).emit('message_deleted', { messageId, matchId });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /messages/:messageId]', err.message);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to delete message' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PATCH /messages/edit — Edit message content
+// ════════════════════════════════════════════════════════════════════════════
+
+router.patch('/messages/edit', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { messageId, matchId, content } = req.body;
+
+    if (!messageId || !matchId || !content?.trim())
+      return res.status(400).json({
+        success: false,
+        error: 'messageId, matchId, content required',
+      });
+
+    const msgResp = await docClient.send(
+      new GetCommand({
+        TableName: 'flame-Messages',
+        Key: { matchId, messageId },
+      }),
+    );
+
+    if (!msgResp.Item)
+      return res
+        .status(404)
+        .json({ success: false, error: 'Message not found' });
+
+    if (msgResp.Item.senderId !== userId)
+      return res.status(403).json({ success: false, error: 'Not authorized' });
+
+    const now = new Date().toISOString();
+
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'flame-Messages',
+        Key: { matchId, messageId },
+        UpdateExpression:
+          'SET content = :content, isEdited = :edited, editedAt = :now, originalContent = if_not_exists(originalContent, :orig)',
+        ExpressionAttributeValues: {
+          ':content': content.trim(),
+          ':edited': true,
+          ':now': now,
+          ':orig': msgResp.Item.content,
+        },
+      }),
+    );
+
+    const payload = {
+      messageId,
+      matchId,
+      content: content.trim(),
+      isEdited: true,
+      editedAt: now,
+    };
+    getIO().to(matchId).emit('message_edited', payload);
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[PATCH /messages/edit]', err.message);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to edit message' });
+  }
+});
+
 export default router;

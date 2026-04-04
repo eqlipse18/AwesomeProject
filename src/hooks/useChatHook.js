@@ -137,6 +137,7 @@ export function useConversation({ token, matchId, userId }) {
   const [nextCursor, setNextCursor] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [reactionsMap, setReactionsMap] = useState({}); // ✅ { [messageId]: { [userId]: emoji } }
+  const [deletedIds, setDeletedIds] = useState(new Set());
 
   const typingTimeout = useRef(null);
   const apiClient = useRef(createApiClient(token));
@@ -238,6 +239,22 @@ export function useConversation({ token, matchId, userId }) {
         );
       }
     };
+    const handleDeleted = ({ messageId: dId }) => {
+      setMessages(prev =>
+        prev.map(m =>
+          m.messageId === dId
+            ? { ...m, type: 'deleted', content: 'This message was deleted' }
+            : m,
+        ),
+      );
+    };
+    const handleEdited = ({ messageId: eId, content, isEdited, editedAt }) => {
+      setMessages(prev =>
+        prev.map(m =>
+          m.messageId === eId ? { ...m, content, isEdited, editedAt } : m,
+        ),
+      );
+    };
 
     socket.current.on('connect', handleConnect);
     socket.current.on('new_message', handleNewMessage);
@@ -246,6 +263,8 @@ export function useConversation({ token, matchId, userId }) {
     socket.current.on('user_typing', handleTyping);
     socket.current.on('user_stop_typing', handleStopTyping);
     socket.current.on('messages_read', handleRead);
+    socket.current.on('message_deleted', handleDeleted);
+    socket.current.on('message_edited', handleEdited);
 
     if (socket.current.connected) {
       socket.current.emit('join_room', { matchId, userId });
@@ -262,11 +281,67 @@ export function useConversation({ token, matchId, userId }) {
       socket.current.off('user_typing', handleTyping);
       socket.current.off('user_stop_typing', handleStopTyping);
       socket.current.off('messages_read', handleRead);
+      socket.current.off('message_deleted', handleDeleted);
+      socket.current.off('message_edited', handleEdited);
+
+      // sendMessage mein replyTo support add karo:
     };
   }, [token, matchId, userId]);
+  const deleteMessage = useCallback(
+    async messageId => {
+      try {
+        await apiClient.current.delete(`/messages/${messageId}`, {
+          data: { matchId },
+        });
+        // optimistic UI
+        setMessages(prev =>
+          prev.map(m =>
+            m.messageId === messageId
+              ? {
+                  ...m,
+                  type: 'deleted',
+                  content: 'This message was deleted',
+                }
+              : m,
+          ),
+        );
+      } catch (err) {
+        console.error('[deleteMessage]', err.message);
+      }
+    },
+    [matchId],
+  );
+
+  const editMessage = useCallback(
+    async (messageId, content) => {
+      try {
+        await apiClient.current.patch('/messages/edit', {
+          messageId,
+          matchId,
+          content,
+        });
+        // optimistic UI
+        setMessages(prev =>
+          prev.map(m =>
+            m.messageId === messageId
+              ? {
+                  ...m,
+                  content,
+                  isEdited: true,
+                  editedAt: new Date().toISOString(),
+                }
+              : m,
+          ),
+        );
+      } catch (err) {
+        console.error('[editMessage]', err.message);
+      }
+    },
+    [matchId],
+  );
 
   const sendMessage = useCallback(
-    async content => {
+    async (content, replyTo = null) => {
       if (!content?.trim() || !matchId) return;
       try {
         setSending(true);
@@ -274,6 +349,7 @@ export function useConversation({ token, matchId, userId }) {
           matchId,
           content: content.trim(),
           type: 'text',
+          ...(replyTo && { replyTo }),
         });
         if (!resp.data.success) throw new Error(resp.data.error);
         setMessages(prev => {
@@ -367,5 +443,7 @@ export function useConversation({ token, matchId, userId }) {
     loadMore,
     reactToMessage,
     reactionsMap, // ✅ NEW
+    deleteMessage,
+    editMessage,
   };
 }

@@ -27,6 +27,8 @@ import Animated, {
   withDelay,
   Easing,
 } from 'react-native-reanimated';
+import ChatIcon from '../../../assets/SVG/chat';
+import { BlurView } from '@react-native-community/blur';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -47,23 +49,30 @@ export const MatchModal = ({
 
   useEffect(() => {
     if (visible) {
-      // Reset animations
       modalScale.value = 0;
       modalOpacity.value = 0;
       heartsOpacity.value = 0;
 
-      // Entrance animation: scale + fade
-      modalScale.value = withTiming(1, {
-        duration: 600,
-        easing: Easing.out(Easing.back(1.3)), // Bounce effect
-      });
+      // 👇 YAHI CHANGE HAI
+      modalScale.value = withTiming(
+        1.05,
+        {
+          duration: 400,
+          easing: Easing.out(Easing.back(1.2)),
+        },
+        () => {
+          modalScale.value = withTiming(1, {
+            duration: 200,
+            easing: Easing.out(Easing.ease),
+          });
+        },
+      );
 
       modalOpacity.value = withTiming(1, {
         duration: 400,
         easing: Easing.linear,
       });
 
-      // Hearts fade in after modal
       heartsOpacity.value = withDelay(
         300,
         withTiming(1, {
@@ -96,132 +105,169 @@ export const MatchModal = ({
     >
       {/* Dark Background */}
 
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          paddingHorizontal: 20,
-        }}
-      >
-        {/* Hearts Particles Overlay - Behind Modal */}
+      <View style={{ flex: 1 }}>
+        {/* 👇 REAL BLUR BACKGROUND */}
+        <BlurView
+          style={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+          }}
+          blurType="dark"
+          blurAmount={20}
+        />
 
-        <Animated.View
-          style={[
-            {
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: SCREEN_WIDTH,
-              height: SCREEN_HEIGHT,
-              pointerEvents: 'none',
-              zIndex: 1,
-            },
-            heartsAnimatedStyle,
-          ]}
-        >
-          <LottieView
-            source={require('../../../assets/animations/Hearts_feedback.json')}
-            autoPlay
-            loop
-            speed={0.8}
-            style={styles.heartsLottie}
-          />
-        </Animated.View>
+        {/* 👇 DARK OVERLAY (depth ke liye) */}
+        <View
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            backgroundColor: 'rgba(0,0,0,0.4)',
+          }}
+        />
 
-        {/* Modal Card with Entrance Animation */}
-        <Animated.View
-          style={[
-            {
-              width: '100%',
-              borderRadius: 40,
-              overflow: 'hidden',
-              backgroundColor: '#ffffff',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 20 },
-              shadowOpacity: 0.5,
-              shadowRadius: 40,
-              elevation: 25,
-              zIndex: 10,
-            },
-            modalAnimatedStyle,
-          ]}
+        {/* 👇 TERA MAIN CONTENT */}
+        <View
+          style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            paddingHorizontal: 20,
+          }}
         >
-          <LinearGradient
-            colors={['#FFFFFF', '#F5F5F5']}
-            style={styles.gradientContainer}
+          {/* Hearts Particles Overlay - Behind Modal */}
+
+          <Animated.View
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: SCREEN_WIDTH,
+                height: SCREEN_HEIGHT,
+                pointerEvents: 'none',
+                zIndex: 1,
+              },
+              heartsAnimatedStyle,
+            ]}
           >
-            {/* Title */}
-            <View style={styles.titleSection}>
-              <Text style={styles.titleText}>It's a Match!</Text>
-              <Text style={styles.subtitleText}>You two liked each other!</Text>
-            </View>
+            <LottieView
+              source={require('../../../assets/animations/Hearts_feedback.json')}
+              autoPlay
+              loop
+              speed={0.8}
+              style={styles.heartsLottie}
+            />
+          </Animated.View>
 
-            {/* Center Section - Match Animation + Photos */}
-            <View style={styles.centerSection}>
-              {/* Left Photo */}
-              <View style={[styles.photoWrapper, styles.leftPhoto]}>
-                <Image source={{ uri: user1.image }} style={styles.photo} />
-                <View style={styles.nameBadge}>
-                  <Text style={styles.nameText}>
-                    {user1.name}, {user1.age}
-                  </Text>
+          {/* Modal Card with Entrance Animation */}
+          <Animated.View style={[styles.modalContainer, modalAnimatedStyle]}>
+            <LinearGradient
+              colors={['rgba(255,255,255,0.95)', 'rgba(245,245,245,0.9)']}
+              style={styles.gradientContainer}
+            >
+              {/* Title */}
+              <View style={styles.titleSection}>
+                <Text style={styles.titleText}>It's a Match!</Text>
+                <Text style={styles.subtitleText}>
+                  You two liked each other!
+                </Text>
+              </View>
+
+              {/* Center Section - Match Animation + Photos */}
+              <View style={styles.centerSection}>
+                {/* Left Photo */}
+                <View style={[styles.photoWrapper, styles.leftPhoto]}>
+                  <Image source={{ uri: user1.image }} style={styles.photo} />
+                  <View
+                    style={{
+                      ...StyleSheet.absoluteFillObject,
+                      backgroundColor: 'rgba(0, 0, 0, 0.15)',
+                    }}
+                  />
+                  <View style={styles.nameBadge}>
+                    <Text style={styles.nameText}>
+                      {user1.name} {user1.age}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Center Match Animation */}
+                <View style={styles.matchAnimationWrapper}>
+                  <LottieView
+                    source={require('../../../assets/animations/Love.json')}
+                    autoPlay
+                    loop
+                    speed={1.2}
+                    style={styles.matchLottie}
+                  />
+                </View>
+
+                {/* Right Photo */}
+                <View style={[styles.photoWrapper, styles.rightPhoto]}>
+                  <Image source={{ uri: user2.image }} style={styles.photo} />
+                  <View
+                    style={{
+                      ...StyleSheet.absoluteFillObject,
+                      backgroundColor: 'rgba(0, 0, 0, 0.15)',
+                    }}
+                  />
+
+                  <View style={styles.nameBadge}>
+                    <Text style={styles.nameText}>
+                      {user2.name}, {user2.age}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
-              {/* Center Match Animation */}
-              <View style={styles.matchAnimationWrapper}>
-                <LottieView
-                  source={require('../../../assets/animations/match.json')}
-                  autoPlay
-                  loop
-                  speed={1.2}
-                  style={styles.matchLottie}
-                />
-              </View>
-
-              {/* Right Photo */}
-              <View style={[styles.photoWrapper, styles.rightPhoto]}>
-                <Image source={{ uri: user2.image }} style={styles.photo} />
-                <View style={styles.nameBadge}>
-                  <Text style={styles.nameText}>
-                    {user2.name}, {user2.age}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Buttons */}
-            <View style={styles.buttonSection}>
-              {/* Keep Swiping */}
-              <TouchableOpacity
-                style={styles.outlineButton}
-                onPress={onKeepSwiping}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.outlineButtonText}>Maybe Later</Text>
-              </TouchableOpacity>
-
-              {/* Let's Chat */}
-              <TouchableOpacity
-                style={styles.solidButton}
-                onPress={onLetsChat}
-                activeOpacity={0.7}
-              >
-                <LinearGradient
-                  colors={['#FF0059', '#FF6B6B']}
-                  style={styles.solidButtonGradient}
+              {/* Buttons */}
+              <View style={styles.buttonSection}>
+                {/* Keep Swiping */}
+                <TouchableOpacity
+                  style={styles.outlineButton}
+                  onPress={onKeepSwiping}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.solidButtonText}>Send Message</Text>
-                  <Text style={{ fontSize: 11, opacity: 0.6 }}>
+                  <Text style={styles.outlineButtonText}>Maybe Later</Text>
+                </TouchableOpacity>
+
+                {/* Let's Chat */}
+                <TouchableOpacity
+                  style={styles.solidButton}
+                  onPress={onLetsChat}
+                  activeOpacity={0.7}
+                >
+                  {/* <LinearGradient
+                    colors={['#ff0059', '#ff2d75', '#ff6565']}
+                    style={styles.solidButtonGradient}
+                  > */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <ChatIcon width={22} height={22} fill="#fff" />
+
+                    <Text style={styles.solidButtonText}>Send Message</Text>
+                  </View>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      opacity: 0.9,
+                      color: '#FFF',
+                      marginTop: 4,
+                    }}
+                  >
                     Start your conversation now
                   </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </LinearGradient>
-        </Animated.View>
+                  {/* </LinearGradient> */}
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+        </View>
       </View>
     </Modal>
   );
@@ -231,6 +277,21 @@ const styles = StyleSheet.create({
   // Overlay
 
   // Hearts Overlay - Behind Modal
+  modalContainer: {
+    width: '100%',
+    borderRadius: 40,
+    overflow: 'hidden',
+    backgroundColor: 'rgb(255, 255, 255)',
+    // backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    shadowColor: '#FF0059',
+    shadowOffset: { width: 0, height: 25 },
+    shadowOpacity: 0.35,
+    shadowRadius: 50,
+    elevation: 25,
+    zIndex: 10,
+  },
 
   heartsLottie: {
     width: '100%',
@@ -251,17 +312,19 @@ const styles = StyleSheet.create({
 
   titleText: {
     fontSize: 44,
-    fontWeight: '900',
+    fontFamily: 'LobsterTwo-Bold',
     color: '#FF0059',
     marginBottom: 8,
+    letterSpacing: 1,
     textShadowColor: 'rgba(255, 0, 89, 0.2)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
+    transform: [{ scale: 1.05 }],
   },
 
   subtitleText: {
-    fontSize: 15,
-    color: '#555',
+    fontSize: 13,
+    color: '#55555590',
     fontWeight: '600',
   },
 
@@ -280,16 +343,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 130,
     height: 170,
-    borderRadius: 22,
+    borderRadius: 26,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: '#ffafcb',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.8)',
     backgroundColor: '#EEE',
-    shadowColor: '#FF0059',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.35,
-    shadowRadius: 15,
-    elevation: 12,
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 13,
+    marginVertical: 60,
   },
 
   leftPhoto: {
@@ -310,19 +374,25 @@ const styles = StyleSheet.create({
 
   nameBadge: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    bottom: 10,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
 
   nameText: {
     color: '#FFF',
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
     textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
 
   // Match Animation
@@ -334,8 +404,10 @@ const styles = StyleSheet.create({
   },
 
   matchLottie: {
-    width: 220,
-    height: 220,
+    marginTop: 220,
+    width: 240,
+    height: 240,
+    transform: [{ scale: 1.1 }],
   },
 
   // Button Section
@@ -346,12 +418,16 @@ const styles = StyleSheet.create({
 
   // Outline Button
   outlineButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 14,
-    borderWidth: 2.5,
-    borderColor: '#FF0059',
-    backgroundColor: 'rgba(255, 0, 89, 0.06)',
+    paddingVertical: 14,
+    borderRadius: 35,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: 'pink',
+    backgroundColor: 'white',
+    flexDirection: 'row',
+    gap: 8,
   },
 
   outlineButtonText: {
@@ -363,13 +439,20 @@ const styles = StyleSheet.create({
 
   // Solid Button
   solidButton: {
-    borderRadius: 14,
     overflow: 'hidden',
     shadowColor: '#FF0059',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 15,
+    elevation: 10,
+    backgroundColor: '#FF0059',
+
+    paddingVertical: 9,
+    borderRadius: 35,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#fc86abff',
   },
 
   solidButtonGradient: {
@@ -383,6 +466,5 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '800',
-    textAlign: 'center',
   },
 });

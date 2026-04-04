@@ -20,21 +20,23 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
+import Animated, {
+  FadeInDown,
+  LinearTransition,
+} from 'react-native-reanimated';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthContext } from '../AuthContex';
 import { useConversation } from '../src/hooks/useChatHook';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 
-// ── Conversation Components ──
 import { DateSeparator } from '../src/components/conversation/DateSeparator';
 import { MessageBubble } from '../src/components/conversation/MessageBubble';
 import { TypingIndicator } from '../src/components/conversation/TypingIndicator';
-import { LongPressSheet } from '../src/components/conversation/LongPressSheet';
+import { FloatingContextMenu } from '../src/components/conversation/FloatingContextMenu';
 import { AttachmentSheet } from '../src/components/conversation/AttachmentSheet';
 import { MediaPreviewModal } from '../src/components/conversation/MediaPreviewModal';
 import { ScrollFAB } from '../src/components/conversation/ScrollFAB';
 import { InputBar } from '../src/components/conversation/InputBar';
-
-import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 
 // ════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -129,19 +131,39 @@ export default function ConversationScreen({ navigation, route }) {
     loadMore,
     reactToMessage,
     reactionsMap,
+    deleteMessage,
+    editMessage,
   } = useConversation({ token, matchId, userId });
 
+  const _entering = FadeInDown.springify().damping(18).stiffness(320);
+  const _layout = LinearTransition.springify();
+
   // ── UI state ──
-  const [selectedMsgId, setSelectedMsgId] = useState(null); // tap-to-time
-  const [selMsg, setSelMsg] = useState(null);
-  const [showLP, setShowLP] = useState(false);
+  const [selectedMsgId, setSelectedMsgId] = useState(null);
+
+  // Context menu
+  const [ctxMenu, setCtxMenu] = useState({
+    visible: false,
+    msg: null,
+    pageY: 0,
+    pageX: 0,
+  });
+
+  // Reply
+  const [replyingTo, setReplyingTo] = useState(null);
+
+  // Edit
+  const [editingMsg, setEditingMsg] = useState(null);
+
+  // Attachment + media preview
   const [showAttach, setShowAttach] = useState(false);
   const [previewUri, setPreviewUri] = useState(null);
+
+  // Scroll state
   const [atBottom, setAtBottom] = useState(true);
   const [unreadScrolled, setUnreadScrolled] = useState(0);
   const prevLen = useRef(0);
 
-  // Track new msgs while scrolled up
   useEffect(() => {
     const diff = messages.length - prevLen.current;
     if (diff > 0 && !atBottom) setUnreadScrolled(p => p + diff);
@@ -150,7 +172,7 @@ export default function ConversationScreen({ navigation, route }) {
 
   const displayItems = useMemo(() => buildItems(messages), [messages]);
 
-  // Last own message ID — for delivery status
+  // Last own message — for delivery status + always-visible timestamp
   const lastOwnMsgId = useMemo(() => {
     const own = displayItems.find(
       item => item.type === 'msg' && item.senderId === userId,
@@ -159,6 +181,7 @@ export default function ConversationScreen({ navigation, route }) {
   }, [displayItems, userId]);
 
   // ── Callbacks ──
+
   const scrollToBottom = useCallback(() => {
     flatRef.current?.scrollToOffset({ offset: 0, animated: true });
     setAtBottom(true);
@@ -171,53 +194,101 @@ export default function ConversationScreen({ navigation, route }) {
     if (y < 80) setUnreadScrolled(0);
   }, []);
 
-  const onLongPress = useCallback(msg => {
-    setSelMsg(msg);
-    setShowLP(true);
+  // Long press → open floating context menu
+  const onLongPress = useCallback((msg, pageY, pageX) => {
+    setCtxMenu({ visible: true, msg, pageY, pageX });
   }, []);
 
-  const onCopy = useCallback(() => {
-    if (!selMsg?.content) return;
+  // Context menu actions
+  const onCtxReact = useCallback(
+    async emoji => {
+      if (!ctxMenu.msg) return;
+      await reactToMessage(ctxMenu.msg.messageId, matchId, emoji);
+    },
+    [ctxMenu.msg, matchId, reactToMessage],
+  );
+
+  const onCtxReply = useCallback(() => {
+    if (!ctxMenu.msg) return;
+    setReplyingTo({
+      messageId: ctxMenu.msg.messageId,
+      senderId: ctxMenu.msg.senderId,
+      content: ctxMenu.msg.content,
+      type: ctxMenu.msg.type,
+      senderName: ctxMenu.msg.senderId === userId ? 'You' : name,
+    });
+  }, [ctxMenu.msg, userId, name]);
+
+  const onCtxCopy = useCallback(() => {
+    if (!ctxMenu.msg?.content) return;
     try {
       require('@react-native-clipboard/clipboard').default.setString(
-        selMsg.content,
+        ctxMenu.msg.content,
       );
     } catch {
       console.log('[Copy] install @react-native-clipboard/clipboard');
     }
-  }, [selMsg]);
+  }, [ctxMenu.msg]);
 
-  const onReact = useCallback(
-    async emoji => {
-      if (!selMsg) return;
-      await reactToMessage(selMsg.messageId, matchId, emoji);
+  const onCtxEdit = useCallback(() => {
+    if (!ctxMenu.msg) return;
+    setEditingMsg(ctxMenu.msg);
+  }, [ctxMenu.msg]);
+
+  const onCtxDelete = useCallback(async () => {
+    if (!ctxMenu.msg) return;
+    await deleteMessage(ctxMenu.msg.messageId);
+  }, [ctxMenu.msg, deleteMessage]);
+
+  // Swipe to reply
+  const onSwipeReply = useCallback(
+    msg => {
+      setReplyingTo({
+        messageId: msg.messageId,
+        senderId: msg.senderId,
+        content: msg.content,
+        type: msg.type,
+        senderName: msg.senderId === userId ? 'You' : name,
+      });
     },
-    [selMsg, matchId, reactToMessage],
+    [userId, name],
   );
 
-  const onMediaPick = useCallback(
-    async type => {
-      setShowAttach(false);
-      const fn = type === 'camera' ? launchCamera : launchImageLibrary;
-      fn({ mediaType: 'mixed', quality: 0.8, selectionLimit: 1 }, async res => {
-        if (res.didCancel || res.errorCode) return;
-        const a = res.assets?.[0];
-        if (!a) return;
-        await sendMedia(
-          a.uri,
-          a.type || 'image/jpeg',
-          a.type?.startsWith('video') ? 'video' : 'image',
-        );
-      });
+  // Send with reply context
+  const handleSend = useCallback(
+    async (content, replyTo) => {
+      await sendMessage(content, replyTo);
+    },
+    [sendMessage],
+  );
+
+  // Edit save
+  const handleEditSave = useCallback(
+    async (messageId, content) => {
+      await editMessage(messageId, content);
+      setEditingMsg(null);
+    },
+    [editMessage],
+  );
+
+  // Media from attachment sheet
+  const handleMediaSelected = useCallback(
+    async (uri, fileType, mediaType) => {
+      await sendMedia(uri, fileType, mediaType);
     },
     [sendMedia],
   );
 
   const renderItem = useCallback(
     ({ item }) => {
-      if (item.type === 'sep') return <DateSeparator label={item.label} />;
-      const isOwn = item.senderId === userId;
+      if (item.type === 'sep')
+        return (
+          <Animated.View entering={_entering} layout={_layout}>
+            <DateSeparator label={item.label} />
+          </Animated.View>
+        );
 
+      const isOwn = item.senderId === userId;
       return (
         <MessageBubble
           message={item}
@@ -231,18 +302,33 @@ export default function ConversationScreen({ navigation, route }) {
           selectedMsgId={selectedMsgId}
           onSelect={setSelectedMsgId}
           onLongPress={onLongPress}
-          onRxPress={msg => {
-            setSelMsg(msg);
-            setShowLP(true);
-          }}
+          onRxPress={msg =>
+            setCtxMenu({
+              visible: true,
+              msg,
+              pageY: 300,
+              pageX: isOwn ? 200 : 60,
+            })
+          }
           onMediaPress={uri => setPreviewUri(uri)}
+          onSwipeReply={onSwipeReply}
         />
       );
     },
-    [userId, image, onLongPress, reactionsMap, lastOwnMsgId, selectedMsgId],
+    [
+      userId,
+      image,
+      onLongPress,
+      reactionsMap,
+      lastOwnMsgId,
+      selectedMsgId,
+      onSwipeReply,
+      _entering,
+      _layout,
+    ],
   );
 
-  // ── Header status ──
+  // Header status
   const headerStatus = isTyping
     ? { text: '✍️ typing...', color: '#FF0059' }
     : initOnline
@@ -253,7 +339,7 @@ export default function ConversationScreen({ navigation, route }) {
       };
 
   return (
-    <View style={s.container}>
+    <GestureHandlerRootView style={s.container}>
       <LinearGradient
         colors={['#FFF5F7', '#FFFBFC', '#FFF5F7']}
         style={StyleSheet.absoluteFillObject}
@@ -266,7 +352,7 @@ export default function ConversationScreen({ navigation, route }) {
 
       {/* ── Header ── */}
       <SafeAreaView edges={['top']} style={s.headerSafe}>
-        <View style={s.header}>
+        <Animated.View entering={_entering} layout={_layout} style={s.header}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={s.backBtn}
@@ -293,7 +379,6 @@ export default function ConversationScreen({ navigation, route }) {
                   <Text style={{ fontSize: 16 }}>👤</Text>
                 </View>
               )}
-              {/* Online dot */}
               <View
                 style={[
                   s.hDot,
@@ -319,7 +404,7 @@ export default function ConversationScreen({ navigation, route }) {
           <TouchableOpacity style={s.moreBtn} activeOpacity={0.7}>
             <Text style={s.moreBtnIco}>⋮</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </SafeAreaView>
 
       {/* ── Messages ── */}
@@ -348,7 +433,6 @@ export default function ConversationScreen({ navigation, route }) {
             scrollEventThrottle={16}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
-            // Typing indicator — below last message (inverted = bottom)
             ListHeaderComponent={isTyping ? <TypingIndicator /> : null}
             ListFooterComponent={
               hasMore ? (
@@ -381,45 +465,47 @@ export default function ConversationScreen({ navigation, route }) {
 
         <SafeAreaView edges={['bottom']} style={s.inputWrap}>
           <InputBar
-            onSend={sendMessage}
+            onSend={handleSend}
             onAttach={() => setShowAttach(true)}
             emitTyping={emitTyping}
             sending={sending}
+            replyingTo={replyingTo}
+            onCancelReply={() => setReplyingTo(null)}
+            myUserId={userId}
+            editingMsg={editingMsg}
+            onCancelEdit={() => setEditingMsg(null)}
+            onEditSave={handleEditSave}
           />
         </SafeAreaView>
       </KeyboardAvoidingView>
 
-      {/* ── Modals ── */}
-      <LongPressSheet
-        visible={showLP}
-        message={selMsg}
-        isOwn={selMsg?.senderId === userId}
-        onClose={() => {
-          setShowLP(false);
-          setSelMsg(null);
-        }}
-        onCopy={onCopy}
-        onReact={onReact}
-        onDelete={() => {
-          /* TODO phase 3 */
-        }}
+      {/* ── Floating Context Menu ── */}
+      <FloatingContextMenu
+        visible={ctxMenu.visible}
+        message={ctxMenu.msg}
+        isOwn={ctxMenu.msg?.senderId === userId}
+        pageY={ctxMenu.pageY}
+        pageX={ctxMenu.pageX}
+        onClose={() => setCtxMenu(p => ({ ...p, visible: false }))}
+        onReact={onCtxReact}
+        onReply={onCtxReply}
+        onCopy={onCtxCopy}
+        onEdit={onCtxEdit}
+        onDelete={onCtxDelete}
       />
 
+      {/* ── Attachment Sheet ── */}
       <AttachmentSheet
         visible={showAttach}
         onClose={() => setShowAttach(false)}
-        onCamera={() => onMediaPick('camera')}
-        onGallery={() => onMediaPick('gallery')}
+        onMediaSelected={handleMediaSelected}
       />
 
+      {/* ── Media Preview ── */}
       <MediaPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
-    </View>
+    </GestureHandlerRootView>
   );
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// STYLES
-// ════════════════════════════════════════════════════════════════════════════
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF5F7' },
@@ -453,14 +539,14 @@ const s = StyleSheet.create({
     gap: 10,
   },
   hAvtWrap: { position: 'relative' },
-  hAvt: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9' },
+  hAvt: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F1F5F9' },
   hAvtFb: { justifyContent: 'center', alignItems: 'center' },
   hDot: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 11,
-    height: 11,
+    width: 12,
+    height: 12,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: '#fff',
@@ -478,7 +564,12 @@ const s = StyleSheet.create({
   },
   moreBtnIco: { fontSize: 20, color: '#64748B', lineHeight: 22 },
 
-  msgList: { paddingHorizontal: 12, paddingVertical: 12, flexGrow: 1 },
+  msgList: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexGrow: 1,
+    paddingBottom: 20,
+  },
 
   inputWrap: {
     backgroundColor: '#fff',
@@ -498,9 +589,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyAvt: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     marginBottom: 20,
     backgroundColor: '#F1F5F9',
   },
