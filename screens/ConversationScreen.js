@@ -20,11 +20,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Animated, {
-  FadeInDown,
-  LinearTransition,
-} from 'react-native-reanimated';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
 import { AuthContext } from '../AuthContex';
 import { useConversation } from '../src/hooks/useChatHook';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
@@ -33,6 +31,7 @@ import { DateSeparator } from '../src/components/conversation/DateSeparator';
 import { MessageBubble } from '../src/components/conversation/MessageBubble';
 import { TypingIndicator } from '../src/components/conversation/TypingIndicator';
 import { FloatingContextMenu } from '../src/components/conversation/FloatingContextMenu';
+import { ReactionTooltip } from '../src/components/conversation/ReactionTooltip';
 import { AttachmentSheet } from '../src/components/conversation/AttachmentSheet';
 import { MediaPreviewModal } from '../src/components/conversation/MediaPreviewModal';
 import { ScrollFAB } from '../src/components/conversation/ScrollFAB';
@@ -69,7 +68,6 @@ const buildItems = msgs => {
   if (!msgs?.length) return [];
   const items = [];
   let lastKey = null;
-
   msgs.forEach((msg, i) => {
     const key = getDateKey(msg.createdAt);
     if (key !== lastKey) {
@@ -84,7 +82,6 @@ const buildItems = msgs => {
     const next = msgs[i + 1];
     const prevKey = prev ? getDateKey(prev.createdAt) : null;
     const nextKey = next ? getDateKey(next.createdAt) : null;
-
     const sameAsPrev =
       prev &&
       prev.senderId === msg.senderId &&
@@ -95,11 +92,9 @@ const buildItems = msgs => {
       next.senderId === msg.senderId &&
       nextKey === key &&
       new Date(next.createdAt) - new Date(msg.createdAt) < 120000;
-
     items.push({ type: 'msg', ...msg, first: !sameAsPrev, last: !sameAsNext });
   });
-
-  return items.reverse();
+  return items.reverse(); // newest first (inverted FlatList)
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -135,18 +130,21 @@ export default function ConversationScreen({ navigation, route }) {
     editMessage,
   } = useConversation({ token, matchId, userId });
 
-  const _entering = FadeInDown.springify().damping(18).stiffness(320);
-  const _layout = LinearTransition.springify();
-
-  // ── UI state ──
+  // ── UI state ──────────────────────────────────────────────────────────
   const [selectedMsgId, setSelectedMsgId] = useState(null);
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState({
     visible: false,
     msg: null,
-    pageY: 0,
-    pageX: 0,
+    bubbleLayout: null,
+  });
+
+  // Reaction tooltip
+  const [rxTooltip, setRxTooltip] = useState({
+    visible: false,
+    msg: null,
+    anchor: { x: 0, y: 0 },
   });
 
   // Reply
@@ -155,24 +153,26 @@ export default function ConversationScreen({ navigation, route }) {
   // Edit
   const [editingMsg, setEditingMsg] = useState(null);
 
-  // Attachment + media preview
+  // Media
   const [showAttach, setShowAttach] = useState(false);
   const [previewUri, setPreviewUri] = useState(null);
 
-  // Scroll state
+  // Scroll
   const [atBottom, setAtBottom] = useState(true);
   const [unreadScrolled, setUnreadScrolled] = useState(0);
   const prevLen = useRef(0);
 
+  // ── Track unread while scrolled up ───────────────────────────────────
   useEffect(() => {
     const diff = messages.length - prevLen.current;
     if (diff > 0 && !atBottom) setUnreadScrolled(p => p + diff);
     prevLen.current = messages.length;
   }, [messages.length, atBottom]);
 
+  // ── Build display items ───────────────────────────────────────────────
   const displayItems = useMemo(() => buildItems(messages), [messages]);
 
-  // Last own message — for delivery status + always-visible timestamp
+  // Last own message — delivery status + always-visible timestamp
   const lastOwnMsgId = useMemo(() => {
     const own = displayItems.find(
       item => item.type === 'msg' && item.senderId === userId,
@@ -180,8 +180,16 @@ export default function ConversationScreen({ navigation, route }) {
     return own?.messageId;
   }, [displayItems, userId]);
 
-  // ── Callbacks ──
+  // User profiles map — for reaction tooltip
+  // We have otherUser's image from route.params
+  const userProfiles = useMemo(
+    () => ({
+      [targetUserId]: { name, image },
+    }),
+    [targetUserId, name, image],
+  );
 
+  // ── Scroll callbacks ──────────────────────────────────────────────────
   const scrollToBottom = useCallback(() => {
     flatRef.current?.scrollToOffset({ offset: 0, animated: true });
     setAtBottom(true);
@@ -194,12 +202,33 @@ export default function ConversationScreen({ navigation, route }) {
     if (y < 80) setUnreadScrolled(0);
   }, []);
 
-  // Long press → open floating context menu
-  const onLongPress = useCallback((msg, pageY, pageX) => {
-    setCtxMenu({ visible: true, msg, pageY, pageX });
+  // ── Scroll to replied message ─────────────────────────────────────────
+  const scrollToMessage = useCallback(
+    messageId => {
+      const idx = displayItems.findIndex(
+        item => item.type === 'msg' && item.messageId === messageId,
+      );
+      if (idx < 0) return;
+      try {
+        flatRef.current?.scrollToIndex({
+          index: idx,
+          animated: true,
+          viewPosition: 0.5,
+        });
+      } catch (e) {
+        // Fallback: scroll to end if index not rendered
+        flatRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }
+    },
+    [displayItems],
+  );
+
+  // ── Long press → context menu ─────────────────────────────────────────
+  const onLongPress = useCallback((msg, bubbleLayout) => {
+    setCtxMenu({ visible: true, msg, bubbleLayout });
   }, []);
 
-  // Context menu actions
+  // ── Context menu actions ──────────────────────────────────────────────
   const onCtxReact = useCallback(
     async emoji => {
       if (!ctxMenu.msg) return;
@@ -240,7 +269,18 @@ export default function ConversationScreen({ navigation, route }) {
     await deleteMessage(ctxMenu.msg.messageId);
   }, [ctxMenu.msg, deleteMessage]);
 
-  // Swipe to reply
+  // ── Reaction tip press → tooltip ──────────────────────────────────────
+  const onRxTipPress = useCallback((msg, anchor) => {
+    setRxTooltip({ visible: true, msg, anchor });
+  }, []);
+
+  const onRemoveMyReaction = useCallback(async () => {
+    if (!rxTooltip.msg) return;
+    // Toggle with null emoji = remove
+    await reactToMessage(rxTooltip.msg.messageId, matchId, null);
+  }, [rxTooltip.msg, matchId, reactToMessage]);
+
+  // ── Swipe reply ───────────────────────────────────────────────────────
   const onSwipeReply = useCallback(
     msg => {
       setReplyingTo({
@@ -254,7 +294,7 @@ export default function ConversationScreen({ navigation, route }) {
     [userId, name],
   );
 
-  // Send with reply context
+  // ── Send with reply ───────────────────────────────────────────────────
   const handleSend = useCallback(
     async (content, replyTo) => {
       await sendMessage(content, replyTo);
@@ -262,7 +302,7 @@ export default function ConversationScreen({ navigation, route }) {
     [sendMessage],
   );
 
-  // Edit save
+  // ── Edit save ─────────────────────────────────────────────────────────
   const handleEditSave = useCallback(
     async (messageId, content) => {
       await editMessage(messageId, content);
@@ -271,7 +311,7 @@ export default function ConversationScreen({ navigation, route }) {
     [editMessage],
   );
 
-  // Media from attachment sheet
+  // ── Media ─────────────────────────────────────────────────────────────
   const handleMediaSelected = useCallback(
     async (uri, fileType, mediaType) => {
       await sendMedia(uri, fileType, mediaType);
@@ -279,15 +319,16 @@ export default function ConversationScreen({ navigation, route }) {
     [sendMedia],
   );
 
+  // ── Render item ───────────────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item }) => {
-      if (item.type === 'sep')
+      if (item.type === 'sep') {
         return (
-          <Animated.View entering={_entering} layout={_layout}>
+          <Animated.View layout={LinearTransition.springify().damping(18)}>
             <DateSeparator label={item.label} />
           </Animated.View>
         );
-
+      }
       const isOwn = item.senderId === userId;
       return (
         <MessageBubble
@@ -302,16 +343,16 @@ export default function ConversationScreen({ navigation, route }) {
           selectedMsgId={selectedMsgId}
           onSelect={setSelectedMsgId}
           onLongPress={onLongPress}
-          onRxPress={msg =>
-            setCtxMenu({
-              visible: true,
-              msg,
-              pageY: 300,
-              pageX: isOwn ? 200 : 60,
-            })
-          }
+          onRxTipPress={onRxTipPress}
           onMediaPress={uri => setPreviewUri(uri)}
           onSwipeReply={onSwipeReply}
+          onPressReplyQuote={scrollToMessage}
+          onAvatarPress={() =>
+            navigation.navigate('UserProfile', {
+              targetUserId,
+              imageUrl: image,
+            })
+          }
         />
       );
     },
@@ -323,12 +364,14 @@ export default function ConversationScreen({ navigation, route }) {
       lastOwnMsgId,
       selectedMsgId,
       onSwipeReply,
-      _entering,
-      _layout,
+      scrollToMessage,
+      onRxTipPress,
+      targetUserId,
+      navigation,
     ],
   );
 
-  // Header status
+  // ── Header status ─────────────────────────────────────────────────────
   const headerStatus = isTyping
     ? { text: '✍️ typing...', color: '#FF0059' }
     : initOnline
@@ -337,6 +380,14 @@ export default function ConversationScreen({ navigation, route }) {
         text: initLastActive ? formatLastActive(initLastActive) : '',
         color: '#94A3B8',
       };
+
+  // ── FlatList onScrollToIndexFailed ────────────────────────────────────
+  const onScrollToIndexFailed = useCallback(({ highestMeasuredFrameIndex }) => {
+    flatRef.current?.scrollToIndex({
+      index: highestMeasuredFrameIndex,
+      animated: true,
+    });
+  }, []);
 
   return (
     <GestureHandlerRootView style={s.container}>
@@ -352,7 +403,7 @@ export default function ConversationScreen({ navigation, route }) {
 
       {/* ── Header ── */}
       <SafeAreaView edges={['top']} style={s.headerSafe}>
-        <Animated.View entering={_entering} layout={_layout} style={s.header}>
+        <View style={s.header}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={s.backBtn}
@@ -376,7 +427,7 @@ export default function ConversationScreen({ navigation, route }) {
                 <Image source={{ uri: image }} style={s.hAvt} />
               ) : (
                 <View style={[s.hAvt, s.hAvtFb]}>
-                  <Text style={{ fontSize: 16 }}>👤</Text>
+                  <Text>👤</Text>
                 </View>
               )}
               <View
@@ -402,9 +453,9 @@ export default function ConversationScreen({ navigation, route }) {
           </TouchableOpacity>
 
           <TouchableOpacity style={s.moreBtn} activeOpacity={0.7}>
-            <Text style={s.moreBtnIco}>⋮</Text>
+            <Text style={s.moreIco}>⋮</Text>
           </TouchableOpacity>
-        </Animated.View>
+        </View>
       </SafeAreaView>
 
       {/* ── Messages ── */}
@@ -433,6 +484,7 @@ export default function ConversationScreen({ navigation, route }) {
             scrollEventThrottle={16}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
+            onScrollToIndexFailed={onScrollToIndexFailed}
             ListHeaderComponent={isTyping ? <TypingIndicator /> : null}
             ListFooterComponent={
               hasMore ? (
@@ -479,19 +531,34 @@ export default function ConversationScreen({ navigation, route }) {
         </SafeAreaView>
       </KeyboardAvoidingView>
 
-      {/* ── Floating Context Menu ── */}
+      {/* ── iMessage Context Menu ── */}
       <FloatingContextMenu
         visible={ctxMenu.visible}
         message={ctxMenu.msg}
         isOwn={ctxMenu.msg?.senderId === userId}
-        pageY={ctxMenu.pageY}
-        pageX={ctxMenu.pageX}
-        onClose={() => setCtxMenu(p => ({ ...p, visible: false }))}
+        bubbleLayout={ctxMenu.bubbleLayout}
+        onClose={() =>
+          setCtxMenu(p => ({ ...p, visible: false, bubbleLayout: null }))
+        }
         onReact={onCtxReact}
         onReply={onCtxReply}
         onCopy={onCtxCopy}
         onEdit={onCtxEdit}
         onDelete={onCtxDelete}
+      />
+
+      {/* ── Reaction Tooltip ── */}
+      <ReactionTooltip
+        visible={rxTooltip.visible}
+        reactions={
+          rxTooltip.msg ? reactionsMap?.[rxTooltip.msg.messageId] : null
+        }
+        myUserId={userId}
+        userProfiles={userProfiles}
+        anchorX={rxTooltip.anchor.x}
+        anchorY={rxTooltip.anchor.y}
+        onClose={() => setRxTooltip(p => ({ ...p, visible: false }))}
+        onRemoveMyReaction={onRemoveMyReaction}
       />
 
       {/* ── Attachment Sheet ── */}
@@ -562,13 +629,13 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  moreBtnIco: { fontSize: 20, color: '#64748B', lineHeight: 22 },
+  moreIco: { fontSize: 20, color: '#64748B', lineHeight: 22 },
 
   msgList: {
     paddingHorizontal: 12,
     paddingVertical: 12,
     flexGrow: 1,
-    paddingBottom: 20,
+    paddingBottom: 16,
   },
 
   inputWrap: {
@@ -588,13 +655,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
-  emptyAvt: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    marginBottom: 20,
-    backgroundColor: '#F1F5F9',
-  },
+  emptyAvt: { width: 90, height: 90, borderRadius: 45, marginBottom: 20 },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',

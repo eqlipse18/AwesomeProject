@@ -578,7 +578,7 @@ export default function ChatScreen({ navigation }) {
 // Styles
 // ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: '#fef3fe' },
   centered: {
     flex: 1,
     justifyContent: 'center',
