@@ -186,7 +186,19 @@ router.get('/messages/:matchId', authenticate, async (req, res) => {
     }
 
     const resp = await docClient.send(new QueryCommand(params));
-    const messages = (resp.Items || []).reverse(); // Oldest first for chat UI
+    const messages = (resp.Items || []).reverse().map(msg => {
+      // Flat replyTo fields → nested object
+      if (msg.replyToId) {
+        msg.replyTo = {
+          messageId: msg.replyToId,
+          senderId: msg.replyToSenderId || '',
+          senderName: msg.replyToSenderName || '',
+          type: msg.replyToType || 'text',
+          content: msg.replyToContent || '',
+        };
+      }
+      return msg;
+    });
 
     const nextCursor = resp.LastEvaluatedKey
       ? Buffer.from(JSON.stringify(resp.LastEvaluatedKey)).toString('base64')
@@ -209,10 +221,14 @@ router.get('/messages/:matchId', authenticate, async (req, res) => {
 // POST /messages — Send text message
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+// POST /messages — Send text message (replyTo denormalized add kiya)
+// ════════════════════════════════════════════════════════════════════════════
+
 router.post('/messages', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
-    const { matchId, content, type = 'text' } = req.body;
+    const { matchId, content, type = 'text', replyTo } = req.body;
 
     if (!matchId || !content) {
       return res
@@ -220,22 +236,17 @@ router.post('/messages', authenticate, async (req, res) => {
         .json({ success: false, error: 'matchId and content required' });
     }
 
-    // Verify match exists + user is part of it
     const matchResp = await docClient.send(
       new GetCommand({
         TableName: 'flame-Matches',
         Key: { matchId },
       }),
     );
-
-    if (!matchResp.Item) {
+    if (!matchResp.Item)
       return res.status(404).json({ success: false, error: 'Match not found' });
-    }
-
     const match = matchResp.Item;
-    if (match.user1Id !== userId && match.user2Id !== userId) {
+    if (match.user1Id !== userId && match.user2Id !== userId)
       return res.status(403).json({ success: false, error: 'Not authorized' });
-    }
 
     const messageId = uuidv4();
     const now = new Date().toISOString();
@@ -250,18 +261,26 @@ router.post('/messages', authenticate, async (req, res) => {
       createdAt: now,
     };
 
-    // ── Save message ──
+    // ── Denormalize replyTo so it survives DB round-trip ──
+    if (replyTo?.messageId) {
+      message.replyToId = replyTo.messageId;
+      message.replyToSenderId = replyTo.senderId || '';
+      message.replyToSenderName = replyTo.senderName || '';
+      message.replyToType = replyTo.type || 'text';
+      message.replyToContent =
+        replyTo.type === 'image'
+          ? '📷 Photo'
+          : replyTo.type === 'video'
+          ? '🎥 Video'
+          : (replyTo.content || '').slice(0, 120);
+    }
+
     await docClient.send(
-      new PutCommand({
-        TableName: 'flame-Messages',
-        Item: message,
-      }),
+      new PutCommand({ TableName: 'flame-Messages', Item: message }),
     );
 
-    // ── Update match lastMessage ──
     const displayText =
       type === 'image' ? '📷 Photo' : type === 'video' ? '🎥 Video' : content;
-
     await docClient.send(
       new UpdateCommand({
         TableName: 'flame-Matches',
@@ -274,10 +293,21 @@ router.post('/messages', authenticate, async (req, res) => {
       }),
     );
 
-    // ── Emit via Socket.io to room ──
-    getIO().to(matchId).emit('new_message', message);
+    // Reconstruct nested replyTo for socket + response
+    const formatted = { ...message };
+    if (message.replyToId) {
+      formatted.replyTo = {
+        messageId: message.replyToId,
+        senderId: message.replyToSenderId,
+        senderName: message.replyToSenderName,
+        type: message.replyToType,
+        content: message.replyToContent,
+      };
+      // keep flat fields too (FE uses both)
+    }
 
-    return res.status(200).json({ success: true, message });
+    getIO().to(matchId).emit('new_message', formatted);
+    return res.status(200).json({ success: true, message: formatted });
   } catch (err) {
     console.error('[POST /messages] Error:', err.message);
     return res
@@ -447,7 +477,7 @@ router.patch('/messages/react', authenticate, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// DELETE /messages/:messageId — WhatsApp style soft delete
+// DELETE /messages/:messageId — deletedAt emit fix
 // ════════════════════════════════════════════════════════════════════════════
 
 router.delete('/messages/:messageId', authenticate, async (req, res) => {
@@ -467,14 +497,14 @@ router.delete('/messages/:messageId', authenticate, async (req, res) => {
         Key: { matchId, messageId },
       }),
     );
-
     if (!msgResp.Item)
       return res
         .status(404)
         .json({ success: false, error: 'Message not found' });
-
     if (msgResp.Item.senderId !== userId)
       return res.status(403).json({ success: false, error: 'Not authorized' });
+
+    const now = new Date().toISOString();
 
     await docClient.send(
       new UpdateCommand({
@@ -486,12 +516,15 @@ router.delete('/messages/:messageId', authenticate, async (req, res) => {
         ExpressionAttributeValues: {
           ':deleted': 'deleted',
           ':placeholder': 'This message was deleted',
-          ':now': new Date().toISOString(),
+          ':now': now,
         },
       }),
     );
 
-    getIO().to(matchId).emit('message_deleted', { messageId, matchId });
+    // ── deletedAt bhi emit karo (FE timestamp dikhayega) ──
+    getIO()
+      .to(matchId)
+      .emit('message_deleted', { messageId, matchId, deletedAt: now });
 
     return res.status(200).json({ success: true });
   } catch (err) {
@@ -503,7 +536,7 @@ router.delete('/messages/:messageId', authenticate, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// PATCH /messages/edit — Edit message content
+// PATCH /messages/edit — originalContent emit fix
 // ════════════════════════════════════════════════════════════════════════════
 
 router.patch('/messages/edit', authenticate, async (req, res) => {
@@ -523,16 +556,17 @@ router.patch('/messages/edit', authenticate, async (req, res) => {
         Key: { matchId, messageId },
       }),
     );
-
     if (!msgResp.Item)
       return res
         .status(404)
         .json({ success: false, error: 'Message not found' });
-
     if (msgResp.Item.senderId !== userId)
       return res.status(403).json({ success: false, error: 'Not authorized' });
 
     const now = new Date().toISOString();
+    // if_not_exists → first originalContent preserved always
+    const originalContent =
+      msgResp.Item.originalContent || msgResp.Item.content;
 
     await docClient.send(
       new UpdateCommand({
@@ -549,14 +583,15 @@ router.patch('/messages/edit', authenticate, async (req, res) => {
       }),
     );
 
-    const payload = {
+    // ── originalContent bhi emit karo ──
+    getIO().to(matchId).emit('message_edited', {
       messageId,
       matchId,
       content: content.trim(),
       isEdited: true,
       editedAt: now,
-    };
-    getIO().to(matchId).emit('message_edited', payload);
+      originalContent, // ← yahi missing tha
+    });
 
     return res.status(200).json({ success: true });
   } catch (err) {

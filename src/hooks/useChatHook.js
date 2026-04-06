@@ -206,6 +206,19 @@ export function useConversation({ token, matchId, userId }) {
     const handleNewMessage = message => {
       if (message.matchId !== matchId) return;
       setMessages(prev => {
+        // Temp message replace karo (same sender + same content)
+        const tempIdx = prev.findIndex(
+          m =>
+            m.isTemp &&
+            m.senderId === message.senderId &&
+            m.content === message.content,
+        );
+        if (tempIdx >= 0) {
+          const next = [...prev];
+          next[tempIdx] = { ...message, isTemp: false };
+          return next;
+        }
+        // Duplicate check
         if (prev.find(m => m.messageId === message.messageId)) return prev;
         return [...prev, message];
       });
@@ -239,19 +252,41 @@ export function useConversation({ token, matchId, userId }) {
         );
       }
     };
-    const handleDeleted = ({ messageId: dId }) => {
+    // ── handleDeleted — deletedAt bhi save karo ──
+    const handleDeleted = ({ messageId: dId, deletedAt }) => {
       setMessages(prev =>
         prev.map(m =>
           m.messageId === dId
-            ? { ...m, type: 'deleted', content: 'This message was deleted' }
+            ? {
+                ...m,
+                type: 'deleted',
+                content: 'This message was deleted',
+                deletedAt: deletedAt || new Date().toISOString(),
+              }
             : m,
         ),
       );
     };
-    const handleEdited = ({ messageId: eId, content, isEdited, editedAt }) => {
+    // ── handleEdited — originalContent bhi update karo ──
+    const handleEdited = ({
+      messageId: eId,
+      content,
+      isEdited,
+      editedAt,
+      originalContent,
+    }) => {
       setMessages(prev =>
         prev.map(m =>
-          m.messageId === eId ? { ...m, content, isEdited, editedAt } : m,
+          m.messageId === eId
+            ? {
+                ...m,
+                content,
+                isEdited,
+                editedAt,
+                // pehle se originalContent hai toh preserve karo
+                originalContent: m.originalContent || originalContent,
+              }
+            : m,
         ),
       );
     };
@@ -287,64 +322,95 @@ export function useConversation({ token, matchId, userId }) {
       // sendMessage mein replyTo support add karo:
     };
   }, [token, matchId, userId]);
+  // ── deleteMessage — OPTIMISTIC ──
   const deleteMessage = useCallback(
     async messageId => {
+      const now = new Date().toISOString();
+
+      // ── Instant UI update ──
+      setMessages(prev =>
+        prev.map(m =>
+          m.messageId === messageId
+            ? {
+                ...m,
+                type: 'deleted',
+                content: 'This message was deleted',
+                deletedAt: now,
+              }
+            : m,
+        ),
+      );
+
       try {
         await apiClient.current.delete(`/messages/${messageId}`, {
           data: { matchId },
         });
-        // optimistic UI
-        setMessages(prev =>
-          prev.map(m =>
-            m.messageId === messageId
-              ? {
-                  ...m,
-                  type: 'deleted',
-                  content: 'This message was deleted',
-                }
-              : m,
-          ),
-        );
       } catch (err) {
         console.error('[deleteMessage]', err.message);
+        fetchMessages(); // rollback on error
       }
     },
-    [matchId],
+    [matchId, fetchMessages],
   );
 
+  // ── editMessage — OPTIMISTIC (instant, no wait) ──
   const editMessage = useCallback(
     async (messageId, content) => {
+      if (!content?.trim()) return;
+
+      // ── Capture original before overwriting ──
+      setMessages(prev =>
+        prev.map(m => {
+          if (m.messageId !== messageId) return m;
+          return {
+            ...m,
+            content: content.trim(),
+            isEdited: true,
+            editedAt: new Date().toISOString(),
+            // Preserve first-ever original
+            originalContent: m.originalContent || m.content,
+          };
+        }),
+      );
+
       try {
         await apiClient.current.patch('/messages/edit', {
           messageId,
           matchId,
-          content,
+          content: content.trim(),
         });
-        // optimistic UI
-        setMessages(prev =>
-          prev.map(m =>
-            m.messageId === messageId
-              ? {
-                  ...m,
-                  content,
-                  isEdited: true,
-                  editedAt: new Date().toISOString(),
-                }
-              : m,
-          ),
-        );
       } catch (err) {
         console.error('[editMessage]', err.message);
+        // rollback — refetch
+        fetchMessages();
       }
     },
-    [matchId],
+    [matchId, fetchMessages],
   );
-
+  // ── sendMessage — OPTIMISTIC (instant bubble, no loader) ──
   const sendMessage = useCallback(
     async (content, replyTo = null) => {
       if (!content?.trim() || !matchId) return;
+
+      const tempId = `temp_${Date.now()}_${Math.random()}`;
+      const now = new Date().toISOString();
+
+      const tempMsg = {
+        messageId: tempId,
+        matchId,
+        senderId: userId,
+        type: 'text',
+        content: content.trim(),
+        status: 'sending',
+        createdAt: now,
+        replyTo: replyTo || null,
+        isTemp: true,
+      };
+
+      // ── Instant add ──
+      setMessages(prev => [...prev, tempMsg]);
+
       try {
-        setSending(true);
         const resp = await apiClient.current.post('/messages', {
           matchId,
           content: content.trim(),
@@ -352,25 +418,52 @@ export function useConversation({ token, matchId, userId }) {
           ...(replyTo && { replyTo }),
         });
         if (!resp.data.success) throw new Error(resp.data.error);
-        setMessages(prev => {
-          if (prev.find(m => m.messageId === resp.data.message.messageId))
-            return prev;
-          return [...prev, resp.data.message];
-        });
+
+        // ── Replace temp with real ──
+        setMessages(prev =>
+          prev.map(m =>
+            m.messageId === tempId
+              ? { ...resp.data.message, isTemp: false }
+              : m,
+          ),
+        );
       } catch (err) {
+        // ── Mark failed ──
+        setMessages(prev =>
+          prev.map(m =>
+            m.messageId === tempId ? { ...m, status: 'failed' } : m,
+          ),
+        );
         setError(err.response?.data?.error || err.message);
-      } finally {
-        setSending(false);
       }
+      // setSending removed — no loader
     },
-    [matchId],
+    [matchId, userId],
   );
 
+  // ✅ Replace karo pura sendMedia
   const sendMedia = useCallback(
     async (fileUri, fileType, mediaType = 'image') => {
       if (!fileUri || !matchId) return;
+
+      const tempId = `temp_${Date.now()}_${Math.random()}`;
+      const now = new Date().toISOString();
+
+      // ── Instant preview with local URI ──
+      const tempMsg = {
+        messageId: tempId,
+        matchId,
+        senderId: userId,
+        type: mediaType,
+        content: fileUri, // local uri — instant preview
+        status: 'sending',
+        createdAt: now,
+        isTemp: true,
+      };
+      setMessages(prev => [...prev, tempMsg]);
+
       try {
-        setSending(true);
+        // 1. Get presigned URL
         const urlResp = await apiClient.current.post('/messages/media', {
           matchId,
           fileType,
@@ -378,30 +471,41 @@ export function useConversation({ token, matchId, userId }) {
         });
         if (!urlResp.data.success) throw new Error(urlResp.data.error);
         const { uploadUrl, publicUrl } = urlResp.data;
+
+        // 2. Upload to S3
         const blob = await fetch(fileUri).then(r => r.blob());
         await fetch(uploadUrl, {
           method: 'PUT',
           body: blob,
           headers: { 'Content-Type': fileType },
         });
+
+        // 3. Save message
         const resp = await apiClient.current.post('/messages', {
           matchId,
           content: publicUrl,
           type: mediaType,
         });
         if (!resp.data.success) throw new Error(resp.data.error);
-        setMessages(prev => {
-          if (prev.find(m => m.messageId === resp.data.message.messageId))
-            return prev;
-          return [...prev, resp.data.message];
-        });
+
+        // ── Replace temp with real (S3 URL) ──
+        setMessages(prev =>
+          prev.map(m =>
+            m.messageId === tempId
+              ? { ...resp.data.message, isTemp: false }
+              : m,
+          ),
+        );
       } catch (err) {
+        setMessages(prev =>
+          prev.map(m =>
+            m.messageId === tempId ? { ...m, status: 'failed' } : m,
+          ),
+        );
         setError(err.response?.data?.error || err.message);
-      } finally {
-        setSending(false);
       }
     },
-    [matchId],
+    [matchId, userId],
   );
 
   const emitTyping = useCallback(() => {
@@ -416,19 +520,33 @@ export function useConversation({ token, matchId, userId }) {
     if (nextCursor && !loading) fetchMessages(nextCursor);
   }, [nextCursor, loading, fetchMessages]);
 
-  // ✅ reactToMessage
-  const reactToMessage = useCallback(async (messageId, msgMatchId, emoji) => {
-    try {
-      await apiClient.current.patch('/messages/react', {
-        messageId,
-        matchId: msgMatchId,
-        emoji,
+  // ✅ Replace karo pura reactToMessage
+  const reactToMessage = useCallback(
+    async (messageId, msgMatchId, emoji) => {
+      // ── Optimistic update ──
+      setReactionsMap(prev => {
+        const curr = { ...(prev[messageId] || {}) };
+        if (!emoji || curr[userId] === emoji) {
+          delete curr[userId];
+        } else {
+          curr[userId] = emoji;
+        }
+        return { ...prev, [messageId]: curr };
       });
-      // Socket will broadcast message_reacted → UI updates via handleReacted
-    } catch (err) {
-      console.error('[reactToMessage]', err.message);
-    }
-  }, []);
+
+      try {
+        await apiClient.current.patch('/messages/react', {
+          messageId,
+          matchId: msgMatchId,
+          emoji,
+        });
+      } catch (err) {
+        console.error('[reactToMessage]', err.message);
+        fetchMessages(); // rollback on error
+      }
+    },
+    [userId, fetchMessages],
+  );
 
   return {
     messages,

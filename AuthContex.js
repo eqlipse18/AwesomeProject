@@ -12,6 +12,7 @@ const AuthProvider = ({ children }) => {
   const [userId, setUserId] = useState(null);
   const [authLoading, setAuthLoading] = useState(true); // loading flag
   const [userInfo, setUserInfo] = useState(null);
+  const [userImage, setUserImage] = useState(null);
   const [authUser, setAuthUser] = useState(null);
   const [subscription, setSubscription] = useState(null);
 
@@ -127,6 +128,8 @@ const AuthProvider = ({ children }) => {
         setAuthUser,
         userInfo,
         setUserInfo,
+        userImage,
+        setUserImage,
         authLoading, // provide loading state
         profileComplete,
         setProfileComplete,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,9 @@ import {
   StyleSheet,
   Dimensions,
   Image,
+  Platform,
 } from 'react-native';
+import { BlurView } from '@react-native-community/blur';
 import LinearGradient from 'react-native-linear-gradient';
 import Animated, {
   FadeIn,
@@ -22,34 +24,44 @@ const REACTIONS = ['❤️', '😂', '😮', '😢', '😡', '👍'];
 const MENU_W = 210;
 const RX_W = 292;
 const RX_H = 56;
-const SAFE_TOP = 80;
-const SAFE_BOTTOM = 120;
-const PAD = 14;
+const SAFE_TOP = 96; // header height approx
+const SAFE_BOTTOM = 110; // input bar approx
+const MENU_H_EST = 200;
 
-// ── Inline bubble preview (no gestures) ──────────────────────────────────
-const BubblePreview = ({ message, isOwn }) => {
+// ── Static bubble preview (no interaction) ────────────────────────────────
+const BubblePreview = ({ message, isOwn, bubbleLayout }) => {
+  const { width: bw } = bubbleLayout;
   const R = 20;
-  const isMedia = message.type === 'image' || message.type === 'video';
-  const isDeleted = message.type === 'deleted';
 
-  if (isDeleted) {
+  if (message.type === 'deleted') {
     return (
-      <View style={[bp.bbl, bp.deleted, { borderRadius: R }]}>
+      <View
+        style={[
+          bp.wrap,
+          {
+            borderRadius: R,
+            backgroundColor: '#F1F5F9',
+            borderWidth: 1,
+            borderColor: '#E2E8F0',
+            width: bw,
+          },
+        ]}
+      >
         <Text style={bp.deletedTxt}>🚫 This message was deleted</Text>
       </View>
     );
   }
-  if (isMedia) {
+  if (message.type === 'image' || message.type === 'video') {
     return (
-      <View style={{ borderRadius: R, overflow: 'hidden' }}>
+      <View style={{ borderRadius: R, overflow: 'hidden', width: bw }}>
         <Image
           source={{ uri: message.content }}
-          style={bp.img}
+          style={{ width: bw, height: bw * 1.1 }}
           resizeMode="cover"
         />
         {message.type === 'video' && (
           <View style={bp.videoOverlay}>
-            <Text style={{ fontSize: 28, color: '#fff' }}>▶</Text>
+            <Text style={{ fontSize: 26, color: '#fff' }}>▶</Text>
           </View>
         )}
       </View>
@@ -61,66 +73,46 @@ const BubblePreview = ({ message, isOwn }) => {
         colors={['#FF0059', '#FF5289']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[bp.bbl, { borderRadius: R }]}
+        style={[bp.wrap, { borderRadius: R }]}
       >
-        {message.isEdited && <Text style={bp.editedOwn}>edited</Text>}
         <Text style={bp.txtOwn}>{message.content}</Text>
       </LinearGradient>
     );
   }
   return (
-    <View style={[bp.bbl, bp.other, { borderRadius: R }]}>
-      {message.isEdited && <Text style={bp.editedOther}>edited</Text>}
+    <View style={[bp.wrap, bp.other, { borderRadius: R }]}>
       <Text style={bp.txtOther}>{message.content}</Text>
     </View>
   );
 };
 
 const bp = StyleSheet.create({
-  bbl: { paddingHorizontal: 14, paddingVertical: 10, maxWidth: W * 0.72 },
+  wrap: { paddingHorizontal: 14, paddingVertical: 10 },
   other: {
     backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   txtOwn: { fontSize: 15, color: '#fff', lineHeight: 22 },
   txtOther: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
-  editedOwn: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.55)',
-    alignSelf: 'flex-end',
-    marginBottom: 2,
-  },
-  editedOther: {
-    fontSize: 10,
-    color: '#94A3B8',
-    alignSelf: 'flex-end',
-    marginBottom: 2,
-  },
-  deleted: {
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
   deletedTxt: { fontSize: 13, color: '#94A3B8', fontStyle: 'italic' },
-  img: { width: W * 0.6, height: W * 0.6 * 1.05 },
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
 });
 
-// ── Main Component ────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
 export const FloatingContextMenu = ({
   visible,
   message,
   isOwn,
-  bubbleLayout, // { x, y, width, height } from ref.measure()
+  bubbleLayout,
   onClose,
   onReact,
   onReply,
@@ -128,40 +120,51 @@ export const FloatingContextMenu = ({
   onEdit,
   onDelete,
 }) => {
+  const pos = useMemo(() => {
+    if (!bubbleLayout) return {};
+    const { x: bx, y: by, width: bw, height: bh } = bubbleLayout;
+
+    // ── Reactions pill ── prefer ABOVE bubble (iMessage style)
+    const rxLeft = Math.max(8, Math.min(bx + bw / 2 - RX_W / 2, W - RX_W - 8));
+    const rxAbove = by - RX_H - 10;
+    const rxTop = rxAbove >= SAFE_TOP ? rxAbove : by + bh + 10;
+    const rxIsAbove = rxAbove >= SAFE_TOP;
+
+    // ── Bubble preview ── EXACT same position (no movement)
+    const bubbleX = bx;
+    const bubbleY = by;
+
+    // ── Menu card ──
+    // If reactions above: menu goes below bubble
+    // If reactions below: menu goes above bubble
+    let menuTop, menuLeft;
+    if (rxIsAbove) {
+      menuTop = by + bh + 10;
+    } else {
+      menuTop = rxTop - MENU_H_EST - 10; // above reactions
+    }
+    // Clamp menu to safe bounds
+    menuTop = Math.max(
+      SAFE_TOP,
+      Math.min(menuTop, H - SAFE_BOTTOM - MENU_H_EST),
+    );
+    menuLeft = isOwn
+      ? Math.max(8, W - MENU_W - 8)
+      : Math.max(8, Math.min(bx, W - MENU_W - 8));
+
+    return { rxLeft, rxTop, bubbleX, bubbleY, menuTop, menuLeft };
+  }, [bubbleLayout, isOwn]);
+
   if (!visible || !message || !bubbleLayout) return null;
 
-  const { x: bx, y: by, width: bw, height: bh } = bubbleLayout;
-
-  // ── Position calculations ──
-  // Reactions pill — centered above bubble
-  const rxLeft = Math.max(
-    PAD,
-    Math.min(bx + bw / 2 - RX_W / 2, W - RX_W - PAD),
-  );
-
-  // Check if we have space above for reactions
-  const hasSpaceAbove = by > SAFE_TOP + RX_H + 12 + bh;
-
-  // Bubble preview top — keep near original but safe
-  const bubbleTop = hasSpaceAbove
-    ? Math.max(SAFE_TOP + RX_H + 12, by - 8)
-    : Math.min(by + 8, H - SAFE_BOTTOM - bh - RX_H - 80);
-
-  const rxTop = hasSpaceAbove ? bubbleTop - RX_H - 8 : bubbleTop + bh + 8;
-
-  // Menu card — opposite side of reactions
-  const menuTop = hasSpaceAbove ? bubbleTop + bh + 10 : rxTop + RX_H + 10;
-
-  const menuLeft = isOwn
-    ? Math.max(PAD, W - MENU_W - PAD)
-    : Math.max(PAD + 16, Math.min(bx, W - MENU_W - PAD));
-
-  const bubbleLeft = Math.max(PAD, Math.min(bx, W - bw - PAD));
-
-  // ── Actions ──
   const actions = [
     { key: 'reply', ico: '↩️', label: 'Reply' },
-    { key: 'copy', ico: '📋', label: 'Copy', hide: message.type !== 'text' },
+    {
+      key: 'copy',
+      ico: '📋',
+      label: 'Copy',
+      hide: message.type !== 'text' || message.type === 'deleted',
+    },
     {
       key: 'edit',
       ico: '✏️',
@@ -180,21 +183,11 @@ export const FloatingContextMenu = ({
   const handleAction = key => {
     onClose();
     setTimeout(() => {
-      switch (key) {
-        case 'reply':
-          onReply?.();
-          break;
-        case 'copy':
-          onCopy?.();
-          break;
-        case 'edit':
-          onEdit?.();
-          break;
-        case 'unsend':
-          onDelete?.();
-          break;
-      }
-    }, 200);
+      if (key === 'reply') onReply?.();
+      else if (key === 'copy') onCopy?.();
+      else if (key === 'edit') onEdit?.();
+      else if (key === 'unsend') onDelete?.();
+    }, 180);
   };
 
   return (
@@ -205,26 +198,48 @@ export const FloatingContextMenu = ({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      {/* ── Blurred dark overlay ── */}
+      {/* ── Blur overlay ── */}
       <Animated.View
-        entering={FadeIn.duration(200)}
-        exiting={FadeOut.duration(200)}
+        entering={FadeIn.duration(180)}
+        exiting={FadeOut.duration(180)}
         style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
       >
-        <Pressable style={s.overlay} onPress={onClose} />
+        {Platform.OS === 'ios' ? (
+          <BlurView
+            style={StyleSheet.absoluteFillObject}
+            blurType="dark"
+            blurAmount={10}
+            reducedTransparencyFallbackColor="rgba(0,0,0,0.65)"
+          />
+        ) : (
+          <BlurView
+            style={StyleSheet.absoluteFillObject}
+            blurType="dark"
+            blurAmount={6}
+            reducedTransparencyFallbackColor="rgba(0,0,0,0.65)"
+          />
+        )}
       </Animated.View>
+
+      {/* Pressable close area */}
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
 
       {/* ── Reactions pill ── */}
       <Animated.View
-        entering={FadeInDown.springify().damping(16).stiffness(260)}
-        style={[s.rxPill, { top: rxTop, left: rxLeft, width: RX_W }]}
+        entering={FadeInDown.duration(200)
+          .springify()
+          .damping(22)
+          .stiffness(340)}
+        style={[s.rxPill, { top: pos.rxTop, left: pos.rxLeft, width: RX_W }]}
       >
         {REACTIONS.map((emoji, i) => (
           <Animated.View
             key={emoji}
-            entering={FadeInDown.delay(i * 28)
+            entering={FadeInDown.delay(i * 22)
+              .duration(160)
               .springify()
-              .damping(18)}
+              .damping(24)}
           >
             <TouchableOpacity
               style={s.rxBtn}
@@ -240,18 +255,30 @@ export const FloatingContextMenu = ({
         ))}
       </Animated.View>
 
-      {/* ── Bubble preview (floating) ── */}
+      {/* ── Bubble preview — EXACT position ── */}
       <Animated.View
-        entering={FadeIn.duration(160)}
-        style={[s.bubbleWrap, { top: bubbleTop, left: bubbleLeft }]}
+        entering={FadeIn.duration(150)}
+        style={[s.bubbleWrap, { top: pos.bubbleY, left: pos.bubbleX }]}
+        pointerEvents="none"
       >
-        <BubblePreview message={message} isOwn={isOwn} />
+        <BubblePreview
+          message={message}
+          isOwn={isOwn}
+          bubbleLayout={bubbleLayout}
+        />
       </Animated.View>
 
       {/* ── Menu card ── */}
       <Animated.View
-        entering={FadeInUp.springify().damping(18).stiffness(280).delay(50)}
-        style={[s.menu, { top: menuTop, left: menuLeft, width: MENU_W }]}
+        entering={FadeInUp.duration(200)
+          .springify()
+          .damping(22)
+          .stiffness(340)
+          .delay(40)}
+        style={[
+          s.menu,
+          { top: pos.menuTop, left: pos.menuLeft, width: MENU_W },
+        ]}
       >
         {actions.map((a, i) => (
           <React.Fragment key={a.key}>
@@ -272,9 +299,6 @@ export const FloatingContextMenu = ({
 };
 
 const s = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.58)' },
-
-  // Reactions pill
   rxPill: {
     position: 'absolute',
     flexDirection: 'row',
@@ -283,12 +307,12 @@ const s = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 32,
     height: RX_H,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 12,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 14,
     zIndex: 10,
   },
   rxBtn: {
@@ -298,20 +322,16 @@ const s = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 21,
   },
-  rxEmoji: { fontSize: 27 },
-
-  // Bubble preview
+  rxEmoji: { fontSize: 26 },
   bubbleWrap: {
     position: 'absolute',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    elevation: 14,
     zIndex: 9,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 20,
+    elevation: 14,
   },
-
-  // Menu
   menu: {
     position: 'absolute',
     backgroundColor: '#fff',
@@ -320,7 +340,7 @@ const s = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.14,
-    shadowRadius: 16,
+    shadowRadius: 18,
     elevation: 12,
     zIndex: 10,
   },
@@ -336,7 +356,7 @@ const s = StyleSheet.create({
     paddingVertical: 13,
     gap: 12,
   },
-  menuIco: { fontSize: 19 },
+  menuIco: { fontSize: 18 },
   menuTxt: { fontSize: 15, fontWeight: '500', color: '#0F172A', flex: 1 },
   danger: { color: '#EF4444' },
 });

@@ -35,10 +35,10 @@ export const ReactionTooltip = ({
 
   if (!reacted.length) return null;
 
-  // Position — clamp to screen
-  const TIP_W = 200;
+  const TIP_W = 210;
+  const TIP_H = reacted.length * 50 + 48;
   const left = Math.max(12, Math.min(anchorX - TIP_W / 2, W - TIP_W - 12));
-  const top = Math.max(60, anchorY - (reacted.length * 46 + 50));
+  const top = Math.max(80, anchorY - TIP_H - 12);
 
   return (
     <Modal
@@ -52,40 +52,44 @@ export const ReactionTooltip = ({
         entering={FadeIn.duration(160)}
         exiting={FadeOut.duration(160)}
         style={StyleSheet.absoluteFillObject}
-      >
-        <Pressable style={{ flex: 1 }} onPress={onClose} />
-      </Animated.View>
+        pointerEvents="none"
+      />
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
 
       <Animated.View
         entering={FadeIn.duration(180)}
         style={[s.card, { top, left, width: TIP_W }]}
       >
         <Text style={s.header}>Reactions</Text>
+
         {reacted.map(u => (
           <View key={u.userId} style={s.row}>
+            {/* User image — own or other */}
             {u.image ? (
               <Image source={{ uri: u.image }} style={s.pic} />
             ) : (
               <View style={[s.pic, s.picFb]}>
-                <Text style={{ fontSize: 11 }}>👤</Text>
+                <Text style={{ fontSize: 12 }}>👤</Text>
               </View>
             )}
-            <Text style={s.name} numberOfLines={1}>
-              {u.name}
-            </Text>
+
+            <View style={s.info}>
+              <Text style={s.name} numberOfLines={1}>
+                {u.name}
+              </Text>
+              {u.isMe && (
+                <TouchableOpacity
+                  onPress={() => {
+                    onRemoveMyReaction?.();
+                    onClose();
+                  }}
+                >
+                  <Text style={s.removeLabel}>Tap to remove</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             <Text style={s.emoji}>{u.emoji}</Text>
-            {u.isMe && (
-              <TouchableOpacity
-                style={s.removeBtn}
-                onPress={() => {
-                  onRemoveMyReaction?.();
-                  onClose();
-                }}
-                hitSlop={6}
-              >
-                <Text style={s.removeIco}>✕</Text>
-              </TouchableOpacity>
-            )}
           </View>
         ))}
       </Animated.View>
@@ -97,14 +101,14 @@ const s = StyleSheet.create({
   card: {
     position: 'absolute',
     backgroundColor: '#fff',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 14,
-    elevation: 12,
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    elevation: 14,
     zIndex: 999,
   },
   header: {
@@ -112,26 +116,19 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: '#94A3B8',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 8,
+    letterSpacing: 0.7,
+    marginBottom: 10,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
+    gap: 10,
+    marginBottom: 8,
   },
-  pic: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F1F5F9' },
+  pic: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9' },
   picFb: { justifyContent: 'center', alignItems: 'center' },
-  name: { flex: 1, fontSize: 13, fontWeight: '600', color: '#0F172A' },
-  emoji: { fontSize: 17 },
-  removeBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#FEE2E2',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  removeIco: { fontSize: 9, color: '#EF4444', fontWeight: '800' },
+  info: { flex: 1 },
+  name: { fontSize: 13, fontWeight: '600', color: '#0F172A' },
+  removeLabel: { fontSize: 11, color: '#FF0059', marginTop: 1 },
+  emoji: { fontSize: 20 },
 });

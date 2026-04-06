@@ -36,11 +36,13 @@ import { AttachmentSheet } from '../src/components/conversation/AttachmentSheet'
 import { MediaPreviewModal } from '../src/components/conversation/MediaPreviewModal';
 import { ScrollFAB } from '../src/components/conversation/ScrollFAB';
 import { InputBar } from '../src/components/conversation/InputBar';
+import Config from 'react-native-config';
 
 // ════════════════════════════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════════════════════════════
 
+const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 const getDateKey = ts => {
   if (!ts) return '';
   const d = new Date(ts);
@@ -111,8 +113,9 @@ export default function ConversationScreen({ navigation, route }) {
     lastActiveAt: initLastActive = null,
   } = route.params;
 
-  const { token, userId } = useContext(AuthContext);
+  const { token, userId, userImage: myImage } = useContext(AuthContext);
   const flatRef = useRef(null);
+  const prevMsgLen = useRef(0);
 
   const {
     messages,
@@ -180,26 +183,53 @@ export default function ConversationScreen({ navigation, route }) {
     return own?.messageId;
   }, [displayItems, userId]);
 
+  useEffect(() => {
+    const newMsgs = messages.slice(
+      0,
+      Math.max(0, messages.length - prevMsgLen.current),
+    );
+    const newReceived = newMsgs.filter(
+      m => m.senderId !== userId && !m.isTemp && m.status !== 'failed',
+    );
+    if (newReceived.length > 0 && !atBottom) {
+      setUnreadScrolled(p => p + newReceived.length);
+    }
+    prevMsgLen.current = messages.length;
+  }, [messages.length]);
+
   // User profiles map — for reaction tooltip
   // We have otherUser's image from route.params
   const userProfiles = useMemo(
     () => ({
       [targetUserId]: { name, image },
+      [userId]: { name: 'You', image: myImage || null },
     }),
-    [targetUserId, name, image],
+    [targetUserId, name, image, userId, myImage],
   );
 
-  // ── Scroll callbacks ──────────────────────────────────────────────────
+  // When user scrolls back to bottom — reset unread + mark read
   const scrollToBottom = useCallback(() => {
     flatRef.current?.scrollToOffset({ offset: 0, animated: true });
     setAtBottom(true);
     setUnreadScrolled(0);
-  }, []);
+    // Mark all as read now that user has seen them
+    fetch(`${API}/messages/read`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ matchId }),
+    }).catch(() => {});
+  }, [token, matchId]);
 
   const onScroll = useCallback(e => {
     const y = e.nativeEvent.contentOffset.y;
-    setAtBottom(y < 80);
-    if (y < 80) setUnreadScrolled(0);
+    const nowAtBottom = y < 80;
+    setAtBottom(nowAtBottom);
+    if (nowAtBottom) {
+      setUnreadScrolled(0);
+    }
   }, []);
 
   // ── Scroll to replied message ─────────────────────────────────────────
