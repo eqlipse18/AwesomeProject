@@ -113,9 +113,21 @@ export default function ConversationScreen({ navigation, route }) {
     lastActiveAt: initLastActive = null,
   } = route.params;
 
-  const { token, userId, userImage: myImage } = useContext(AuthContext);
+  const { token, userId, userInfo, userImage } = useContext(AuthContext);
+  const [ownProfileImage, setOwnProfileImage] = useState(null);
+  const myImage =
+    userImage || userInfo?.imageUrls?.[0] || ownProfileImage || null;
+  console.log(
+    '[DEBUG myImage]',
+    myImage,
+    'userImage:',
+    userImage,
+    'userInfo:',
+    userInfo?.imageUrls,
+  );
   const flatRef = useRef(null);
   const prevMsgLen = useRef(0);
+  const inputRef = useRef(null);
 
   const {
     messages,
@@ -165,6 +177,21 @@ export default function ConversationScreen({ navigation, route }) {
   const [unreadScrolled, setUnreadScrolled] = useState(0);
   const prevLen = useRef(0);
 
+  // ── Fetch own profile image if not available ─────────────────────────────
+  useEffect(() => {
+    if (myImage || !token || !userId) return;
+    fetch(`${API_BASE_URL}/users/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        const img =
+          data?.imageUrls?.[0] || data?.profileImage || data?.image || null;
+        if (img) setOwnProfileImage(img);
+      })
+      .catch(() => {});
+  }, [token, userId]);
+
   // ── Track unread while scrolled up ───────────────────────────────────
   useEffect(() => {
     const diff = messages.length - prevLen.current;
@@ -184,18 +211,16 @@ export default function ConversationScreen({ navigation, route }) {
   }, [displayItems, userId]);
 
   useEffect(() => {
-    const newMsgs = messages.slice(
-      0,
-      Math.max(0, messages.length - prevMsgLen.current),
-    );
-    const newReceived = newMsgs.filter(
-      m => m.senderId !== userId && !m.isTemp && m.status !== 'failed',
-    );
-    if (newReceived.length > 0 && !atBottom) {
-      setUnreadScrolled(p => p + newReceived.length);
+    const added = messages.length - prevMsgLen.current;
+    if (added > 0 && !atBottom) {
+      const newMsgs = messages.slice(-added);
+      const receivedCount = newMsgs.filter(
+        m => m.senderId !== userId && !m.isTemp,
+      ).length;
+      if (receivedCount > 0) setUnreadScrolled(p => p + receivedCount);
     }
     prevMsgLen.current = messages.length;
-  }, [messages.length]);
+  }, [messages.length]); // eslint-disable-line
 
   // User profiles map — for reaction tooltip
   // We have otherUser's image from route.params
@@ -206,14 +231,12 @@ export default function ConversationScreen({ navigation, route }) {
     }),
     [targetUserId, name, image, userId, myImage],
   );
-
-  // When user scrolls back to bottom — reset unread + mark read
   const scrollToBottom = useCallback(() => {
     flatRef.current?.scrollToOffset({ offset: 0, animated: true });
     setAtBottom(true);
     setUnreadScrolled(0);
-    // Mark all as read now that user has seen them
-    fetch(`${API}/messages/read`, {
+    // Mark read
+    fetch(`${API_BASE_URL}/messages/read`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -233,22 +256,29 @@ export default function ConversationScreen({ navigation, route }) {
   }, []);
 
   // ── Scroll to replied message ─────────────────────────────────────────
+  // ConversationScreen mein — scrollToMessage replace karo
   const scrollToMessage = useCallback(
     messageId => {
       const idx = displayItems.findIndex(
         item => item.type === 'msg' && item.messageId === messageId,
       );
       if (idx < 0) return;
-      try {
-        flatRef.current?.scrollToIndex({
-          index: idx,
-          animated: true,
-          viewPosition: 0.5,
-        });
-      } catch (e) {
-        // Fallback: scroll to end if index not rendered
-        flatRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }
+
+      setTimeout(() => {
+        try {
+          flatRef.current?.scrollToIndex({
+            index: idx,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        } catch (e) {
+          // rendered window ke bahar hai — rough fallback
+          flatRef.current?.scrollToOffset({
+            offset: idx * 80,
+            animated: true,
+          });
+        }
+      }, 80); // layout settle hone do
     },
     [displayItems],
   );
@@ -269,12 +299,18 @@ export default function ConversationScreen({ navigation, route }) {
 
   const onCtxReply = useCallback(() => {
     if (!ctxMenu.msg) return;
+    const msg = ctxMenu.msg;
     setReplyingTo({
-      messageId: ctxMenu.msg.messageId,
-      senderId: ctxMenu.msg.senderId,
-      content: ctxMenu.msg.content,
-      type: ctxMenu.msg.type,
-      senderName: ctxMenu.msg.senderId === userId ? 'You' : name,
+      messageId: msg.messageId, // ← yeh hai?
+      senderId: msg.senderId,
+      senderName: msg.senderId === userId ? 'You' : name,
+      type: msg.type || 'text',
+      content:
+        msg.type === 'image'
+          ? '📷 Photo'
+          : msg.type === 'video'
+          ? '🎥 Video'
+          : msg.content,
     });
   }, [ctxMenu.msg, userId, name]);
 
@@ -311,23 +347,35 @@ export default function ConversationScreen({ navigation, route }) {
   }, [rxTooltip.msg, matchId, reactToMessage]);
 
   // ── Swipe reply ───────────────────────────────────────────────────────
+
   const onSwipeReply = useCallback(
     msg => {
       setReplyingTo({
-        messageId: msg.messageId,
+        messageId: msg.messageId, // ← yeh hai?
         senderId: msg.senderId,
-        content: msg.content,
-        type: msg.type,
         senderName: msg.senderId === userId ? 'You' : name,
+        type: msg.type || 'text',
+        content:
+          msg.type === 'image'
+            ? '📷 Photo'
+            : msg.type === 'video'
+            ? '🎥 Video'
+            : msg.content,
       });
+      setTimeout(() => inputRef.current?.focus(), 120);
     },
     [userId, name],
   );
 
-  // ── Send with reply ───────────────────────────────────────────────────
+  // ── handleSend — auto scroll to bottom on send ──
   const handleSend = useCallback(
     async (content, replyTo) => {
       await sendMessage(content, replyTo);
+      console.log('[DEBUG replyTo in handleSend]', JSON.stringify(replyTo));
+      flatRef.current?.scrollToOffset({ offset: 0, animated: true });
+      setAtBottom(true);
+      setUnreadScrolled(0);
+      setReplyingTo(null);
     },
     [sendMessage],
   );
@@ -357,6 +405,13 @@ export default function ConversationScreen({ navigation, route }) {
           <Animated.View layout={LinearTransition.springify().damping(18)}>
             <DateSeparator label={item.label} />
           </Animated.View>
+        );
+      }
+      if (item.replyTo) {
+        console.log(
+          '[DEBUG replyTo]',
+          item.messageId,
+          JSON.stringify(item.replyTo),
         );
       }
       const isOwn = item.senderId === userId;
@@ -514,7 +569,21 @@ export default function ConversationScreen({ navigation, route }) {
             scrollEventThrottle={16}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
-            onScrollToIndexFailed={onScrollToIndexFailed}
+            onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
+              // Step 1: rendered boundary tak scroll karo (no animation — fast)
+              flatRef.current?.scrollToIndex({
+                index: highestMeasuredFrameIndex,
+                animated: false,
+              });
+              // Step 2: items render hone ke baad actual target
+              setTimeout(() => {
+                flatRef.current?.scrollToIndex({
+                  index,
+                  animated: true,
+                  viewPosition: 0.5,
+                });
+              }, 400);
+            }}
             ListHeaderComponent={isTyping ? <TypingIndicator /> : null}
             ListFooterComponent={
               hasMore ? (
@@ -547,6 +616,7 @@ export default function ConversationScreen({ navigation, route }) {
 
         <SafeAreaView edges={['bottom']} style={s.inputWrap}>
           <InputBar
+            ref={inputRef}
             onSend={handleSend}
             onAttach={() => setShowAttach(true)}
             emitTyping={emitTyping}
@@ -567,9 +637,9 @@ export default function ConversationScreen({ navigation, route }) {
         message={ctxMenu.msg}
         isOwn={ctxMenu.msg?.senderId === userId}
         bubbleLayout={ctxMenu.bubbleLayout}
-        onClose={() =>
-          setCtxMenu(p => ({ ...p, visible: false, bubbleLayout: null }))
-        }
+        otherImage={image} // ← route.params se
+        otherName={name} // ← route.params se
+        onClose={() => setCtxMenu(p => ({ ...p, visible: false }))}
         onReact={onCtxReact}
         onReply={onCtxReply}
         onCopy={onCtxCopy}
@@ -584,6 +654,7 @@ export default function ConversationScreen({ navigation, route }) {
           rxTooltip.msg ? reactionsMap?.[rxTooltip.msg.messageId] : null
         }
         myUserId={userId}
+        myImage={myImage} // ← direct prop
         userProfiles={userProfiles}
         anchorX={rxTooltip.anchor.x}
         anchorY={rxTooltip.anchor.y}
@@ -605,7 +676,7 @@ export default function ConversationScreen({ navigation, route }) {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF5F7' },
+  container: { flex: 1, backgroundColor: '#ffffff' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   headerSafe: {
@@ -662,10 +733,10 @@ const s = StyleSheet.create({
   moreIco: { fontSize: 20, color: '#64748B', lineHeight: 22 },
 
   msgList: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 12,
     flexGrow: 1,
-    paddingBottom: 16,
+    // paddingBottom: 16,
   },
 
   inputWrap: {

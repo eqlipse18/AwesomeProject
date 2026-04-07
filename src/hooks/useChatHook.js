@@ -206,7 +206,7 @@ export function useConversation({ token, matchId, userId }) {
     const handleNewMessage = message => {
       if (message.matchId !== matchId) return;
       setMessages(prev => {
-        // Temp message replace karo (same sender + same content)
+        // Replace temp
         const tempIdx = prev.findIndex(
           m =>
             m.isTemp &&
@@ -215,10 +215,14 @@ export function useConversation({ token, matchId, userId }) {
         );
         if (tempIdx >= 0) {
           const next = [...prev];
-          next[tempIdx] = { ...message, isTemp: false };
+          // ← replyTo preserve karo from temp (already set optimistically)
+          next[tempIdx] = {
+            ...message,
+            replyTo: message.replyTo || next[tempIdx].replyTo,
+            isTemp: false,
+          };
           return next;
         }
-        // Duplicate check
         if (prev.find(m => m.messageId === message.messageId)) return prev;
         return [...prev, message];
       });
@@ -403,7 +407,21 @@ export function useConversation({ token, matchId, userId }) {
         content: content.trim(),
         status: 'sending',
         createdAt: now,
-        replyTo: replyTo || null,
+        replyTo: replyTo
+          ? {
+              // ← pura object store karo
+              messageId: replyTo.messageId,
+              senderId: replyTo.senderId,
+              senderName: replyTo.senderName,
+              type: replyTo.type || 'text',
+              content:
+                replyTo.type === 'image'
+                  ? '📷 Photo'
+                  : replyTo.type === 'video'
+                  ? '🎥 Video'
+                  : replyTo.content,
+            }
+          : null,
         isTemp: true,
       };
 

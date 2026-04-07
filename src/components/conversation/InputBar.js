@@ -1,11 +1,17 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import {
   View,
   TextInput,
   TouchableOpacity,
   StyleSheet,
   Platform,
-  ActivityIndicator,
   Text,
 } from 'react-native';
 import Animated, {
@@ -16,130 +22,142 @@ import Animated, {
 } from 'react-native-reanimated';
 import { ReplyBar } from './ReplyBar';
 
-export const InputBar = ({
-  onSend,
-  onAttach,
-  emitTyping,
-  sending,
-  replyingTo,
-  onCancelReply,
-  myUserId,
-  editingMsg,
-  onCancelEdit,
-  onEditSave,
-}) => {
-  const [text, setText] = useState('');
-  const inputRef = useRef(null);
-  const scale = useSharedValue(1);
-  const sendStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-  const has = text.trim().length > 0;
+export const InputBar = forwardRef(
+  (
+    {
+      onSend,
+      onAttach,
+      emitTyping,
+      sending,
+      replyingTo,
+      onCancelReply,
+      myUserId,
+      editingMsg,
+      onCancelEdit,
+      onEditSave,
+    },
+    ref,
+  ) => {
+    const [text, setText] = useState('');
+    const inputRef = useRef(null);
+    const scale = useSharedValue(1);
 
-  // Pre-fill on edit mode
-  useEffect(() => {
-    if (editingMsg) {
-      setText(editingMsg.content);
-      setTimeout(() => inputRef.current?.focus(), 100);
-    } else {
+    const sendStyle = useAnimatedStyle(() => ({
+      transform: [{ scale: scale.value }],
+    }));
+
+    const has = text.trim().length > 0;
+
+    // ── Expose focus() to parent (ConversationScreen swipe reply) ──
+    useImperativeHandle(ref, () => ({
+      focus: () => inputRef.current?.focus(),
+    }));
+
+    // Pre-fill on edit mode
+    useEffect(() => {
+      if (editingMsg) {
+        setText(editingMsg.content);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      } else {
+        setText('');
+      }
+    }, [editingMsg]);
+
+    const handleSend = useCallback(() => {
+      if (!has || sending) return;
+      scale.value = withSpring(0.82, { duration: 80 }, () => {
+        scale.value = withSpring(1);
+      });
+
+      if (editingMsg) {
+        onEditSave?.(editingMsg.messageId, text.trim());
+      } else {
+        onSend(text.trim(), replyingTo || null);
+      }
       setText('');
-    }
-  }, [editingMsg]);
+      onCancelReply?.();
+    }, [
+      text,
+      sending,
+      onSend,
+      replyingTo,
+      editingMsg,
+      onEditSave,
+      onCancelReply,
+      has,
+      scale,
+    ]);
 
-  const handleSend = useCallback(() => {
-    if (!has || sending) return;
-    scale.value = withSpring(0.82, { duration: 80 }, () => {
-      scale.value = withSpring(1);
-    });
+    const isEdit = !!editingMsg;
 
-    if (editingMsg) {
-      onEditSave?.(editingMsg.messageId, text.trim());
-    } else {
-      onSend(text.trim(), replyingTo || null);
-    }
-    setText('');
-    onCancelReply?.();
-  }, [
-    text,
-    sending,
-    onSend,
-    replyingTo,
-    editingMsg,
-    onEditSave,
-    onCancelReply,
-    has,
-  ]);
-
-  const isEdit = !!editingMsg;
-
-  return (
-    <Animated.View layout={LinearTransition.springify()}>
-      {/* Reply preview */}
-      {replyingTo && !isEdit && (
-        <ReplyBar
-          replyingTo={replyingTo}
-          myUserId={myUserId}
-          onCancel={onCancelReply}
-        />
-      )}
-
-      {/* Edit mode banner */}
-      {isEdit && (
-        <Animated.View
-          style={s.editBanner}
-          layout={LinearTransition.springify()}
-        >
-          <Text style={s.editBannerTxt}>✏️ Editing message</Text>
-          <TouchableOpacity onPress={onCancelEdit} hitSlop={8}>
-            <Text style={s.editBannerClose}>✕</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      )}
-
-      <View style={s.bar}>
-        {!isEdit && (
-          <TouchableOpacity
-            style={s.attBtn}
-            onPress={onAttach}
-            activeOpacity={0.7}
-          >
-            <Text style={s.attIco}>＋</Text>
-          </TouchableOpacity>
+    return (
+      <Animated.View layout={LinearTransition.springify()}>
+        {/* Reply preview */}
+        {replyingTo && !isEdit && (
+          <ReplyBar
+            replyingTo={replyingTo}
+            myUserId={myUserId}
+            onCancel={onCancelReply}
+          />
         )}
 
-        <TextInput
-          ref={inputRef}
-          style={[s.input, isEdit && s.inputEdit]}
-          value={text}
-          onChangeText={t => {
-            setText(t);
-            emitTyping?.();
-          }}
-          placeholder={isEdit ? 'Edit message...' : 'Message...'}
-          placeholderTextColor="#94A3B8"
-          multiline
-          maxLength={1000}
-        />
-
-        <Animated.View style={sendStyle}>
-          <TouchableOpacity
-            style={[s.sendBtn, !has && s.sendOff, isEdit && has && s.sendEdit]}
-            onPress={handleSend}
-            disabled={!has || sending}
-            activeOpacity={0.8}
+        {/* Edit banner */}
+        {isEdit && (
+          <Animated.View
+            style={s.editBanner}
+            layout={LinearTransition.springify()}
           >
-            {sending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={s.sendIco}>{isEdit ? '✓' : '↑'}</Text>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
-    </Animated.View>
-  );
-};
+            <Text style={s.editBannerTxt}>✏️ Editing message</Text>
+            <TouchableOpacity onPress={onCancelEdit} hitSlop={8}>
+              <Text style={s.editBannerClose}>✕</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
+        <View style={s.bar}>
+          {!isEdit && (
+            <TouchableOpacity
+              style={s.attBtn}
+              onPress={onAttach}
+              activeOpacity={0.7}
+            >
+              <Text style={s.attIco}>＋</Text>
+            </TouchableOpacity>
+          )}
+
+          <TextInput
+            ref={inputRef} // ← internal ref for focus
+            style={[s.input, isEdit && s.inputEdit]}
+            value={text}
+            onChangeText={t => {
+              setText(t);
+              emitTyping?.();
+            }}
+            placeholder={isEdit ? 'Edit message...' : 'Message...'}
+            placeholderTextColor="#94A3B8"
+            multiline
+            maxLength={1000}
+          />
+
+          <Animated.View style={sendStyle}>
+            <TouchableOpacity
+              style={[
+                s.sendBtn,
+                !has && s.sendOff,
+                isEdit && has && s.sendEdit,
+              ]}
+              onPress={handleSend}
+              disabled={!has} // ← sending remove kiya — no loader
+              activeOpacity={0.8}
+            >
+              <Text style={s.sendIco}>{isEdit ? '✓' : '↑'}</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Animated.View>
+    );
+  },
+);
 const s = StyleSheet.create({
   bar: {
     flexDirection: 'row',

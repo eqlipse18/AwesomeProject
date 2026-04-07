@@ -17,7 +17,8 @@ export const ReactionTooltip = ({
   visible,
   reactions,
   myUserId,
-  userProfiles, // { [userId]: { name, image } }
+  myImage, // ← myImage direct prop
+  userProfiles,
   anchorX,
   anchorY,
   onClose,
@@ -25,18 +26,22 @@ export const ReactionTooltip = ({
 }) => {
   if (!visible || !reactions) return null;
 
-  const reacted = Object.entries(reactions).map(([uid, emoji]) => ({
-    userId: uid,
-    emoji,
-    name: uid === myUserId ? 'You' : userProfiles?.[uid]?.name || 'User',
-    image: userProfiles?.[uid]?.image || null,
-    isMe: uid === myUserId,
-  }));
+  const reacted = Object.entries(reactions).map(([uid, emoji]) => {
+    const isMe = uid === myUserId;
+    return {
+      userId: uid,
+      emoji,
+      isMe,
+      name: isMe ? 'You' : userProfiles?.[uid]?.name || 'User',
+      // ← own image se myImage use karo, other user se userProfiles
+      image: isMe ? myImage : userProfiles?.[uid]?.image || null,
+    };
+  });
 
   if (!reacted.length) return null;
 
   const TIP_W = 210;
-  const TIP_H = reacted.length * 50 + 48;
+  const TIP_H = reacted.length * 52 + 48;
   const left = Math.max(12, Math.min(anchorX - TIP_W / 2, W - TIP_W - 12));
   const top = Math.max(80, anchorY - TIP_H - 12);
 
@@ -64,15 +69,13 @@ export const ReactionTooltip = ({
 
         {reacted.map(u => (
           <View key={u.userId} style={s.row}>
-            {/* User image — own or other */}
             {u.image ? (
               <Image source={{ uri: u.image }} style={s.pic} />
             ) : (
               <View style={[s.pic, s.picFb]}>
-                <Text style={{ fontSize: 12 }}>👤</Text>
+                <Text style={{ fontSize: 13 }}>👤</Text>
               </View>
             )}
-
             <View style={s.info}>
               <Text style={s.name} numberOfLines={1}>
                 {u.name}
@@ -88,7 +91,6 @@ export const ReactionTooltip = ({
                 </TouchableOpacity>
               )}
             </View>
-
             <Text style={s.emoji}>{u.emoji}</Text>
           </View>
         ))}
@@ -119,16 +121,11 @@ const s = StyleSheet.create({
     letterSpacing: 0.7,
     marginBottom: 10,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   pic: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9' },
   picFb: { justifyContent: 'center', alignItems: 'center' },
   info: { flex: 1 },
   name: { fontSize: 13, fontWeight: '600', color: '#0F172A' },
-  removeLabel: { fontSize: 11, color: '#FF0059', marginTop: 1 },
+  removeLabel: { fontSize: 11, color: '#FF0059', marginTop: 2 },
   emoji: { fontSize: 20 },
 });

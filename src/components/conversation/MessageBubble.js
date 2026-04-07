@@ -21,9 +21,8 @@ import { DeliveryStatus } from './DeliveryStatus';
 
 const BIG_R = 20,
   SML_R = 5;
-const MAX_W = 265;
+const MAX_W = '80%';
 const REPLY_TRIGGER = 40;
-const REPLY_SHOW_AT = 5;
 const MAX_DRAG = 80;
 
 const fmt = ts =>
@@ -34,7 +33,6 @@ const fmt = ts =>
       })
     : '';
 
-// ── Reply quote (inside bubble, top) ──────────────────────────────────────
 const ReplyQuote = ({ replyTo, isOwn, onPress }) => {
   if (!replyTo?.messageId) return null;
 
@@ -44,27 +42,26 @@ const ReplyQuote = ({ replyTo, isOwn, onPress }) => {
       : replyTo.type === 'video'
       ? '🎥 Video'
       : replyTo.type === 'deleted'
-      ? '🚫 Message deleted'
+      ? '🚫 Deleted'
       : (replyTo.content || '').slice(0, 90);
 
-  const label = replyTo.senderName || (replyTo.senderId ? 'User' : '');
-
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.7}
-      style={[q.wrap, isOwn ? q.own : q.other]}
-    >
-      <View style={[q.accent, isOwn ? q.accentOwn : q.accentOther]} />
-      <View style={q.body}>
-        {!!label && (
-          <Text style={[q.sender, isOwn && q.senderOwn]} numberOfLines={1}>
-            {label}
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <View style={[q.wrap, isOwn ? q.own : q.other]}>
+        <View style={[q.accent, isOwn ? q.accentOwn : q.accentOther]} />
+        <View style={q.body}>
+          {!!replyTo.senderName && (
+            <Text style={[q.sender, isOwn ? q.senderOwn : q.senderOther]}>
+              {replyTo.senderName}
+            </Text>
+          )}
+          <Text
+            style={[q.txt, isOwn ? q.txtOwn : q.txtOther]}
+            numberOfLines={2}
+          >
+            {preview}
           </Text>
-        )}
-        <Text style={[q.txt, isOwn && q.txtOwn]} numberOfLines={2}>
-          {preview}
-        </Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -76,23 +73,24 @@ const q = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     marginBottom: 6,
-    maxWidth: MAX_W * 0.92,
+    minHeight: 38, // ← ensure height
   },
-  own: { backgroundColor: 'rgba(255,255,255,0.20)' },
-  other: { backgroundColor: 'rgba(0,0,0,0.07)' },
-  accent: { width: 3, flexShrink: 0 },
-  accentOwn: { backgroundColor: 'rgba(255,255,255,0.7)' },
+  own: { backgroundColor: '#ff6a9e94' }, // dark on red gradient
+  other: { backgroundColor: 'rgba(255, 0, 0, 0.06)' }, // subtle on white
+
+  accent: { width: 2, flexShrink: 0 },
+  accentOwn: { backgroundColor: '#FF0059' },
   accentOther: { backgroundColor: '#FF0059' },
-  body: { flex: 1, padding: 7 },
-  sender: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748B',
-    marginBottom: 2,
-  },
-  senderOwn: { color: 'rgba(255,255,255,0.65)' },
-  txt: { fontSize: 12, color: '#64748B', lineHeight: 17 },
-  txtOwn: { color: 'rgba(255,255,255,0.75)' },
+
+  body: { flex: 1, paddingHorizontal: 8, paddingVertical: 6 },
+
+  sender: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
+  senderOwn: { color: 'rgba(255,255,255,0.9)' }, // white on red
+  senderOther: { color: '#FF0059' }, // pink on white
+
+  txt: { fontSize: 12, lineHeight: 17, color: '#0F172A' },
+  txtOwn: { color: 'rgba(255, 255, 255, 0.95)' }, // white on red
+  txtOther: { color: '#ff0099' }, // dark on white
 });
 
 // ── Reaction tip ──────────────────────────────────────────────────────────
@@ -154,7 +152,7 @@ export const MessageBubble = React.memo(
     onLongPress,
     onRxTipPress,
     onMediaPress,
-    onSwipeReply,
+    onSwipeReply, // onSwipeReply now called on finger RELEASE
     onPressReplyQuote,
     onAvatarPress,
   }) => {
@@ -163,7 +161,6 @@ export const MessageBubble = React.memo(
     const isMedia = message.type === 'image' || message.type === 'video';
     const hasReactions = reactions && Object.keys(reactions).length > 0;
     const [showOriginal, setShowOriginal] = useState(false);
-
     const containerRef = useRef(null);
 
     const radius = isOwn
@@ -180,55 +177,52 @@ export const MessageBubble = React.memo(
           borderBottomLeftRadius: last ? BIG_R : SML_R,
         };
 
-    // ── Swipe to reply ────────────────────────────────────────────────────
+    // ── Swipe — full bubble hitSlop, trigger on release ──────────────────
     const swipeX = useSharedValue(0);
     const triggered = useRef(false);
 
-    const triggerReply = useCallback(() => {
+    const fireReply = useCallback(() => {
       onSwipeReply?.(message);
     }, [message, onSwipeReply]);
 
-    // Received → swipe RIGHT (positive)
-    // Own      → swipe LEFT  (negative)
     const swipeGesture = isOwn
       ? Gesture.Pan()
-          .activeOffsetX([-Infinity, -REPLY_SHOW_AT])
-          .failOffsetY([-15, 15])
+          .minDistance(4) // ← very sensitive start
+          .activeOffsetX([-8, Infinity]) // ← start from tiny move
+          .failOffsetY([-20, 20])
           .onUpdate(e => {
             'worklet';
             swipeX.value = Math.max(-MAX_DRAG, Math.min(e.translationX, 0));
-            if (swipeX.value <= -REPLY_TRIGGER && !triggered.current) {
-              triggered.current = true;
-              runOnJS(triggerReply)();
-            }
+            if (swipeX.value <= -REPLY_TRIGGER) triggered.current = true;
           })
           .onEnd(() => {
             'worklet';
+            // ── Reply bar only on finger release ──
+            if (triggered.current) runOnJS(fireReply)();
             triggered.current = false;
             swipeX.value = withSpring(0, {
-              stiffness: 340,
-              damping: 28,
-              mass: 0.6,
+              stiffness: 300,
+              damping: 26,
+              mass: 0.5,
             });
           })
       : Gesture.Pan()
-          .activeOffsetX([REPLY_SHOW_AT, Infinity])
-          .failOffsetY([-15, 15])
+          .minDistance(4)
+          .activeOffsetX([-Infinity, 8])
+          .failOffsetY([-20, 20])
           .onUpdate(e => {
             'worklet';
             swipeX.value = Math.max(0, Math.min(e.translationX, MAX_DRAG));
-            if (swipeX.value >= REPLY_TRIGGER && !triggered.current) {
-              triggered.current = true;
-              runOnJS(triggerReply)();
-            }
+            if (swipeX.value >= REPLY_TRIGGER) triggered.current = true;
           })
           .onEnd(() => {
             'worklet';
+            if (triggered.current) runOnJS(fireReply)();
             triggered.current = false;
             swipeX.value = withSpring(0, {
-              stiffness: 340,
-              damping: 28,
-              mass: 0.6,
+              stiffness: 300,
+              damping: 26,
+              mass: 0.5,
             });
           });
 
@@ -236,37 +230,34 @@ export const MessageBubble = React.memo(
       transform: [{ translateX: swipeX.value }],
     }));
 
+    // Arrow opacity + scale
     const arrowStyle = useAnimatedStyle(() => {
       const abs = Math.abs(swipeX.value);
       return {
-        opacity: withTiming(
-          abs > REPLY_SHOW_AT ? Math.min((abs - REPLY_SHOW_AT) / 25, 1) : 0,
-          { duration: 50 },
-        ),
+        opacity: withTiming(abs > 5 ? Math.min(abs / 30, 1) : 0, {
+          duration: 40,
+        }),
         transform: [
           {
-            scale: withSpring(abs >= REPLY_TRIGGER ? 1.25 : 0.85, {
-              damping: 20,
-              stiffness: 280,
+            scale: withSpring(abs >= REPLY_TRIGGER ? 1.3 : 0.85, {
+              damping: 18,
+              stiffness: 260,
             }),
           },
         ],
       };
     });
 
-    // ── Long press ────────────────────────────────────────────────────────
     const handleLongPress = useCallback(() => {
       containerRef.current?.measureInWindow((x, y, width, height) => {
         onLongPress?.(message, { x, y, width, height });
       });
     }, [message, onLongPress]);
 
-    // ── Tap — ALL messages (including deleted) ────────────────────────────
     const handlePress = useCallback(() => {
       onSelect?.(isSelected ? null : message.messageId);
     }, [message.messageId, isSelected, onSelect]);
 
-    // ── Rx tip press ──────────────────────────────────────────────────────
     const handleRxTipPress = useCallback(() => {
       containerRef.current?.measureInWindow((x, y, width, height) => {
         onRxTipPress?.(message, {
@@ -286,14 +277,14 @@ export const MessageBubble = React.memo(
           hasReactions && s.rowWithRx,
         ]}
       >
-        {/* Left arrow — received bubbles, right swipe */}
+        {/* Arrow — received */}
         {!isOwn && (
           <Animated.View style={[s.arrow, s.arrowLeft, arrowStyle]}>
             <Text style={s.arrowIco}>↩</Text>
           </Animated.View>
         )}
 
-        {/* Avatar slot */}
+        {/* Avatar */}
         {!isOwn && (
           <View style={s.avtSlot}>
             {last ? (
@@ -302,7 +293,7 @@ export const MessageBubble = React.memo(
                   <Image source={{ uri: otherImage }} style={s.avt} />
                 ) : (
                   <View style={[s.avt, s.avtFb]}>
-                    <Text style={{ fontSize: 11 }}>👤</Text>
+                    <Text style={{ fontSize: 10 }}>👤</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -310,7 +301,7 @@ export const MessageBubble = React.memo(
           </View>
         )}
 
-        {/* Swipeable column */}
+        {/* ── Swipeable col ── */}
         <GestureDetector gesture={swipeGesture}>
           <Animated.View style={[s.col, isOwn && s.colOwn, swipeStyle]}>
             <Pressable
@@ -320,7 +311,7 @@ export const MessageBubble = React.memo(
               delayLongPress={340}
               style={{ position: 'relative' }}
             >
-              {/* Reply quote on TOP of bubble */}
+              {/* Reply quote */}
               {!!message.replyTo?.messageId && (
                 <ReplyQuote
                   replyTo={message.replyTo}
@@ -329,7 +320,7 @@ export const MessageBubble = React.memo(
                 />
               )}
 
-              {/* ── Bubble ── */}
+              {/* Bubble */}
               {isDeleted ? (
                 <View style={[s.deletedBubble, radius]}>
                   <Text style={s.deletedTxt}>🚫 This message was deleted</Text>
@@ -357,7 +348,6 @@ export const MessageBubble = React.memo(
                       </View>
                     )}
                   </View>
-                  {/* Reply quote can also be above media */}
                 </TouchableOpacity>
               ) : isOwn ? (
                 <LinearGradient
@@ -366,19 +356,17 @@ export const MessageBubble = React.memo(
                   end={{ x: 1, y: 1 }}
                   style={[s.bbl, radius]}
                 >
-                  {/* Edited badge — top-right inside bubble */}
                   {message.isEdited && (
                     <TouchableOpacity
                       style={s.editedBadge}
-                      onPress={() => setShowOriginal(p => !p)}
                       hitSlop={8}
+                      onPress={() => setShowOriginal(p => !p)}
                     >
                       <Text style={s.editedTxtOwn}>
                         {showOriginal ? 'current ↓' : 'edited ↑'}
                       </Text>
                     </TouchableOpacity>
                   )}
-                  {/* Original content — shown on badge tap */}
                   {showOriginal && message.originalContent && (
                     <Animated.View
                       layout={LinearTransition.springify()}
@@ -396,8 +384,8 @@ export const MessageBubble = React.memo(
                   {message.isEdited && (
                     <TouchableOpacity
                       style={s.editedBadge}
-                      onPress={() => setShowOriginal(p => !p)}
                       hitSlop={8}
+                      onPress={() => setShowOriginal(p => !p)}
                     >
                       <Text style={s.editedTxtOther}>
                         {showOriginal ? 'current ↓' : 'edited ↑'}
@@ -428,7 +416,7 @@ export const MessageBubble = React.memo(
               )}
             </Pressable>
 
-            {/* Timestamp on tap — normal messages */}
+            {/* Tap timestamp */}
             {isSelected && !isDeleted && (
               <Animated.View
                 layout={LinearTransition.springify()}
@@ -438,7 +426,7 @@ export const MessageBubble = React.memo(
               </Animated.View>
             )}
 
-            {/* Deletion timestamp on tap */}
+            {/* Deleted timestamp on tap */}
             {isDeleted && isSelected && (
               <Animated.View
                 layout={LinearTransition.springify()}
@@ -450,7 +438,7 @@ export const MessageBubble = React.memo(
               </Animated.View>
             )}
 
-            {/* Last own — delivery + timestamp */}
+            {/* Last own — delivery */}
             {isOwn && isLastOwn && !isDeleted && !isSelected && (
               <Animated.View layout={LinearTransition.springify()}>
                 <DeliveryStatus
@@ -462,7 +450,7 @@ export const MessageBubble = React.memo(
           </Animated.View>
         </GestureDetector>
 
-        {/* Right arrow — own bubbles, left swipe */}
+        {/* Arrow — own */}
         {isOwn && (
           <Animated.View style={[s.arrow, s.arrowRight, arrowStyle]}>
             <Text style={s.arrowIco}>↩</Text>
@@ -477,8 +465,8 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+    // ← NO paddingHorizontal here — full width
     marginBottom: 3,
-    paddingHorizontal: 0,
     overflow: 'visible',
   },
   rowOwn: { justifyContent: 'flex-end' },
@@ -486,7 +474,6 @@ const s = StyleSheet.create({
   rowGrouped: { marginBottom: 1 },
   rowWithRx: { marginBottom: 18 },
 
-  // Swipe arrow
   arrow: {
     width: 26,
     height: 26,
@@ -495,26 +482,27 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 4,
+    flexShrink: 0,
   },
-  arrowLeft: { marginRight: 4, marginLeft: 2 },
-  arrowRight: { marginLeft: 4, marginRight: 2 },
+  arrowLeft: { marginRight: 2 },
+  arrowRight: { marginLeft: 2 },
   arrowIco: { fontSize: 11, color: '#64748B' },
 
-  // Avatar
   avtSlot: {
-    width: 34,
-    marginRight: 5,
+    width: 32,
+    marginRight: 4,
     alignItems: 'center',
     justifyContent: 'flex-end',
+    flexShrink: 0,
   },
   avt: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F1F5F9' },
   avtFb: { justifyContent: 'center', alignItems: 'center' },
 
+  // ← NO maxWidth in px — use percentage so it goes edge to edge
   col: { maxWidth: MAX_W, alignItems: 'flex-start' },
   colOwn: { alignItems: 'flex-end' },
 
-  // Bubbles
-  bbl: { paddingHorizontal: 14, paddingVertical: 9 },
+  bbl: { paddingHorizontal: 13, paddingVertical: 9 },
   bblOther: {
     backgroundColor: '#fff',
     shadowColor: '#000',
@@ -526,7 +514,6 @@ const s = StyleSheet.create({
   txtOwn: { fontSize: 15, color: '#fff', lineHeight: 22 },
   txtOther: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
 
-  // Edited badge — top-right inside bubble
   editedBadge: { alignSelf: 'flex-end', marginBottom: 3 },
   editedTxtOwn: {
     fontSize: 10,
@@ -535,7 +522,6 @@ const s = StyleSheet.create({
   },
   editedTxtOther: { fontSize: 10, color: '#94A3B8', fontStyle: 'italic' },
 
-  // Original content reveal
   originalWrapOwn: {
     backgroundColor: 'rgba(0,0,0,0.12)',
     borderRadius: 8,
@@ -555,9 +541,8 @@ const s = StyleSheet.create({
   },
   originalTxtOther: { fontSize: 12, color: '#94A3B8', fontStyle: 'italic' },
 
-  // Deleted
   deletedBubble: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 9,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
@@ -565,10 +550,9 @@ const s = StyleSheet.create({
   },
   deletedTxt: { fontSize: 13, color: '#94A3B8', fontStyle: 'italic' },
 
-  // Media
   mediaBubble: { overflow: 'hidden' },
   mediaBubbleOther: { borderWidth: 1, borderColor: '#F1F5F9' },
-  mediaImg: { width: MAX_W * 0.82, height: MAX_W * 0.82 * 1.1 },
+  mediaImg: { width: 220, height: 240 },
   videoOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -576,7 +560,6 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.28)',
   },
 
-  // Timestamp
   timePill: {
     backgroundColor: 'rgba(0,0,0,0.055)',
     borderRadius: 10,
