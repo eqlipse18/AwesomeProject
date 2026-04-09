@@ -28,6 +28,9 @@ import { ActivityIndicator, View } from 'react-native';
 import DailyScreen from '../screens/DailyScreen';
 import ConversationScreen from '../screens/ConversationScreen';
 import VisitorsScreen from '../screens/VisitorsScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import PremiumScreen from '../screens/PremiumScreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -81,6 +84,10 @@ function AppStack() {
         options={{ animation: 'slide_from_right' }}
       />
       <Stack.Screen name="Visitors" component={VisitorsScreen} />
+
+      <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="Premium" component={PremiumScreen} />
     </Stack.Navigator>
   );
 }
