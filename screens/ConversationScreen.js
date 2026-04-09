@@ -140,6 +140,7 @@ export default function ConversationScreen({ navigation, route }) {
     reactionsMap,
     deleteMessage,
     editMessage,
+    cacheLoaded,
   } = useConversation({ token, matchId, userId });
 
   // ── UI state ──────────────────────────────────────────────────────────
@@ -528,7 +529,7 @@ export default function ConversationScreen({ navigation, route }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {loading && !messages.length ? (
+        {loading && !cacheLoaded ? (
           <View style={s.centered}>
             <ActivityIndicator size="large" color="#FF0059" />
           </View>
@@ -541,15 +542,21 @@ export default function ConversationScreen({ navigation, route }) {
               item.itemType === 'sep' ? item.id : item.messageId
             }
             renderItem={renderItem}
+            // ── Performance props ──
+            windowSize={10} // default 21 → sirf 10 screens render
+            maxToRenderPerBatch={10} // ek batch mein 10 items
+            initialNumToRender={20} // initial 20 items
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={Platform.OS === 'android'} // Android pe memory save
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             contentContainerStyle={s.msgList}
             onScroll={onScroll}
-            scrollEventThrottle={16}
+            scrollEventThrottle={32} // 16 → 32, halve the events
             onEndReached={loadMore}
-            onEndReachedThreshold={0.3}
-            onScrollToIndexFailed={() => {}} // ← empty — scrollToItem use kar rahe hain
+            onEndReachedThreshold={0.4}
+            onScrollToIndexFailed={() => {}}
             ListHeaderComponent={isTyping ? <TypingIndicator /> : null}
             ListFooterComponent={
               hasMore ? (

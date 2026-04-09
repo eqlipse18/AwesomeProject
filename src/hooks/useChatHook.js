@@ -3,6 +3,7 @@ import axios from 'axios';
 import { AppState } from 'react-native';
 import Config from 'react-native-config';
 import { io } from 'socket.io-client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -30,10 +31,53 @@ const getSocket = token => {
   return socketInstance;
 };
 
+// ── Cache helpers ─────────────────────────────────────────────────────────
+const CACHE_PREFIX = 'flame_msgs_';
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+const getCacheKey = matchId => `${CACHE_PREFIX}${matchId}`;
+
+const readCache = async matchId => {
+  try {
+    const raw = await AsyncStorage.getItem(getCacheKey(matchId));
+    if (!raw) return null;
+    const { messages, timestamp, reactionsMap } = JSON.parse(raw);
+    // TTL check
+    if (Date.now() - timestamp > CACHE_TTL) return null;
+    return { messages, reactionsMap };
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = async (matchId, messages, reactionsMap) => {
+  try {
+    const toCache = messages.slice(-60);
+    await AsyncStorage.setItem(
+      getCacheKey(matchId),
+      JSON.stringify({
+        messages: toCache,
+        reactionsMap,
+        timestamp: Date.now(),
+      }),
+    );
+    console.log('[CACHE] 💾 Written —', toCache.length, 'messages cached');
+  } catch (e) {
+    console.log('[CACHE] Write failed:', e.message);
+  }
+};
+const clearCache = async matchId => {
+  try {
+    await AsyncStorage.removeItem(getCacheKey(matchId));
+    console.log('[CACHE] 🗑️ Cleared —', matchId);
+  } catch (e) {
+    console.log('[CACHE] Clear failed:', e.message);
+  }
+};
+
 // ════════════════════════════════════════════════════════════════════════════
 // useMatches
 // ════════════════════════════════════════════════════════════════════════════
-
 export function useMatches({ token, userId }) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -65,14 +109,12 @@ export function useMatches({ token, userId }) {
     if (token) fetchMatches();
   }, [token, fetchMatches]);
 
-  // 30s polling
   useEffect(() => {
     if (!token) return;
     pollingRef.current = setInterval(fetchMatches, 30000);
     return () => clearInterval(pollingRef.current);
   }, [token, fetchMatches]);
 
-  // AppState foreground refetch
   useEffect(() => {
     if (!token) return;
     const sub = AppState.addEventListener('change', next => {
@@ -87,7 +129,6 @@ export function useMatches({ token, userId }) {
     return () => sub.remove();
   }, [token, fetchMatches]);
 
-  // Socket — new_message + new_match
   useEffect(() => {
     if (!token) return;
     const socket = getSocket(token);
@@ -128,84 +169,147 @@ export function useMatches({ token, userId }) {
 // ════════════════════════════════════════════════════════════════════════════
 // useConversation
 // ════════════════════════════════════════════════════════════════════════════
-
 export function useConversation({ token, matchId, userId }) {
   const [messages, setMessages] = useState([]);
+  const [reactionsMap, setReactionsMap] = useState({});
   const [loading, setLoading] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [cacheLoaded, setCacheLoaded] = useState(false); // instant cache flag
   const [error, setError] = useState(null);
   const [nextCursor, setNextCursor] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
-  const [reactionsMap, setReactionsMap] = useState({}); // ✅ { [messageId]: { [userId]: emoji } }
-  const [deletedIds, setDeletedIds] = useState(new Set());
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
 
   const typingTimeout = useRef(null);
   const apiClient = useRef(createApiClient(token));
   const socket = useRef(null);
+  const isMounted = useRef(true);
 
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // ── Safe setState helpers ─────────────────────────────────────────────
+  const safeSetMessages = useCallback(fn => {
+    if (isMounted.current) setMessages(fn);
+  }, []);
+
+  const safeSetReactionsMap = useCallback(fn => {
+    if (isMounted.current) setReactionsMap(fn);
+  }, []);
+
+  // ── Extract reactions from messages ──────────────────────────────────
+  const extractReactions = useCallback(msgs => {
+    const rxMap = {};
+    msgs.forEach(msg => {
+      if (msg.reactions && Object.keys(msg.reactions).length > 0) {
+        rxMap[msg.messageId] = msg.reactions;
+      }
+    });
+    return rxMap;
+  }, []);
+
+  // ── Step 1: Load cache instantly on mount ────────────────────────────
+  useEffect(() => {
+    if (!matchId) return;
+
+    const loadCache = async () => {
+      const cached = await readCache(matchId);
+      if (cached && isMounted.current) {
+        console.log('[CACHE] ✅ Cache hit —', cached.messages.length, 'msgs');
+        // Batch mein set karo — ek render mein dono
+        setMessages(cached.messages);
+        setReactionsMap(cached.reactionsMap || {});
+        setCacheLoaded(true);
+        setLoading(false); // ← loading bhi false karo turant
+      } else {
+        console.log('[CACHE] ❌ Cache miss');
+      }
+    };
+
+    loadCache();
+  }, [matchId]);
+
+  // ── Step 2: Fetch fresh messages ──────────────────────────────────────
   const fetchMessages = useCallback(
     async (cursor = null) => {
       if (!matchId) return;
       try {
-        setLoading(true);
+        if (!cursor) setLoading(true);
+        else setIsFetchingMore(true);
+
         const resp = await apiClient.current.get(`/messages/${matchId}`, {
           params: { limit: 30, ...(cursor && { cursor }) },
         });
         if (!resp.data.success) throw new Error(resp.data.error);
 
         const newMessages = resp.data.messages || [];
+        const rxMap = extractReactions(newMessages);
 
-        // ✅ Extract reactions from fetched messages
-        const rxMap = {};
-        newMessages.forEach(msg => {
-          if (msg.reactions && Object.keys(msg.reactions).length > 0) {
-            rxMap[msg.messageId] = msg.reactions;
-          }
-        });
-        setReactionsMap(prev => ({ ...prev, ...rxMap }));
-
-        setMessages(prev => {
-          if (cursor) {
+        if (cursor) {
+          // Pagination — prepend older messages
+          safeSetMessages(prev => {
             const existingIds = new Set(prev.map(m => m.messageId));
             const unique = newMessages.filter(
               m => !existingIds.has(m.messageId),
             );
-            return [...unique, ...prev];
-          }
-          const existingIds = new Set(newMessages.map(m => m.messageId));
-          const socketMessages = prev.filter(
-            m => !existingIds.has(m.messageId),
-          );
-          return [...newMessages, ...socketMessages];
-        });
+            const merged = [...unique, ...prev];
+            // Update cache with merged
+            writeCache(matchId, merged, {});
+            return merged;
+          });
+          safeSetReactionsMap(prev => ({ ...prev, ...rxMap }));
+        } else {
+          // Fresh fetch — replace
+          safeSetMessages(prev => {
+            const existingIds = new Set(newMessages.map(m => m.messageId));
+            // Keep socket-added temp messages not in fetch
+            const socketMsgs = prev.filter(
+              m => !existingIds.has(m.messageId) && m.isTemp,
+            );
+            const merged = [...newMessages, ...socketMsgs];
+            // Write to cache
+            writeCache(matchId, merged, rxMap);
+            return merged;
+          });
+          safeSetReactionsMap(rxMap);
+        }
 
-        setNextCursor(resp.data.nextCursor || null);
+        if (isMounted.current) {
+          setNextCursor(resp.data.nextCursor || null);
+        }
       } catch (err) {
-        setError(err.response?.data?.error || err.message);
+        if (isMounted.current) {
+          setError(err.response?.data?.error || err.message);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted.current) {
+          setLoading(false);
+          setIsFetchingMore(false);
+        }
       }
     },
-    [matchId],
+    [matchId, extractReactions, safeSetMessages, safeSetReactionsMap],
   );
 
   useEffect(() => {
     if (token && matchId) fetchMessages();
   }, [token, matchId, fetchMessages]);
 
-  // Socket setup
+  // ── Socket ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token || !matchId) return;
     socket.current = getSocket(token);
 
     const handleConnect = () => {
-      // ✅ Pass userId so backend can mark delivered
       socket.current.emit('join_room', { matchId, userId });
     };
 
     const handleNewMessage = message => {
       if (message.matchId !== matchId) return;
-      setMessages(prev => {
+      safeSetMessages(prev => {
         // Replace temp
         const tempIdx = prev.findIndex(
           m =>
@@ -215,50 +319,74 @@ export function useConversation({ token, matchId, userId }) {
         );
         if (tempIdx >= 0) {
           const next = [...prev];
-          // ← replyTo preserve karo from temp (already set optimistically)
           next[tempIdx] = {
             ...message,
             replyTo: message.replyTo || next[tempIdx].replyTo,
             isTemp: false,
           };
+          // Update cache
+          writeCache(matchId, next, {});
           return next;
         }
         if (prev.find(m => m.messageId === message.messageId)) return prev;
-        return [...prev, message];
+        const next = [...prev, message];
+        writeCache(matchId, next, {});
+        return next;
       });
+      if (message.reactions) {
+        safeSetReactionsMap(prev => ({
+          ...prev,
+          [message.messageId]: message.reactions,
+        }));
+      }
     };
 
-    // ✅ delivered — update status of sent messages
     const handleDelivered = ({ messageIds }) => {
-      setMessages(prev =>
+      safeSetMessages(prev =>
         prev.map(m =>
-          messageIds.includes(m.messageId) && m.status === 'sent'
+          messageIds?.includes(m.messageId) && m.status === 'sent'
             ? { ...m, status: 'delivered' }
             : m,
         ),
       );
     };
 
-    // ✅ reaction — update reactionsMap
-    const handleReacted = ({ messageId, reactions }) => {
-      setReactionsMap(prev => ({ ...prev, [messageId]: reactions }));
-    };
-
-    const handleTyping = ({ userId: tid }) => {
-      if (tid !== userId) setIsTyping(true);
-    };
-    const handleStopTyping = () => setIsTyping(false);
-
     const handleRead = ({ readBy }) => {
       if (readBy !== userId) {
-        setMessages(prev =>
-          prev.map(m => (m.senderId === userId ? { ...m, status: 'read' } : m)),
+        safeSetMessages(prev =>
+          prev.map(m =>
+            m.senderId === userId && m.status !== 'read'
+              ? { ...m, status: 'read' }
+              : m,
+          ),
         );
       }
     };
-    // ── handleDeleted — deletedAt bhi save karo ──
+
+    const handleEdited = ({
+      messageId: eId,
+      content,
+      isEdited,
+      editedAt,
+      originalContent,
+    }) => {
+      safeSetMessages(prev =>
+        prev.map(m =>
+          m.messageId === eId
+            ? {
+                ...m,
+                content,
+                isEdited,
+                editedAt,
+                originalContent: m.originalContent || originalContent,
+              }
+            : m,
+        ),
+      );
+    };
+
     const handleDeleted = ({ messageId: dId, deletedAt }) => {
-      setMessages(prev =>
+      safeSetMessages(prev =>
         prev.map(m =>
           m.messageId === dId
             ? {
@@ -271,44 +399,40 @@ export function useConversation({ token, matchId, userId }) {
         ),
       );
     };
-    // ── handleEdited — originalContent bhi update karo ──
-    const handleEdited = ({
-      messageId: eId,
-      content,
-      isEdited,
-      editedAt,
-      originalContent,
-    }) => {
-      setMessages(prev =>
-        prev.map(m =>
-          m.messageId === eId
-            ? {
-                ...m,
-                content,
-                isEdited,
-                editedAt,
-                // pehle se originalContent hai toh preserve karo
-                originalContent: m.originalContent || originalContent,
-              }
-            : m,
-        ),
-      );
+
+    const handleReacted = ({ messageId, reactions }) => {
+      safeSetReactionsMap(prev => ({ ...prev, [messageId]: reactions }));
+    };
+
+    const handleTyping = ({ userId: tid }) => {
+      if (tid !== userId) {
+        if (isMounted.current) setIsTyping(true);
+        clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => {
+          if (isMounted.current) setIsTyping(false);
+        }, 3000);
+      }
+    };
+
+    const handleStopTyping = () => {
+      if (isMounted.current) setIsTyping(false);
     };
 
     socket.current.on('connect', handleConnect);
     socket.current.on('new_message', handleNewMessage);
     socket.current.on('messages_delivered', handleDelivered);
+    socket.current.on('messages_read', handleRead);
+    socket.current.on('message_edited', handleEdited);
+    socket.current.on('message_deleted', handleDeleted);
     socket.current.on('message_reacted', handleReacted);
     socket.current.on('user_typing', handleTyping);
     socket.current.on('user_stop_typing', handleStopTyping);
-    socket.current.on('messages_read', handleRead);
-    socket.current.on('message_deleted', handleDeleted);
-    socket.current.on('message_edited', handleEdited);
 
     if (socket.current.connected) {
       socket.current.emit('join_room', { matchId, userId });
     }
 
+    // Mark read on open
     apiClient.current.put('/messages/read', { matchId }).catch(() => {});
 
     return () => {
@@ -316,82 +440,16 @@ export function useConversation({ token, matchId, userId }) {
       socket.current.off('connect', handleConnect);
       socket.current.off('new_message', handleNewMessage);
       socket.current.off('messages_delivered', handleDelivered);
+      socket.current.off('messages_read', handleRead);
+      socket.current.off('message_edited', handleEdited);
+      socket.current.off('message_deleted', handleDeleted);
       socket.current.off('message_reacted', handleReacted);
       socket.current.off('user_typing', handleTyping);
       socket.current.off('user_stop_typing', handleStopTyping);
-      socket.current.off('messages_read', handleRead);
-      socket.current.off('message_deleted', handleDeleted);
-      socket.current.off('message_edited', handleEdited);
-
-      // sendMessage mein replyTo support add karo:
     };
-  }, [token, matchId, userId]);
-  // ── deleteMessage — OPTIMISTIC ──
-  const deleteMessage = useCallback(
-    async messageId => {
-      const now = new Date().toISOString();
+  }, [token, matchId, userId, safeSetMessages, safeSetReactionsMap]);
 
-      // ── Instant UI update ──
-      setMessages(prev =>
-        prev.map(m =>
-          m.messageId === messageId
-            ? {
-                ...m,
-                type: 'deleted',
-                content: 'This message was deleted',
-                deletedAt: now,
-              }
-            : m,
-        ),
-      );
-
-      try {
-        await apiClient.current.delete(`/messages/${messageId}`, {
-          data: { matchId },
-        });
-      } catch (err) {
-        console.error('[deleteMessage]', err.message);
-        fetchMessages(); // rollback on error
-      }
-    },
-    [matchId, fetchMessages],
-  );
-
-  // ── editMessage — OPTIMISTIC (instant, no wait) ──
-  const editMessage = useCallback(
-    async (messageId, content) => {
-      if (!content?.trim()) return;
-
-      // ── Capture original before overwriting ──
-      setMessages(prev =>
-        prev.map(m => {
-          if (m.messageId !== messageId) return m;
-          return {
-            ...m,
-            content: content.trim(),
-            isEdited: true,
-            editedAt: new Date().toISOString(),
-            // Preserve first-ever original
-            originalContent: m.originalContent || m.content,
-          };
-        }),
-      );
-
-      try {
-        await apiClient.current.patch('/messages/edit', {
-          messageId,
-          matchId,
-          content: content.trim(),
-        });
-      } catch (err) {
-        console.error('[editMessage]', err.message);
-        // rollback — refetch
-        fetchMessages();
-      }
-    },
-    [matchId, fetchMessages],
-  );
-  // ── sendMessage — OPTIMISTIC (instant bubble, no loader) ──
+  // ── sendMessage — optimistic ──────────────────────────────────────────
   const sendMessage = useCallback(
     async (content, replyTo = null) => {
       if (!content?.trim() || !matchId) return;
@@ -409,7 +467,6 @@ export function useConversation({ token, matchId, userId }) {
         createdAt: now,
         replyTo: replyTo
           ? {
-              // ← pura object store karo
               messageId: replyTo.messageId,
               senderId: replyTo.senderId,
               senderName: replyTo.senderName,
@@ -425,8 +482,7 @@ export function useConversation({ token, matchId, userId }) {
         isTemp: true,
       };
 
-      // ── Instant add ──
-      setMessages(prev => [...prev, tempMsg]);
+      safeSetMessages(prev => [...prev, tempMsg]);
 
       try {
         const resp = await apiClient.current.post('/messages', {
@@ -437,8 +493,7 @@ export function useConversation({ token, matchId, userId }) {
         });
         if (!resp.data.success) throw new Error(resp.data.error);
 
-        // ── Replace temp with real ──
-        setMessages(prev =>
+        safeSetMessages(prev =>
           prev.map(m =>
             m.messageId === tempId
               ? { ...resp.data.message, isTemp: false }
@@ -446,20 +501,18 @@ export function useConversation({ token, matchId, userId }) {
           ),
         );
       } catch (err) {
-        // ── Mark failed ──
-        setMessages(prev =>
+        safeSetMessages(prev =>
           prev.map(m =>
             m.messageId === tempId ? { ...m, status: 'failed' } : m,
           ),
         );
         setError(err.response?.data?.error || err.message);
       }
-      // setSending removed — no loader
     },
-    [matchId, userId],
+    [matchId, userId, safeSetMessages],
   );
 
-  // ✅ Replace karo pura sendMedia
+  // ── sendMedia — optimistic ────────────────────────────────────────────
   const sendMedia = useCallback(
     async (fileUri, fileType, mediaType = 'image') => {
       if (!fileUri || !matchId) return;
@@ -467,21 +520,19 @@ export function useConversation({ token, matchId, userId }) {
       const tempId = `temp_${Date.now()}_${Math.random()}`;
       const now = new Date().toISOString();
 
-      // ── Instant preview with local URI ──
       const tempMsg = {
         messageId: tempId,
         matchId,
         senderId: userId,
         type: mediaType,
-        content: fileUri, // local uri — instant preview
+        content: fileUri,
         status: 'sending',
         createdAt: now,
         isTemp: true,
       };
-      setMessages(prev => [...prev, tempMsg]);
+      safeSetMessages(prev => [...prev, tempMsg]);
 
       try {
-        // 1. Get presigned URL
         const urlResp = await apiClient.current.post('/messages/media', {
           matchId,
           fileType,
@@ -490,7 +541,6 @@ export function useConversation({ token, matchId, userId }) {
         if (!urlResp.data.success) throw new Error(urlResp.data.error);
         const { uploadUrl, publicUrl } = urlResp.data;
 
-        // 2. Upload to S3
         const blob = await fetch(fileUri).then(r => r.blob());
         await fetch(uploadUrl, {
           method: 'PUT',
@@ -498,7 +548,6 @@ export function useConversation({ token, matchId, userId }) {
           headers: { 'Content-Type': fileType },
         });
 
-        // 3. Save message
         const resp = await apiClient.current.post('/messages', {
           matchId,
           content: publicUrl,
@@ -506,8 +555,7 @@ export function useConversation({ token, matchId, userId }) {
         });
         if (!resp.data.success) throw new Error(resp.data.error);
 
-        // ── Replace temp with real (S3 URL) ──
-        setMessages(prev =>
+        safeSetMessages(prev =>
           prev.map(m =>
             m.messageId === tempId
               ? { ...resp.data.message, isTemp: false }
@@ -515,7 +563,7 @@ export function useConversation({ token, matchId, userId }) {
           ),
         );
       } catch (err) {
-        setMessages(prev =>
+        safeSetMessages(prev =>
           prev.map(m =>
             m.messageId === tempId ? { ...m, status: 'failed' } : m,
           ),
@@ -523,26 +571,13 @@ export function useConversation({ token, matchId, userId }) {
         setError(err.response?.data?.error || err.message);
       }
     },
-    [matchId, userId],
+    [matchId, userId, safeSetMessages],
   );
 
-  const emitTyping = useCallback(() => {
-    socket.current?.emit('typing', { matchId, userId });
-    clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => {
-      socket.current?.emit('stop_typing', { matchId, userId });
-    }, 1500);
-  }, [matchId, userId]);
-
-  const loadMore = useCallback(() => {
-    if (nextCursor && !loading) fetchMessages(nextCursor);
-  }, [nextCursor, loading, fetchMessages]);
-
-  // ✅ Replace karo pura reactToMessage
+  // ── reactToMessage — optimistic ───────────────────────────────────────
   const reactToMessage = useCallback(
     async (messageId, msgMatchId, emoji) => {
-      // ── Optimistic update ──
-      setReactionsMap(prev => {
+      safeSetReactionsMap(prev => {
         const curr = { ...(prev[messageId] || {}) };
         if (!emoji || curr[userId] === emoji) {
           delete curr[userId];
@@ -560,16 +595,96 @@ export function useConversation({ token, matchId, userId }) {
         });
       } catch (err) {
         console.error('[reactToMessage]', err.message);
-        fetchMessages(); // rollback on error
+        fetchMessages();
       }
     },
     [userId, fetchMessages],
   );
 
+  // ── deleteMessage — optimistic ────────────────────────────────────────
+  const deleteMessage = useCallback(
+    async messageId => {
+      const now = new Date().toISOString();
+      safeSetMessages(prev =>
+        prev.map(m =>
+          m.messageId === messageId
+            ? {
+                ...m,
+                type: 'deleted',
+                content: 'This message was deleted',
+                deletedAt: now,
+              }
+            : m,
+        ),
+      );
+      try {
+        await apiClient.current.delete(`/messages/${messageId}`, {
+          data: { matchId },
+        });
+        // Invalidate cache
+        clearCache(matchId);
+      } catch (err) {
+        console.error('[deleteMessage]', err.message);
+        fetchMessages();
+      }
+    },
+    [matchId, fetchMessages, safeSetMessages],
+  );
+
+  // ── editMessage — optimistic ──────────────────────────────────────────
+  const editMessage = useCallback(
+    async (messageId, content) => {
+      if (!content?.trim()) return;
+      safeSetMessages(prev =>
+        prev.map(m => {
+          if (m.messageId !== messageId) return m;
+          return {
+            ...m,
+            content: content.trim(),
+            isEdited: true,
+            editedAt: new Date().toISOString(),
+            originalContent: m.originalContent || m.content,
+          };
+        }),
+      );
+      try {
+        await apiClient.current.patch('/messages/edit', {
+          messageId,
+          matchId,
+          content: content.trim(),
+        });
+        clearCache(matchId);
+      } catch (err) {
+        console.error('[editMessage]', err.message);
+        fetchMessages();
+      }
+    },
+    [matchId, fetchMessages, safeSetMessages],
+  );
+
+  // ── emitTyping ────────────────────────────────────────────────────────
+  const emitTyping = useCallback(() => {
+    socket.current?.emit('typing', { matchId, userId });
+    clearTimeout(typingTimeout.current);
+    typingTimeout.current = setTimeout(() => {
+      socket.current?.emit('stop_typing', { matchId, userId });
+    }, 1500);
+  }, [matchId, userId]);
+
+  // ── loadMore ──────────────────────────────────────────────────────────
+  const loadMore = useCallback(() => {
+    if (nextCursor && !loading && !isFetchingMore) {
+      fetchMessages(nextCursor);
+    }
+  }, [nextCursor, loading, isFetchingMore, fetchMessages]);
+
   return {
     messages,
-    loading,
-    sending,
+    reactionsMap,
+    loading: loading && !cacheLoaded, // cache loaded hai toh loading hide karo
+    cacheLoaded,
+    isFetchingMore,
+    sending: false,
     error,
     isTyping,
     hasMore: !!nextCursor,
@@ -578,7 +693,6 @@ export function useConversation({ token, matchId, userId }) {
     emitTyping,
     loadMore,
     reactToMessage,
-    reactionsMap, // ✅ NEW
     deleteMessage,
     editMessage,
   };

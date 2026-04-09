@@ -477,6 +477,23 @@ export const MessageBubble = React.memo(
       </Animated.View>
     );
   },
+  (prev, next) => {
+    return (
+      prev.message.messageId === next.message.messageId &&
+      prev.message.content === next.message.content &&
+      prev.message.status === next.message.status &&
+      prev.message.isEdited === next.message.isEdited &&
+      prev.message.type === next.message.type &&
+      prev.message.deletedAt === next.message.deletedAt &&
+      prev.isOwn === next.isOwn &&
+      prev.first === next.first &&
+      prev.last === next.last &&
+      prev.isLastOwn === next.isLastOwn &&
+      prev.isHighlighted === next.isHighlighted &&
+      prev.selectedMsgId === next.selectedMsgId &&
+      JSON.stringify(prev.reactions) === JSON.stringify(next.reactions)
+    );
+  },
 );
 
 const s = StyleSheet.create({
