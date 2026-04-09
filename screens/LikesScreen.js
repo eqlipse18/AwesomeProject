@@ -424,53 +424,93 @@ const ParentTabBar = ({ activeParent, onPress, likesCount, visitorsCount }) => {
 // CHILD TAB BAR — Liked You | You Liked
 // ════════════════════════════════════════════════════════════════════════════
 
-const ChildTabBar = ({ activeTab, onTabPress, receivedCount, likedCount }) => (
-  <View style={styles.childTabBar}>
-    {[
-      { key: 'received', label: 'Liked You', count: receivedCount },
-      { key: 'liked', label: 'You Liked', count: likedCount },
-    ].map(tab => {
-      const isActive = activeTab === tab.key;
-      return (
-        <TouchableOpacity
-          key={tab.key}
-          style={styles.childTab}
-          onPress={() => onTabPress(tab.key)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.childTabLabelRow}>
-            <Text
-              style={[
-                styles.childTabText,
-                isActive && styles.childTabTextActive,
-              ]}
-            >
-              {tab.label}
-            </Text>
-            {tab.count > 0 && (
-              <View
+const ChildTabBar = ({ activeTab, onTabPress, receivedCount, likedCount }) => {
+  const slideAnim = useRef(
+    new Animated.Value(activeTab === 'received' ? 0 : 1),
+  ).current;
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: activeTab === 'received' ? 0 : 1,
+      useNativeDriver: true,
+      tension: 72,
+      friction: 12,
+    }).start();
+  }, [activeTab]);
+
+  const PILL_W = containerWidth > 0 ? (containerWidth - 8) / 2 : 0;
+  const pillX = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, PILL_W],
+  });
+
+  const tabs = [
+    { key: 'received', label: 'Liked You', count: receivedCount },
+    { key: 'liked', label: 'You Liked', count: likedCount },
+  ];
+
+  return (
+    <View
+      style={styles.childTabBar}
+      onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}
+    >
+      {/* sliding pill */}
+      {PILL_W > 0 && (
+        <Animated.View
+          style={[
+            styles.childTabPill,
+            {
+              width: PILL_W,
+              transform: [{ translateX: pillX }],
+            },
+          ]}
+          pointerEvents="none"
+        />
+      )}
+
+      {tabs.map(tab => {
+        const isActive = activeTab === tab.key;
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={styles.childTab}
+            onPress={() => onTabPress(tab.key)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.childTabInner}>
+              <Text
                 style={[
-                  styles.childTabBadge,
-                  isActive && styles.childTabBadgeActive,
+                  styles.childTabText,
+                  isActive && styles.childTabTextActive,
                 ]}
               >
-                <Text
+                {tab.label}
+              </Text>
+              {tab.count > 0 && (
+                <View
                   style={[
-                    styles.childTabBadgeText,
-                    isActive && styles.childTabBadgeTextActive,
+                    styles.childTabBadge,
+                    isActive && styles.childTabBadgeActive,
                   ]}
                 >
-                  {tab.count > 99 ? '99+' : tab.count}
-                </Text>
-              </View>
-            )}
-          </View>
-          {isActive && <View style={styles.childTabIndicator} />}
-        </TouchableOpacity>
-      );
-    })}
-  </View>
-);
+                  <Text
+                    style={[
+                      styles.childTabBadgeText,
+                      isActive && styles.childTabBadgeTextActive,
+                    ]}
+                  >
+                    {tab.count > 99 ? '99+' : tab.count}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+};
 
 // ════════════════════════════════════════════════════════════════════════════
 // FILTER + SORT BAR
@@ -1488,34 +1528,65 @@ const styles = StyleSheet.create({
   // ── Child Tabs ──
   childTabBar: {
     flexDirection: 'row',
-    borderBottomWidth: 0,
-    borderBottomColor: '#e2e8f0ad',
     marginHorizontal: 16,
+    marginBottom: 2,
+    backgroundColor: 'rgba(214, 234, 255, 0.6)',
+    borderRadius: 22,
+    padding: 4,
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.9)',
+    shadowColor: '#b0d0ee',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  childTab: {
+    flex: 1,
+    zIndex: 1,
+  },
+  childTabInner: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#d6eaffb9',
-    borderRadius: 20,
+    paddingVertical: 9,
+    gap: 5,
   },
-  childTab: { flex: 1, alignItems: 'center', paddingBottom: 8 },
   childTabLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 8,
   },
+  childTabPill: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    bottom: 4,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    shadowColor: '#FF2D6B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
   childTabText: {
     fontSize: 13,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#b8c5d5',
-    marginBottom: -2,
+    fontFamily: 'Nunito-SemiBold',
+    color: '#9BB5CC',
+    letterSpacing: 0.2,
   },
-  childTabTextActive: { color: '#0F172A' },
+  childTabTextActive: {
+    color: '#0F172A',
+    fontFamily: 'Nunito-Bold',
+  },
   childTabBadge: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
+    backgroundColor: 'rgba(180,210,240,0.4)',
+    borderRadius: 7,
     paddingHorizontal: 6,
     paddingVertical: 1,
-    marginBottom: 2,
   },
   childTabBadgeActive: { backgroundColor: '#FEE2E2' },
   childTabBadgeText: { fontSize: 10, fontWeight: '700', color: '#94A3B8' },
