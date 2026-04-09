@@ -173,6 +173,7 @@ export default function ConversationScreen({ navigation, route }) {
   const [atBottom, setAtBottom] = useState(true);
   const [unreadScrolled, setUnreadScrolled] = useState(0);
   const prevLen = useRef(0);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
 
   // ── Fetch own profile image if not available ─────────────────────────────
 
@@ -247,7 +248,6 @@ export default function ConversationScreen({ navigation, route }) {
   const scrollToMessage = useCallback(messageId => {
     const items = displayItemsRef.current;
     const msgItems = items.filter(i => i.itemType === 'msg');
-
     const found = msgItems.find(i => i.messageId === messageId);
     if (!found) return;
 
@@ -256,7 +256,12 @@ export default function ConversationScreen({ navigation, route }) {
       animated: true,
       viewPosition: 0.5,
     });
+
+    // ── Highlight the bubble for 1.5s ──
+    setHighlightedMsgId(messageId);
+    setTimeout(() => setHighlightedMsgId(null), 1500);
   }, []);
+
   // ── Long press → context menu ─────────────────────────────────────────
   const onLongPress = useCallback((msg, bubbleLayout) => {
     setCtxMenu({ visible: true, msg, bubbleLayout });
@@ -400,6 +405,7 @@ export default function ConversationScreen({ navigation, route }) {
           otherImage={image}
           isLastOwn={item.messageId === lastOwnMsgId}
           selectedMsgId={selectedMsgId}
+          isHighlighted={item.messageId === highlightedMsgId}
           onSelect={setSelectedMsgId}
           onLongPress={onLongPress}
           onRxTipPress={onRxTipPress}
@@ -427,6 +433,7 @@ export default function ConversationScreen({ navigation, route }) {
       onRxTipPress,
       targetUserId,
       navigation,
+      highlightedMsgId,
     ],
   );
 

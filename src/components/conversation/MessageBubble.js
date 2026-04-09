@@ -15,6 +15,8 @@ import Animated, {
   withSpring,
   withTiming,
   runOnJS,
+  FadeIn,
+  FadeOut,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DeliveryStatus } from './DeliveryStatus';
@@ -155,6 +157,7 @@ export const MessageBubble = React.memo(
     onSwipeReply, // onSwipeReply now called on finger RELEASE
     onPressReplyQuote,
     onAvatarPress,
+    isHighlighted, // ← ADD
   }) => {
     const isSelected = selectedMsgId === message.messageId;
     const isDeleted = message.type === 'deleted';
@@ -311,6 +314,15 @@ export const MessageBubble = React.memo(
               delayLongPress={340}
               style={{ position: 'relative' }}
             >
+              {/* ── Highlight overlay ── */}
+              {isHighlighted && (
+                <Animated.View
+                  entering={FadeIn.duration(100)}
+                  exiting={FadeOut.duration(600)}
+                  style={[StyleSheet.absoluteFillObject, s.highlightOverlay]}
+                  pointerEvents="none"
+                />
+              )}
               {/* Reply quote */}
               {!!message.replyTo?.messageId && (
                 <ReplyQuote
@@ -546,6 +558,11 @@ const s = StyleSheet.create({
     marginBottom: 5,
   },
   originalTxtOther: { fontSize: 12, color: '#94A3B8', fontStyle: 'italic' },
+  highlightOverlay: {
+    backgroundColor: 'rgba(0, 251, 255, 0.25)', // subtle pink — matches app theme
+    borderRadius: 20,
+    zIndex: 10,
+  },
 
   deletedBubble: {
     paddingHorizontal: 13,
