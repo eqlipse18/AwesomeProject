@@ -316,7 +316,13 @@ export const MessageBubble = React.memo(
                 <ReplyQuote
                   replyTo={message.replyTo}
                   isOwn={isOwn}
-                  onPress={() => onPressReplyQuote?.(message.replyTo.messageId)}
+                  onPress={() => {
+                    console.log(
+                      '[DEBUG] ReplyQuote pressed, id:',
+                      message.replyTo.messageId,
+                    );
+                    onPressReplyQuote?.(message.replyTo.messageId);
+                  }}
                 />
               )}
 

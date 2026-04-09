@@ -950,7 +950,7 @@ const VisitorsContent = ({ navigation, token, totalViews }) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 export default function LikesScreen({ navigation }) {
-  const { token } = useContext(AuthContext);
+  const { token, setUserImage } = useContext(AuthContext);
   const apiClient = useRef(createApiClient(token));
 
   const [activeParent, setActiveParent] = useState('likes');
@@ -983,8 +983,11 @@ export default function LikesScreen({ navigation }) {
     apiClient.current
       .get('/user-profile')
       .then(resp => {
-        if (resp.data.success)
-          setCurrentUserImage(resp.data.user?.imageUrls?.[0] || null);
+        if (resp.data.success) {
+          const img = resp.data.user?.imageUrls?.[0] || null;
+          setCurrentUserImage(img);
+          setUserImage(img); // ← ADD — global store
+        }
       })
       .catch(() => {});
   }, [token]);

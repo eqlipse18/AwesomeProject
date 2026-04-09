@@ -561,7 +561,7 @@ const FilterIcon = ({ hasActiveFilters }) => (
 // ════════════════════════════════════════════════════════════════════════════
 
 export default function HomeScreen({ navigation }) {
-  const { token } = useContext(AuthContext);
+  const { token, userId, setUserImage } = useContext(AuthContext);
   const apiClient = useRef(createApiClient(token));
   const requestLocationPermission = useLocationPermission();
 
@@ -617,8 +617,11 @@ export default function HomeScreen({ navigation }) {
     apiClient.current
       .get('/user-profile')
       .then(resp => {
-        if (resp.data.success)
-          setMyImage(resp.data.user?.imageUrls?.[0] || null);
+        if (resp.data.success) {
+          const img = resp.data.user?.imageUrls?.[0] || null;
+          setMyImage(img);
+          setUserImage(img); // ← ADD — global store
+        }
       })
       .catch(() => {});
   }, [token]);

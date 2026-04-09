@@ -74,7 +74,7 @@ const buildItems = msgs => {
     const key = getDateKey(msg.createdAt);
     if (key !== lastKey) {
       items.push({
-        type: 'sep',
+        itemType: 'sep',
         id: `sep_${key}_${i}`,
         label: formatDateLabel(msg.createdAt),
       });
@@ -94,7 +94,12 @@ const buildItems = msgs => {
       next.senderId === msg.senderId &&
       nextKey === key &&
       new Date(next.createdAt) - new Date(msg.createdAt) < 120000;
-    items.push({ type: 'msg', ...msg, first: !sameAsPrev, last: !sameAsNext });
+    items.push({
+      itemType: 'msg',
+      ...msg,
+      first: !sameAsPrev,
+      last: !sameAsNext,
+    });
   });
   return items.reverse(); // newest first (inverted FlatList)
 };
@@ -113,21 +118,13 @@ export default function ConversationScreen({ navigation, route }) {
     lastActiveAt: initLastActive = null,
   } = route.params;
 
-  const { token, userId, userInfo, userImage } = useContext(AuthContext);
-  const [ownProfileImage, setOwnProfileImage] = useState(null);
-  const myImage =
-    userImage || userInfo?.imageUrls?.[0] || ownProfileImage || null;
-  console.log(
-    '[DEBUG myImage]',
-    myImage,
-    'userImage:',
-    userImage,
-    'userInfo:',
-    userInfo?.imageUrls,
-  );
+  const { token, userId, userImage } = useContext(AuthContext);
+  const myImage = userImage || null;
+
   const flatRef = useRef(null);
   const prevMsgLen = useRef(0);
   const inputRef = useRef(null);
+  const displayItemsRef = useRef([]);
 
   const {
     messages,
@@ -178,19 +175,6 @@ export default function ConversationScreen({ navigation, route }) {
   const prevLen = useRef(0);
 
   // ── Fetch own profile image if not available ─────────────────────────────
-  useEffect(() => {
-    if (myImage || !token || !userId) return;
-    fetch(`${API_BASE_URL}/users/${userId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => r.json())
-      .then(data => {
-        const img =
-          data?.imageUrls?.[0] || data?.profileImage || data?.image || null;
-        if (img) setOwnProfileImage(img);
-      })
-      .catch(() => {});
-  }, [token, userId]);
 
   // ── Track unread while scrolled up ───────────────────────────────────
   useEffect(() => {
@@ -200,12 +184,16 @@ export default function ConversationScreen({ navigation, route }) {
   }, [messages.length, atBottom]);
 
   // ── Build display items ───────────────────────────────────────────────
-  const displayItems = useMemo(() => buildItems(messages), [messages]);
+  const displayItems = useMemo(() => {
+    const items = buildItems(messages);
+    displayItemsRef.current = items; // ← ref update
+    return items;
+  }, [messages]);
 
   // Last own message — delivery status + always-visible timestamp
   const lastOwnMsgId = useMemo(() => {
     const own = displayItems.find(
-      item => item.type === 'msg' && item.senderId === userId,
+      item => item.itemType === 'msg' && item.senderId === userId,
     );
     return own?.messageId;
   }, [displayItems, userId]);
@@ -256,33 +244,19 @@ export default function ConversationScreen({ navigation, route }) {
   }, []);
 
   // ── Scroll to replied message ─────────────────────────────────────────
-  // ConversationScreen mein — scrollToMessage replace karo
-  const scrollToMessage = useCallback(
-    messageId => {
-      const idx = displayItems.findIndex(
-        item => item.type === 'msg' && item.messageId === messageId,
-      );
-      if (idx < 0) return;
+  const scrollToMessage = useCallback(messageId => {
+    const items = displayItemsRef.current;
+    const msgItems = items.filter(i => i.itemType === 'msg');
 
-      setTimeout(() => {
-        try {
-          flatRef.current?.scrollToIndex({
-            index: idx,
-            animated: true,
-            viewPosition: 0.5,
-          });
-        } catch (e) {
-          // rendered window ke bahar hai — rough fallback
-          flatRef.current?.scrollToOffset({
-            offset: idx * 80,
-            animated: true,
-          });
-        }
-      }, 80); // layout settle hone do
-    },
-    [displayItems],
-  );
+    const found = msgItems.find(i => i.messageId === messageId);
+    if (!found) return;
 
+    flatRef.current?.scrollToItem({
+      item: found,
+      animated: true,
+      viewPosition: 0.5,
+    });
+  }, []);
   // ── Long press → context menu ─────────────────────────────────────────
   const onLongPress = useCallback((msg, bubbleLayout) => {
     setCtxMenu({ visible: true, msg, bubbleLayout });
@@ -400,7 +374,7 @@ export default function ConversationScreen({ navigation, route }) {
   // ── Render item ───────────────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item }) => {
-      if (item.type === 'sep') {
+      if (item.itemType === 'sep') {
         return (
           <Animated.View layout={LinearTransition.springify().damping(18)}>
             <DateSeparator label={item.label} />
@@ -543,7 +517,6 @@ export default function ConversationScreen({ navigation, route }) {
         </View>
       </SafeAreaView>
 
-      {/* ── Messages ── */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -558,7 +531,7 @@ export default function ConversationScreen({ navigation, route }) {
             data={displayItems}
             inverted
             keyExtractor={item =>
-              item.type === 'sep' ? item.id : item.messageId
+              item.itemType === 'sep' ? item.id : item.messageId
             }
             renderItem={renderItem}
             showsVerticalScrollIndicator={false}
@@ -569,21 +542,7 @@ export default function ConversationScreen({ navigation, route }) {
             scrollEventThrottle={16}
             onEndReached={loadMore}
             onEndReachedThreshold={0.3}
-            onScrollToIndexFailed={({ index, highestMeasuredFrameIndex }) => {
-              // Step 1: rendered boundary tak scroll karo (no animation — fast)
-              flatRef.current?.scrollToIndex({
-                index: highestMeasuredFrameIndex,
-                animated: false,
-              });
-              // Step 2: items render hone ke baad actual target
-              setTimeout(() => {
-                flatRef.current?.scrollToIndex({
-                  index,
-                  animated: true,
-                  viewPosition: 0.5,
-                });
-              }, 400);
-            }}
+            onScrollToIndexFailed={() => {}} // ← empty — scrollToItem use kar rahe hain
             ListHeaderComponent={isTyping ? <TypingIndicator /> : null}
             ListFooterComponent={
               hasMore ? (

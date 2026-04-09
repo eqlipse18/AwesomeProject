@@ -34,6 +34,7 @@ import {
 import Config from 'react-native-config';
 import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native';
+import SearchIcon from '../assets/SVG/search';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -160,7 +161,7 @@ const LikesBanner = ({ likedUsers, likeCount, blurred, onPress }) => {
       style={styles.bannerOuter}
     >
       <LinearGradient
-        colors={['#FFF0F3', '#FFD6E0', '#FFC2CD']}
+        colors={['#fff8fb', '#fff7fd']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.bannerGradient}
@@ -511,7 +512,7 @@ export default function ChatScreen({ navigation }) {
       )}
 
       {activeChats.length > 0 && (
-        <Text style={styles.sectionLabel}>RECENT MESSAGES</Text>
+        <Text style={styles.sectionLabel2}>RECENT MESSAGES</Text>
       )}
     </View>
   );
@@ -526,7 +527,7 @@ export default function ChatScreen({ navigation }) {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           activeOpacity={0.7}
         >
-          <Text style={styles.searchIconText}>🔍</Text>
+          <SearchIcon size={23} color="#374151" />
         </TouchableOpacity>
       </View>
 
@@ -578,7 +579,7 @@ export default function ChatScreen({ navigation }) {
 // Styles
 // ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fef3fe' },
+  container: { flex: 1, backgroundColor: '#ffffff' },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -593,19 +594,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 6,
+    paddingTop: 8,
     paddingBottom: 12,
-    backgroundColor: '#FBF5F6',
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(185,0,52,0.08)',
+    backgroundColor: '#ffffff',
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: '800',
+    fontFamily: 'LobsterTwo-BoldItalic',
     color: '#1A1A1A',
-    letterSpacing: -0.5,
+    letterSpacing: 0.7,
   },
-  searchIconText: { fontSize: 20 },
 
   // Section labels
   sectionLabel: {
@@ -614,12 +612,21 @@ const styles = StyleSheet.create({
     color: '#B0ACAD',
     letterSpacing: 0.8,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 3,
     paddingBottom: 10,
+  },
+  sectionLabel2: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B0ACAD',
+    letterSpacing: 0.8,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 5,
   },
   bubblesContainer: {
     paddingHorizontal: 20,
-    gap: 14,
+    gap: 10,
     paddingBottom: 4,
   },
 
@@ -653,6 +660,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 2,
     borderColor: '#FBF5F6',
+    zIndex: 999,
   },
   bubbleName: {
     fontSize: 11,
@@ -664,8 +672,17 @@ const styles = StyleSheet.create({
   },
 
   // Likes Banner
-  bannerSection: { paddingHorizontal: 20, marginTop: 4 },
-  bannerOuter: { borderRadius: 14, overflow: 'hidden' },
+  bannerSection: { paddingHorizontal: 15, marginTop: 4 },
+  bannerOuter: {
+    borderRadius: 16,
+    overflow: 'hidden',
+
+    shadowColor: '#000000',
+    shadowOpacity: 0.45,
+    shadowRadius: 25,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+  },
   bannerGradient: {
     flexDirection: 'row',
     alignItems: 'center',
