@@ -260,6 +260,10 @@ router.post('/messages', authenticate, async (req, res) => {
       status: 'sent',
       createdAt: now,
     };
+    if (type === 'audio') {
+      if (req.body.audioDuration) message.duration = req.body.audioDuration;
+      if (req.body.audioWaveform) message.waveform = req.body.audioWaveform;
+    }
 
     // ── Denormalize replyTo so it survives DB round-trip ──
     if (replyTo?.messageId) {
@@ -350,6 +354,33 @@ router.post('/messages/media', authenticate, async (req, res) => {
     return res
       .status(500)
       .json({ success: false, error: 'Failed to generate upload URL' });
+  }
+});
+// POST /messages/audio — presigned URL for voice
+router.post('/messages/audio', authenticate, async (req, res) => {
+  try {
+    const { matchId, duration, waveform, fileType = 'audio/m4a' } = req.body;
+    if (!matchId)
+      return res
+        .status(400)
+        .json({ success: false, error: 'matchId required' });
+
+    const ext = fileType.includes('mp4') ? 'mp4' : 'm4a';
+    const key = `chats/${matchId}/audio_${uuidv4()}.${ext}`;
+
+    const command = new PutObjectCommand({
+      Bucket: 'flameapp-user-images',
+      Key: key,
+      ContentType: fileType,
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 120 });
+    const publicUrl = `https://flameapp-user-images.s3.ap-south-1.amazonaws.com/${key}`;
+
+    return res.status(200).json({ success: true, uploadUrl, publicUrl });
+  } catch (err) {
+    console.error('[POST /messages/audio]', err.message);
+    return res.status(500).json({ success: false, error: 'Failed' });
   }
 });
 

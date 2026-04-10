@@ -141,6 +141,7 @@ export default function ConversationScreen({ navigation, route }) {
     deleteMessage,
     editMessage,
     cacheLoaded,
+    sendVoice,
   } = useConversation({ token, matchId, userId });
 
   // ── UI state ──────────────────────────────────────────────────────────
@@ -176,7 +177,14 @@ export default function ConversationScreen({ navigation, route }) {
   const prevLen = useRef(0);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
 
-  // ── Fetch own profile image if not available ─────────────────────────────
+  const handleSendVoice = useCallback(
+    async (uri, duration, waveform) => {
+      await sendVoice(uri, duration, waveform);
+      flatRef.current?.scrollToOffset({ offset: 0, animated: true });
+      setAtBottom(true);
+    },
+    [sendVoice],
+  );
 
   // ── Track unread while scrolled up ───────────────────────────────────
   useEffect(() => {
@@ -600,6 +608,7 @@ export default function ConversationScreen({ navigation, route }) {
             editingMsg={editingMsg}
             onCancelEdit={() => setEditingMsg(null)}
             onEditSave={handleEditSave}
+            onSendVoice={handleSendVoice}
           />
         </SafeAreaView>
       </KeyboardAvoidingView>

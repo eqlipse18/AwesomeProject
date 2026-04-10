@@ -21,6 +21,7 @@ import Animated, {
   LinearTransition,
 } from 'react-native-reanimated';
 import { ReplyBar } from './ReplyBar';
+import { VoiceRecorder } from './VoiceRecorder';
 
 export const InputBar = forwardRef(
   (
@@ -28,17 +29,18 @@ export const InputBar = forwardRef(
       onSend,
       onAttach,
       emitTyping,
-      sending,
       replyingTo,
       onCancelReply,
       myUserId,
       editingMsg,
       onCancelEdit,
       onEditSave,
+      onSendVoice,
     },
     ref,
   ) => {
     const [text, setText] = useState('');
+    const [isRecording, setIsRecording] = useState(false);
     const inputRef = useRef(null);
     const scale = useSharedValue(1);
 
@@ -47,13 +49,12 @@ export const InputBar = forwardRef(
     }));
 
     const has = text.trim().length > 0;
+    const isEdit = !!editingMsg;
 
-    // ── Expose focus() to parent (ConversationScreen swipe reply) ──
     useImperativeHandle(ref, () => ({
       focus: () => inputRef.current?.focus(),
     }));
 
-    // Pre-fill on edit mode
     useEffect(() => {
       if (editingMsg) {
         setText(editingMsg.content);
@@ -64,35 +65,32 @@ export const InputBar = forwardRef(
     }, [editingMsg]);
 
     const handleSend = useCallback(() => {
-      if (!has || sending) return;
+      if (!has) return;
       scale.value = withSpring(0.82, { duration: 80 }, () => {
         scale.value = withSpring(1);
       });
-
-      if (editingMsg) {
+      if (isEdit) {
         onEditSave?.(editingMsg.messageId, text.trim());
       } else {
-        onSend(text.trim(), replyingTo || null);
+        onSend?.(text.trim(), replyingTo || null);
       }
       setText('');
       onCancelReply?.();
     }, [
       text,
-      sending,
+      has,
+      isEdit,
       onSend,
       replyingTo,
       editingMsg,
       onEditSave,
       onCancelReply,
-      has,
       scale,
     ]);
 
-    const isEdit = !!editingMsg;
-
     return (
       <Animated.View layout={LinearTransition.springify()}>
-        {/* Reply preview */}
+        {/* Reply bar */}
         {replyingTo && !isEdit && (
           <ReplyBar
             replyingTo={replyingTo}
@@ -115,7 +113,8 @@ export const InputBar = forwardRef(
         )}
 
         <View style={s.bar}>
-          {!isEdit && (
+          {/* Attach button — hide while recording or editing */}
+          {!isEdit && !isRecording && (
             <TouchableOpacity
               style={s.attBtn}
               onPress={onAttach}
@@ -125,39 +124,50 @@ export const InputBar = forwardRef(
             </TouchableOpacity>
           )}
 
-          <TextInput
-            ref={inputRef} // ← internal ref for focus
-            style={[s.input, isEdit && s.inputEdit]}
-            value={text}
-            onChangeText={t => {
-              setText(t);
-              emitTyping?.();
-            }}
-            placeholder={isEdit ? 'Edit message...' : 'Message...'}
-            placeholderTextColor="#94A3B8"
-            multiline
-            maxLength={1000}
-          />
+          {/* Text input — hide while recording */}
+          {!isRecording && (
+            <TextInput
+              ref={inputRef}
+              style={[s.input, isEdit && s.inputEdit]}
+              value={text}
+              onChangeText={t => {
+                setText(t);
+                emitTyping?.();
+              }}
+              placeholder={isEdit ? 'Edit message...' : 'Message...'}
+              placeholderTextColor="#94A3B8"
+              multiline
+              maxLength={1000}
+            />
+          )}
 
-          <Animated.View style={sendStyle}>
-            <TouchableOpacity
-              style={[
-                s.sendBtn,
-                !has && s.sendOff,
-                isEdit && has && s.sendEdit,
-              ]}
-              onPress={handleSend}
-              disabled={!has} // ← sending remove kiya — no loader
-              activeOpacity={0.8}
-            >
-              <Text style={s.sendIco}>{isEdit ? '✓' : '↑'}</Text>
-            </TouchableOpacity>
-          </Animated.View>
+          {/* Send button — only when text */}
+          {has && !isRecording ? (
+            <Animated.View style={sendStyle}>
+              <TouchableOpacity
+                style={[s.sendBtn, isEdit && has && s.sendEdit]}
+                onPress={handleSend}
+                activeOpacity={0.8}
+              >
+                <Text style={s.sendIco}>{isEdit ? '✓' : '↑'}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ) : !isEdit ? (
+            // Mic — only when no text and not editing
+            <VoiceRecorder
+              onSend={(uri, duration, waveform) => {
+                onSendVoice?.(uri, duration, waveform);
+              }}
+              onCancel={() => setIsRecording(false)}
+              onRecordingChange={setIsRecording}
+            />
+          ) : null}
         </View>
       </Animated.View>
     );
   },
 );
+
 const s = StyleSheet.create({
   bar: {
     flexDirection: 'row',
@@ -211,7 +221,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sendOff: { backgroundColor: '#E2E8F0' },
   sendEdit: { backgroundColor: '#F59E0B' },
   sendIco: { fontSize: 16, color: '#fff', fontWeight: '800', marginTop: -1 },
 });

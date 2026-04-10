@@ -573,6 +573,82 @@ export function useConversation({ token, matchId, userId }) {
     },
     [matchId, userId, safeSetMessages],
   );
+  const sendVoice = useCallback(
+    async (fileUri, durationMs, waveform) => {
+      if (!fileUri || !matchId) return;
+
+      const tempId = `temp_voice_${Date.now()}`;
+      const now = new Date().toISOString();
+      const fileType = Platform.OS === 'ios' ? 'audio/m4a' : 'audio/mp4';
+
+      // ── Instant temp bubble ──
+      const tempMsg = {
+        messageId: tempId,
+        matchId,
+        senderId: userId,
+        type: 'audio',
+        content: fileUri, // local URI — instant playback
+        duration: durationMs,
+        waveform,
+        status: 'sending',
+        createdAt: now,
+        isTemp: true,
+      };
+      safeSetMessages(prev => [...prev, tempMsg]);
+
+      try {
+        // 1. Get presigned URL
+        const urlResp = await apiClient.current.post('/messages/audio', {
+          matchId,
+          duration: durationMs,
+          waveform,
+          fileType,
+        });
+        if (!urlResp.data.success) throw new Error(urlResp.data.error);
+        const { uploadUrl, publicUrl } = urlResp.data;
+
+        // 2. Upload audio blob to S3
+        const audioBlob = await fetch(fileUri).then(r => r.blob());
+        await fetch(uploadUrl, {
+          method: 'PUT',
+          body: audioBlob,
+          headers: { 'Content-Type': fileType },
+        });
+
+        // 3. Save message in DB
+        const resp = await apiClient.current.post('/messages', {
+          matchId,
+          content: publicUrl,
+          type: 'audio',
+          audioDuration: durationMs,
+          audioWaveform: waveform,
+        });
+        if (!resp.data.success) throw new Error(resp.data.error);
+
+        // Replace temp with real
+        safeSetMessages(prev =>
+          prev.map(m =>
+            m.messageId === tempId
+              ? {
+                  ...resp.data.message,
+                  duration: durationMs,
+                  waveform,
+                  isTemp: false,
+                }
+              : m,
+          ),
+        );
+      } catch (err) {
+        safeSetMessages(prev =>
+          prev.map(m =>
+            m.messageId === tempId ? { ...m, status: 'failed' } : m,
+          ),
+        );
+        console.error('[sendVoice]', err.message);
+      }
+    },
+    [matchId, userId, safeSetMessages],
+  );
 
   // ── reactToMessage — optimistic ───────────────────────────────────────
   const reactToMessage = useCallback(
@@ -690,6 +766,7 @@ export function useConversation({ token, matchId, userId }) {
     hasMore: !!nextCursor,
     sendMessage,
     sendMedia,
+    sendVoice,
     emitTyping,
     loadMore,
     reactToMessage,
