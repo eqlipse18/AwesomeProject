@@ -20,6 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DeliveryStatus } from './DeliveryStatus';
+import { VoiceMessageBubble } from './VoiceMessageBubble';
 
 const BIG_R = 20,
   SML_R = 5;
@@ -165,6 +166,7 @@ export const MessageBubble = React.memo(
     const hasReactions = reactions && Object.keys(reactions).length > 0;
     const [showOriginal, setShowOriginal] = useState(false);
     const containerRef = useRef(null);
+    const isVoice = message.type === 'audio';
 
     const radius = isOwn
       ? {
@@ -343,6 +345,28 @@ export const MessageBubble = React.memo(
                 <View style={[s.deletedBubble, radius]}>
                   <Text style={s.deletedTxt}>🚫 This message was deleted</Text>
                 </View>
+              ) : isVoice ? (
+                // ── Voice message bubble ──
+                isOwn ? (
+                  <LinearGradient
+                    colors={['#FF0059', '#FF5289']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[radius, { overflow: 'hidden' }]}
+                  >
+                    <VoiceMessageBubble message={message} isOwn={true} />
+                  </LinearGradient>
+                ) : (
+                  <View
+                    style={[
+                      s.bblOther,
+                      radius,
+                      { padding: 0, overflow: 'hidden' },
+                    ]}
+                  >
+                    <VoiceMessageBubble message={message} isOwn={false} />
+                  </View>
+                )
               ) : isMedia ? (
                 <TouchableOpacity
                   onPress={() => onMediaPress?.(message.content)}

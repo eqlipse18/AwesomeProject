@@ -315,7 +315,11 @@ export function useConversation({ token, matchId, userId }) {
           m =>
             m.isTemp &&
             m.senderId === message.senderId &&
-            m.content === message.content,
+            m.type === message.type &&
+            // audio ke liye content match mat karo (local vs S3 URL)
+            (m.type === 'audio'
+              ? m.createdAt?.slice(0, 16) === message.createdAt?.slice(0, 16)
+              : m.content === message.content),
         );
         if (tempIdx >= 0) {
           const next = [...prev];
@@ -328,7 +332,7 @@ export function useConversation({ token, matchId, userId }) {
           writeCache(matchId, next, {});
           return next;
         }
-        if (prev.find(m => m.messageId === message.messageId)) return prev;
+        if (prev.some(m => m.messageId === message.messageId)) return prev;
         const next = [...prev, message];
         writeCache(matchId, next, {});
         return next;
@@ -581,23 +585,22 @@ export function useConversation({ token, matchId, userId }) {
       const now = new Date().toISOString();
       const fileType = Platform.OS === 'ios' ? 'audio/m4a' : 'audio/mp4';
 
-      // ── Instant temp bubble ──
       const tempMsg = {
         messageId: tempId,
         matchId,
         senderId: userId,
         type: 'audio',
-        content: fileUri, // local URI — instant playback
+        content: fileUri,
         duration: durationMs,
         waveform,
         status: 'sending',
         createdAt: now,
         isTemp: true,
+        tempId, // ← extra field for matching
       };
       safeSetMessages(prev => [...prev, tempMsg]);
 
       try {
-        // 1. Get presigned URL
         const urlResp = await apiClient.current.post('/messages/audio', {
           matchId,
           duration: durationMs,
@@ -607,7 +610,6 @@ export function useConversation({ token, matchId, userId }) {
         if (!urlResp.data.success) throw new Error(urlResp.data.error);
         const { uploadUrl, publicUrl } = urlResp.data;
 
-        // 2. Upload audio blob to S3
         const audioBlob = await fetch(fileUri).then(r => r.blob());
         await fetch(uploadUrl, {
           method: 'PUT',
@@ -615,7 +617,6 @@ export function useConversation({ token, matchId, userId }) {
           headers: { 'Content-Type': fileType },
         });
 
-        // 3. Save message in DB
         const resp = await apiClient.current.post('/messages', {
           matchId,
           content: publicUrl,
@@ -625,7 +626,7 @@ export function useConversation({ token, matchId, userId }) {
         });
         if (!resp.data.success) throw new Error(resp.data.error);
 
-        // Replace temp with real
+        // ← tempId se replace karo, content se nahi
         safeSetMessages(prev =>
           prev.map(m =>
             m.messageId === tempId
@@ -644,12 +645,10 @@ export function useConversation({ token, matchId, userId }) {
             m.messageId === tempId ? { ...m, status: 'failed' } : m,
           ),
         );
-        console.error('[sendVoice]', err.message);
       }
     },
     [matchId, userId, safeSetMessages],
   );
-
   // ── reactToMessage — optimistic ───────────────────────────────────────
   const reactToMessage = useCallback(
     async (messageId, msgMatchId, emoji) => {
