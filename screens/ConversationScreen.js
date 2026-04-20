@@ -36,6 +36,7 @@ import { AttachmentSheet } from '../src/components/conversation/AttachmentSheet'
 import { MediaPreviewModal } from '../src/components/conversation/MediaPreviewModal';
 import { ScrollFAB } from '../src/components/conversation/ScrollFAB';
 import { InputBar } from '../src/components/conversation/InputBar';
+import { VoiceMicOverlay } from '../src/components/conversation/VoiceMicOverlay';
 import Config from 'react-native-config';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -176,6 +177,8 @@ export default function ConversationScreen({ navigation, route }) {
   const [unreadScrolled, setUnreadScrolled] = useState(0);
   const prevLen = useRef(0);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
+
+  const micOverlayRef = useRef(null);
 
   const handleSendVoice = useCallback(
     async (uri, duration, waveform) => {
@@ -609,6 +612,13 @@ export default function ConversationScreen({ navigation, route }) {
             onCancelEdit={() => setEditingMsg(null)}
             onEditSave={handleEditSave}
             onSendVoice={handleSendVoice}
+            // micSlot={
+            //   // ← YEH ADD KARO
+            //   <VoiceMicOverlay
+            //     ref={micOverlayRef}
+            //     onSendVoice={handleSendVoice}
+            //   />
+            // }
           />
         </SafeAreaView>
       </KeyboardAvoidingView>

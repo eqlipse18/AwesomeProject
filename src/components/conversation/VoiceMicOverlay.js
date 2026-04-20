@@ -9,6 +9,12 @@
  *
  * Does NOT render any overlay UI — that lives in InputBar so it
  * stays within the bar's view bounds (Android touch clipping fix).
+ *
+ * FIX (send button not working):
+ *   Gesture.Race fires panGesture.onEnd even after tapGesture wins,
+ *   which called stopRecording() and set recRef=false before the user
+ *   could tap send. Fix: isTapRef flag — set in enterTapMode(), checked
+ *   in panGesture.onEnd to skip the stopRecording call.
  */
 
 import React, {
@@ -61,6 +67,7 @@ export const VoiceMicOverlay = forwardRef(
     // ── Refs ──────────────────────────────────────────────────────────────
     const recRef = useRef(false);
     const modeRef = useRef(MODE.IDLE);
+    const isTapRef = useRef(false); // ← FIX: prevents pan.onEnd killing tap recording
     const waveRef = useRef([]);
     const timerRef = useRef(null);
     const startMsRef = useRef(0);
@@ -71,21 +78,17 @@ export const VoiceMicOverlay = forwardRef(
     const micSc = useSharedValue(1);
     const ripSc = useSharedValue(1);
     const ripOp = useSharedValue(0);
-    const dotOp = useSharedValue(1); // exported so InputBar can use it
+    const dotOp = useSharedValue(1);
     const didCancel = useSharedValue(0);
     const didLock = useSharedValue(0);
 
-    // ── Expose shared values so InputBar can animate overlay dot/mic ──────
-    // (parent reads these via ref)
     useImperativeHandle(ref, () => ({
       stopRecording,
       deleteRecording,
       lockRecording,
-      // shared values for InputBar to build animated styles
       sharedValues: { micX, micY, micSc, ripSc, ripOp, dotOp },
     }));
 
-    // ── Notify parent of mode + live data ────────────────────────────────
     const notify = useCallback(
       (mode, extra = {}) => {
         modeRef.current = mode;
@@ -94,7 +97,6 @@ export const VoiceMicOverlay = forwardRef(
       [onModeChange],
     );
 
-    // ── Permission ────────────────────────────────────────────────────────
     const getPerm = useCallback(async () => {
       if (Platform.OS !== 'android') return true;
       const r = await PermissionsAndroid.request(
@@ -103,7 +105,6 @@ export const VoiceMicOverlay = forwardRef(
       return r === PermissionsAndroid.RESULTS.GRANTED;
     }, []);
 
-    // ── Ripple + dot animations ───────────────────────────────────────────
     const startAnims = useCallback(() => {
       ripSc.value = 1;
       ripOp.value = 0.25;
@@ -148,9 +149,9 @@ export const VoiceMicOverlay = forwardRef(
     const startRecording = useCallback(async () => {
       if (recRef.current) return;
 
-      // Notify HOLD immediately (before await) → InputBar shows overlay now
       notify(MODE.HOLD);
       startMsRef.current = Date.now();
+      isTapRef.current = false; // reset tap flag on every fresh start
       didCancel.value = 0;
       didLock.value = 0;
       waveRef.current = [];
@@ -170,7 +171,6 @@ export const VoiceMicOverlay = forwardRef(
         timerRef.current = setInterval(() => {
           const elapsed = Date.now() - startMsRef.current;
           waveRef.current.push(Math.random() * 0.75 + 0.15);
-          // Notify parent with latest duration so it can update timer display
           notify(modeRef.current, { dur: elapsed });
         }, 100);
       } catch (e) {
@@ -185,6 +185,7 @@ export const VoiceMicOverlay = forwardRef(
       async (isCancelled = false) => {
         if (!recRef.current) return;
         recRef.current = false;
+        isTapRef.current = false; // clear on stop
         clearInterval(timerRef.current);
 
         const realDur = Date.now() - startMsRef.current;
@@ -204,7 +205,6 @@ export const VoiceMicOverlay = forwardRef(
       [resetAnims, notify, onSendVoice],
     );
 
-    // ── Delete ────────────────────────────────────────────────────────────
     const deleteRecording = useCallback(
       () => stopRecording(true),
       [stopRecording],
@@ -223,11 +223,30 @@ export const VoiceMicOverlay = forwardRef(
     // ── Tap mode ──────────────────────────────────────────────────────────
     const enterTapMode = useCallback(() => {
       if (modeRef.current !== MODE.HOLD) return;
+      isTapRef.current = true; // ← FIX: mark as tap so pan.onEnd skips stopRecording
       notify(MODE.TAP);
       micX.value = withTiming(0, SMOOTH);
       micY.value = withTiming(0, SMOOTH);
       micSc.value = withTiming(1, SMOOTH);
     }, [micX, micY, micSc, notify]);
+
+    // ── Pan end handler — named, sync, safe for runOnJS ──────────────────
+    // isTapRef.current=true means tap already won → keep recording alive.
+    const handlePanEnd = (tx, wasCancelled, wasLocked) => {
+      if (isTapRef.current) {
+        micX.value = withTiming(0, SMOOTH);
+        micY.value = withTiming(0, SMOOTH);
+        micSc.value = withTiming(1, SMOOTH);
+        return;
+      }
+      if (wasLocked === 1) {
+        micX.value = withTiming(0, SMOOTH);
+        micY.value = withTiming(0, SMOOTH);
+        micSc.value = withTiming(1, SMOOTH);
+        return;
+      }
+      stopRecording(wasCancelled === 1);
+    };
 
     // ── Gestures ──────────────────────────────────────────────────────────
     const tapGesture = Gesture.Tap()
@@ -260,15 +279,10 @@ export const VoiceMicOverlay = forwardRef(
         if (tx < CANCEL_X) didCancel.value = 1;
         if (ty < LOCK_Y && didLock.value === 0) runOnJS(lockRecording)();
       })
-      .onEnd(() => {
+      .onEnd(e => {
         'worklet';
-        if (didLock.value === 1) {
-          micX.value = withTiming(0, SMOOTH);
-          micY.value = withTiming(0, SMOOTH);
-          micSc.value = withTiming(1, SMOOTH);
-          return;
-        }
-        runOnJS(stopRecording)(didCancel.value === 1);
+        // Pass translation + flags to JS thread for decision
+        runOnJS(handlePanEnd)(e.translationX, didCancel.value, didLock.value);
       })
       .onFinalize(() => {
         'worklet';
@@ -281,7 +295,7 @@ export const VoiceMicOverlay = forwardRef(
 
     const composed = Gesture.Race(tapGesture, panGesture);
 
-    // ── Animated styles (mic button only) ────────────────────────────────
+    // ── Animated styles ───────────────────────────────────────────────────
     const micAnimStyle = useAnimatedStyle(() => ({
       transform: [
         { translateX: micX.value },
@@ -294,7 +308,6 @@ export const VoiceMicOverlay = forwardRef(
       opacity: ripOp.value,
     }));
 
-    // ── Render — ONLY the mic button ─────────────────────────────────────
     return (
       <View style={s.root}>
         <GestureDetector gesture={composed}>

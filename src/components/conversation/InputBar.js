@@ -35,7 +35,6 @@ const fmt = ms => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
 export const InputBar = forwardRef(
   (
     {
@@ -68,6 +67,9 @@ export const InputBar = forwardRef(
     const isTap = mode === MODE.TAP;
     const isLocked = mode === MODE.LOCKED;
 
+    // mic is hidden (invisible) in TAP / LOCKED mode
+    const micHidden = isTap || isLocked;
+
     useImperativeHandle(ref, () => ({
       focus: () => inputRef.current?.focus(),
     }));
@@ -97,6 +99,7 @@ export const InputBar = forwardRef(
           dotOp.value = withTiming(1, { duration: 150 });
           setDur(0);
         }
+        // TAP / LOCKED: dot blink already running from HOLD, leave it
       },
       [dotOp],
     );
@@ -107,11 +110,8 @@ export const InputBar = forwardRef(
       scale.value = withSpring(0.82, { duration: 80 }, () => {
         scale.value = withSpring(1);
       });
-      if (isEdit) {
-        onEditSave?.(editingMsg.messageId, text.trim());
-      } else {
-        onSend?.(text.trim(), replyingTo || null);
-      }
+      if (isEdit) onEditSave?.(editingMsg.messageId, text.trim());
+      else onSend?.(text.trim(), replyingTo || null);
       setText('');
       onCancelReply?.();
     }, [
@@ -126,24 +126,20 @@ export const InputBar = forwardRef(
       scale,
     ]);
 
-    // ── Animated styles ───────────────────────────────────────────────
+    // ── Voice send / delete — stable refs, called by overlay buttons ──
+    const handleVoiceSend = useCallback(
+      () => micRef.current?.stopRecording(false),
+      [],
+    );
+    const handleVoiceDelete = useCallback(
+      () => micRef.current?.deleteRecording(),
+      [],
+    );
+
     const sendStyle = useAnimatedStyle(() => ({
       transform: [{ scale: scale.value }],
     }));
-    const dotStyle = useAnimatedStyle(() => ({
-      opacity: dotOp.value,
-    }));
-
-    // ─────────────────────────────────────────────────────────────────
-    // LAYER STRATEGY
-    //
-    //  z-index 20  ← mic button (HOLD: draggable above overlay)
-    //  z-index 10  ← recording overlay (dot/timer/wave/actions)
-    //  z-index  1  ← normal bar content
-    //
-    //  TAP / LOCKED: mic opacity → 0 so overlay actions are visible
-    //  HOLD        : mic stays opaque + above overlay so it can slide
-    // ─────────────────────────────────────────────────────────────────
+    const dotStyle = useAnimatedStyle(() => ({ opacity: dotOp.value }));
 
     return (
       <Animated.View layout={LinearTransition.springify()}>
@@ -169,10 +165,7 @@ export const InputBar = forwardRef(
           </Animated.View>
         )}
 
-        {/* ── Lock hint — above bar, right-aligned above mic ─────────────
-            Rendered in root view (not inside bar) so it's truly above.
-            position:absolute → bottom:100% floats it just above the bar.
-        ────────────────────────────────────────────────────────────── */}
+        {/* Lock hint — floats above bar right-edge, above mic */}
         {isHold && (
           <Animated.View
             entering={FadeIn.duration(200)}
@@ -185,13 +178,9 @@ export const InputBar = forwardRef(
           </Animated.View>
         )}
 
-        {/* ── Bar ──────────────────────────────────────────────────────── */}
+        {/* ── Main bar ─────────────────────────────────────────────── */}
         <View style={s.bar}>
-          {/* ── Recording overlay — z-index 10 ──────────────────────────
-              absoluteFill inside bar. Renders BELOW the mic slot (z20)
-              in HOLD so mic is draggable. In TAP/LOCKED mic is invisible
-              so overlay actions are fully tappable.
-          ─────────────────────────────────────────────────────────── */}
+          {/* Recording overlay — z10, below mic (z20 in HOLD) */}
           {isRec && (
             <Animated.View
               entering={FadeIn.duration(160)}
@@ -221,7 +210,7 @@ export const InputBar = forwardRef(
                 )}
               </View>
 
-              {/* Right — TAP / LOCKED: trash + send voice */}
+              {/* Right — TAP / LOCKED: trash + send */}
               {(isTap || isLocked) && (
                 <Animated.View
                   entering={FadeIn.duration(160)}
@@ -229,7 +218,7 @@ export const InputBar = forwardRef(
                 >
                   <TouchableOpacity
                     style={s.trashBtn}
-                    onPress={() => micRef.current?.deleteRecording()}
+                    onPress={handleVoiceDelete}
                     activeOpacity={0.7}
                     hitSlop={8}
                   >
@@ -237,7 +226,7 @@ export const InputBar = forwardRef(
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={s.sendVoiceBtn}
-                    onPress={() => micRef.current?.stopRecording(false)}
+                    onPress={handleVoiceSend}
                     activeOpacity={0.85}
                     hitSlop={4}
                   >
@@ -246,14 +235,12 @@ export const InputBar = forwardRef(
                 </Animated.View>
               )}
 
-              {/* Right — HOLD: empty placeholder (mic button is here at z20) */}
+              {/* Right — HOLD: placeholder so layout matches mic width */}
               {isHold && <View style={s.micPlaceholder} />}
             </Animated.View>
           )}
 
-          {/* ── Normal bar content (z-index 1) ──────────────────────── */}
-
-          {/* Attach */}
+          {/* Attach — hidden while recording or editing */}
           {!isEdit && !isRec && (
             <TouchableOpacity
               style={s.attBtn}
@@ -264,7 +251,7 @@ export const InputBar = forwardRef(
             </TouchableOpacity>
           )}
 
-          {/* Text input */}
+          {/* Text input — hidden while recording */}
           {!isRec && (
             <TextInput
               ref={inputRef}
@@ -281,16 +268,10 @@ export const InputBar = forwardRef(
             />
           )}
 
-          {/* Spacer while recording — pushes mic to right edge */}
+          {/* Spacer during recording — pushes mic to right edge */}
           {isRec && <View style={s.recSpacer} />}
 
-          {/* ── Right slot ──────────────────────────────────────────────
-              Text available + not recording → send button
-              Recording (any mode) → mic button at z20
-                - HOLD:         fully visible + draggable above overlay
-                - TAP/LOCKED:   opacity 0 (overlay actions show instead)
-              Edit mode, no text → nothing
-          ─────────────────────────────────────────────────────────── */}
+          {/* Right slot */}
           {!isRec && has ? (
             <Animated.View style={sendStyle}>
               <TouchableOpacity
@@ -302,13 +283,26 @@ export const InputBar = forwardRef(
               </TouchableOpacity>
             </Animated.View>
           ) : !isEdit ? (
-            // Mic slot — always mounted, z20 in HOLD, invisible in TAP/LOCKED
+            /*
+             * Mic slot — always mounted so recording stays alive.
+             *
+             * ✅ KEY FIX:
+             * In TAP/LOCKED the mic is opacity:0 (invisible) but was still
+             * intercepting all touches at z20, blocking the overlay send button.
+             *
+             * Solution: wrap in a plain View with pointerEvents="none" when
+             * hidden. This lets touches fall through to the overlay buttons.
+             * The GestureDetector inside VoiceMicOverlay still works for the
+             * next recording because RNGH ignores pointerEvents on ancestors.
+             */
             <View
               style={[
                 s.micSlot,
-                isRec && s.micSlotRec, // z-index 20
-                (isTap || isLocked) && s.micSlotHidden, // opacity 0
+                isRec && s.micSlotRec, // z20 in any recording state
+                micHidden && s.micSlotHidden, // opacity 0 in TAP/LOCKED
               ]}
+              // ✅ pass touches through when mic is invisible
+              pointerEvents={micHidden ? 'none' : 'auto'}
             >
               <VoiceMicOverlay
                 ref={micRef}
@@ -323,9 +317,7 @@ export const InputBar = forwardRef(
   },
 );
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  // ── Bar ──────────────────────────────────────────────────────────────────
   bar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -335,7 +327,7 @@ const s = StyleSheet.create({
     minHeight: 58,
   },
 
-  // ── Recording overlay (absoluteFill, z10) ────────────────────────────────
+  // z10 — below mic in HOLD, above nothing in TAP/LOCKED (mic is gone)
   overlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,
@@ -346,25 +338,14 @@ const s = StyleSheet.create({
     gap: 8,
     backgroundColor: '#FFFFFF',
   },
-
   recLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     flexShrink: 0,
   },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#FF0059',
-  },
-  timerTxt: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FF0059',
-    minWidth: 42,
-  },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#FF0059' },
+  timerTxt: { fontSize: 15, fontWeight: '700', color: '#FF0059', minWidth: 42 },
   recCenter: {
     flex: 1,
     height: 42,
@@ -379,11 +360,8 @@ const s = StyleSheet.create({
     fontWeight: '500',
     marginTop: 1,
   },
-
-  // Placeholder in overlay right-side during HOLD (mic button lives here at z20)
   micPlaceholder: { width: 42, flexShrink: 0 },
 
-  // TAP / LOCKED action buttons
   recActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -409,14 +387,12 @@ const s = StyleSheet.create({
   },
   sendVoiceIco: { fontSize: 18, color: '#fff', fontWeight: '800' },
 
-  // Spacer that fills input area width during recording
   recSpacer: { flex: 1 },
 
-  // ── Lock hint — above bar, right-aligned above mic ───────────────────────
   lockHintAbove: {
     position: 'absolute',
-    bottom: '100%', // floats just above the bar
-    right: 10, // aligns with bar's right padding (same as mic position)
+    bottom: '100%',
+    right: 10,
     alignItems: 'center',
     paddingBottom: 4,
     zIndex: 30,
@@ -424,21 +400,10 @@ const s = StyleSheet.create({
   lockIco: { fontSize: 15, textAlign: 'center' },
   lockArrow: { fontSize: 9, color: '#94A3B8', textAlign: 'center' },
 
-  // ── Mic slot ─────────────────────────────────────────────────────────────
-  micSlot: {
-    // default — IDLE, normal z
-    zIndex: 1,
-  },
-  micSlotRec: {
-    // HOLD — above overlay so mic is draggable
-    zIndex: 20,
-  },
-  micSlotHidden: {
-    // TAP / LOCKED — invisible but mounted (keeps gesture ready)
-    opacity: 0,
-  },
+  micSlot: { zIndex: 1 },
+  micSlotRec: { zIndex: 20 },
+  micSlotHidden: { opacity: 0 },
 
-  // ── Edit banner ───────────────────────────────────────────────────────────
   editBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -452,7 +417,6 @@ const s = StyleSheet.create({
   editBannerTxt: { fontSize: 12, color: '#92400E', fontWeight: '600' },
   editBannerClose: { fontSize: 13, color: '#92400E', fontWeight: '700' },
 
-  // ── Normal bar ────────────────────────────────────────────────────────────
   attBtn: {
     width: 36,
     height: 36,
