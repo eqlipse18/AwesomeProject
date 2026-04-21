@@ -633,4 +633,122 @@ router.patch('/messages/edit', authenticate, async (req, res) => {
   }
 });
 
+// DELETE /chat/:matchId — clear all messages
+router.delete('/chat/:matchId', authenticate, async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const { userId } = req.user;
+
+    // Fetch all messages for this match
+    const result = await docClient.send(
+      new QueryCommand({
+        TableName: 'flame-Messages',
+        IndexName: 'matchId-createdAt-index',
+        KeyConditionExpression: 'matchId = :mid',
+        ExpressionAttributeValues: { ':mid': matchId },
+      }),
+    );
+
+    // Batch delete — 25 items at a time (DynamoDB limit)
+    const items = result.Items || [];
+    const chunks = [];
+    for (let i = 0; i < items.length; i += 25) {
+      chunks.push(items.slice(i, i + 25));
+    }
+
+    await Promise.all(
+      chunks.map(chunk =>
+        docClient.send({
+          RequestItems: {
+            'flame-Messages': chunk.map(item => ({
+              DeleteRequest: {
+                Key: { matchId: item.matchId, messageId: item.messageId },
+              },
+            })),
+          },
+        }),
+      ),
+    );
+
+    // Clear lastMessage in match
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'flame-Matches',
+        Key: { matchId },
+        UpdateExpression: 'SET lastMessage = :lm, lastMessageAt = :t',
+        ExpressionAttributeValues: {
+          ':lm': {
+            text: '',
+            senderId: userId,
+            timestamp: new Date().toISOString(),
+          },
+          ':t': new Date().toISOString(),
+        },
+      }),
+    );
+
+    getIO().to(matchId).emit('chat_cleared', { matchId, clearedBy: userId });
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /chat/:matchId]', err.message);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to clear chat' });
+  }
+});
+
+// POST /users/block — block user
+router.post('/users/block', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { blockedUserId, matchId, reason = 'No reason provided' } = req.body;
+
+    if (!blockedUserId)
+      return res
+        .status(400)
+        .json({ success: false, error: 'blockedUserId required' });
+
+    const now = new Date().toISOString();
+
+    // Save block record
+    await docClient.send(
+      new PutCommand({
+        TableName: 'flame-Blocks',
+        Item: {
+          blockerId: userId,
+          blockedId: blockedUserId,
+          matchId: matchId || null,
+          reason,
+          createdAt: now,
+        },
+      }),
+    );
+
+    // Update match status to blocked
+    if (matchId) {
+      await docClient.send(
+        new UpdateCommand({
+          TableName: 'flame-Matches',
+          Key: { matchId },
+          UpdateExpression:
+            'SET #st = :blocked, blockedBy = :uid, blockedAt = :t',
+          ExpressionAttributeNames: { '#st': 'status' },
+          ExpressionAttributeValues: {
+            ':blocked': 'blocked',
+            ':uid': userId,
+            ':t': now,
+          },
+        }),
+      );
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[POST /users/block]', err.message);
+    return res
+      .status(500)
+      .json({ success: false, error: 'Failed to block user' });
+  }
+});
+
 export default router;

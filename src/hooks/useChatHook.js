@@ -211,6 +211,45 @@ export function useConversation({ token, matchId, userId }) {
     return rxMap;
   }, []);
 
+  // Socket mein chat_cleared listener add karo:
+  const handleChatCleared = ({ clearedBy }) => {
+    if (clearedBy !== userId) {
+      // Other user cleared — clear locally too
+      safeSetMessages([]);
+      safeSetReactionsMap({});
+    }
+  };
+
+  const clearChat = useCallback(async () => {
+    safeSetMessages([]);
+    safeSetReactionsMap({});
+    clearCache(matchId);
+    try {
+      await apiClient.current.delete(`/chat/${matchId}`);
+    } catch (err) {
+      console.error('[clearChat]', err.message);
+      fetchMessages(); // rollback
+    }
+  }, [matchId, safeSetMessages, safeSetReactionsMap, fetchMessages]);
+
+  // blockUser function
+  const blockUser = useCallback(
+    async blockedUserId => {
+      try {
+        await apiClient.current.post('/users/block', {
+          blockedUserId,
+          matchId,
+          reason: 'Blocked from chat',
+        });
+        return true;
+      } catch (err) {
+        console.error('[blockUser]', err.message);
+        return false;
+      }
+    },
+    [matchId],
+  );
+
   // ── Step 1: Load cache instantly on mount ────────────────────────────
   useEffect(() => {
     if (!matchId) return;
@@ -431,6 +470,7 @@ export function useConversation({ token, matchId, userId }) {
     socket.current.on('message_reacted', handleReacted);
     socket.current.on('user_typing', handleTyping);
     socket.current.on('user_stop_typing', handleStopTyping);
+    socket.current.on('chat_cleared', handleChatCleared);
 
     if (socket.current.connected) {
       socket.current.emit('join_room', { matchId, userId });
@@ -450,6 +490,7 @@ export function useConversation({ token, matchId, userId }) {
       socket.current.off('message_reacted', handleReacted);
       socket.current.off('user_typing', handleTyping);
       socket.current.off('user_stop_typing', handleStopTyping);
+      socket.current.off('chat_cleared', handleChatCleared);
     };
   }, [token, matchId, userId, safeSetMessages, safeSetReactionsMap]);
 
@@ -771,5 +812,7 @@ export function useConversation({ token, matchId, userId }) {
     reactToMessage,
     deleteMessage,
     editMessage,
+    clearChat,
+    blockUser,
   };
 }

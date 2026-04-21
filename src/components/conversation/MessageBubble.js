@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import Animated, {
   runOnJS,
   FadeIn,
   FadeOut,
+  Easing,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DeliveryStatus } from './DeliveryStatus';
@@ -168,6 +169,21 @@ export const MessageBubble = React.memo(
     const containerRef = useRef(null);
     const isVoice = message.type === 'audio';
 
+    const entryOpacity = useSharedValue(0);
+    const entryY = useSharedValue(12);
+
+    useEffect(() => {
+      entryOpacity.value = withTiming(1, { duration: 220 });
+      entryY.value = withTiming(0, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      });
+    }, []);
+
+    const entryStyle = useAnimatedStyle(() => ({
+      transform: [{ translateY: entryY.value }],
+      opacity: entryOpacity.value,
+    }));
     const radius = isOwn
       ? {
           borderTopLeftRadius: BIG_R,
@@ -274,12 +290,13 @@ export const MessageBubble = React.memo(
 
     return (
       <Animated.View
-        layout={LinearTransition.springify().damping(18)}
+        // layout={LinearTransition.springify().damping(25).stiffness(250)}
         style={[
           s.row,
           isOwn ? s.rowOwn : s.rowOther,
           !first && s.rowGrouped,
           hasReactions && s.rowWithRx,
+          entryStyle, // ← ADD
         ]}
       >
         {/* Arrow — received */}

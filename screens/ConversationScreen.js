@@ -38,6 +38,10 @@ import { ScrollFAB } from '../src/components/conversation/ScrollFAB';
 import { InputBar } from '../src/components/conversation/InputBar';
 import { VoiceMicOverlay } from '../src/components/conversation/VoiceMicOverlay';
 import Config from 'react-native-config';
+import { ChatMenuSheet } from '../src/components/conversation/ChatMenuSheet';
+import { SearchMessagesSheet } from '../src/components/conversation/SearchMessagesSheet';
+import { SharedMediaSheet } from '../src/components/conversation/SharedMediaSheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -143,10 +147,16 @@ export default function ConversationScreen({ navigation, route }) {
     editMessage,
     cacheLoaded,
     sendVoice,
+    clearChat,
+    blockUser,
   } = useConversation({ token, matchId, userId });
 
   // ── UI state ──────────────────────────────────────────────────────────
   const [selectedMsgId, setSelectedMsgId] = useState(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState({
@@ -388,6 +398,72 @@ export default function ConversationScreen({ navigation, route }) {
     [sendMedia],
   );
 
+  // Load mute state
+  useEffect(() => {
+    AsyncStorage.getItem(`mute_${matchId}`)
+      .then(v => {
+        if (v === 'true') setIsMuted(true);
+      })
+      .catch(() => {});
+  }, [matchId]);
+
+  // Menu handler
+  const handleMenuSelect = useCallback(
+    async key => {
+      switch (key) {
+        case 'media':
+          setShowMedia(true);
+          break;
+
+        case 'search':
+          setShowSearch(true);
+          break;
+
+        case 'mute':
+          const newMuted = !isMuted;
+          setIsMuted(newMuted);
+          await AsyncStorage.setItem(`mute_${matchId}`, String(newMuted));
+          break;
+
+        case 'clear':
+          Alert.alert(
+            'Clear Chat',
+            'Are you sure? All messages will be deleted permanently.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Clear',
+                style: 'destructive',
+                onPress: async () => {
+                  await clearChat();
+                },
+              },
+            ],
+          );
+          break;
+
+        case 'block':
+          Alert.alert(
+            'Block & Report',
+            `Block ${name}? They won't be able to message you.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Block',
+                style: 'destructive',
+                onPress: async () => {
+                  const ok = await blockUser(targetUserId);
+                  if (ok) navigation.goBack();
+                },
+              },
+            ],
+          );
+          break;
+      }
+    },
+    [isMuted, matchId, name, targetUserId, clearChat, blockUser, navigation],
+  );
+
   // ── Render item ───────────────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item }) => {
@@ -406,6 +482,7 @@ export default function ConversationScreen({ navigation, route }) {
         );
       }
       const isOwn = item.senderId === userId;
+
       return (
         <MessageBubble
           message={item}
@@ -530,7 +607,11 @@ export default function ConversationScreen({ navigation, route }) {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={s.moreBtn} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={s.moreBtn}
+            onPress={() => setShowMenu(true)}
+            activeOpacity={0.7}
+          >
             <Text style={s.moreIco}>⋮</Text>
           </TouchableOpacity>
         </View>
@@ -663,6 +744,26 @@ export default function ConversationScreen({ navigation, route }) {
 
       {/* ── Media Preview ── */}
       <MediaPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
+
+      <ChatMenuSheet
+        visible={showMenu}
+        isMuted={isMuted}
+        onClose={() => setShowMenu(false)}
+        onSelect={handleMenuSelect}
+      />
+      <SearchMessagesSheet
+        visible={showSearch}
+        messages={messages}
+        onClose={() => setShowSearch(false)}
+        onJumpTo={scrollToMessage}
+      />
+
+      <SharedMediaSheet
+        visible={showMedia}
+        messages={messages}
+        onClose={() => setShowMedia(false)}
+        onPressMedia={uri => setPreviewUri(uri)}
+      />
     </GestureHandlerRootView>
   );
 }
