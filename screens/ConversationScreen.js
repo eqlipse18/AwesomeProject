@@ -17,6 +17,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -412,11 +413,16 @@ export default function ConversationScreen({ navigation, route }) {
     async key => {
       switch (key) {
         case 'media':
-          setShowMedia(true);
+          navigation.navigate('SharedMedia', { messages });
           break;
 
         case 'search':
-          setShowSearch(true);
+          navigation.navigate('SearchMessages', {
+            messages,
+            myUserId: userId,
+            otherName: name,
+            onJumpTo: scrollToMessage,
+          });
           break;
 
         case 'mute':
@@ -443,30 +449,42 @@ export default function ConversationScreen({ navigation, route }) {
           break;
 
         case 'block':
-          Alert.alert(
-            'Block & Report',
-            `Block ${name}? They won't be able to message you.`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Block',
-                style: 'destructive',
-                onPress: async () => {
-                  const ok = await blockUser(targetUserId);
-                  if (ok) navigation.goBack();
-                },
-              },
-            ],
-          );
+          navigation.navigate('ReportQuestion', {
+            targetUserId,
+            matchId,
+            name,
+            onSubmitReport: async ({ reason, details }) => {
+              await apiClient.current.post('/users/report', {
+                targetUserId,
+                matchId,
+                reason,
+                details,
+              });
+
+              // 👉 optional: block user immediately after report
+              await apiClient.current.post('/users/block', {
+                targetUserId,
+              });
+            },
+          });
           break;
       }
     },
-    [isMuted, matchId, name, targetUserId, clearChat, blockUser, navigation],
+    [
+      isMuted,
+      matchId,
+      name,
+      targetUserId,
+      clearChat,
+      navigation,
+      messages,
+      userId,
+    ],
   );
 
   // ── Render item ───────────────────────────────────────────────────────
   const renderItem = useCallback(
-    ({ item }) => {
+    ({ item, index }) => {
       if (item.itemType === 'sep') {
         return (
           <Animated.View layout={LinearTransition.springify().damping(18)}>
@@ -482,6 +500,8 @@ export default function ConversationScreen({ navigation, route }) {
         );
       }
       const isOwn = item.senderId === userId;
+      // Inverted FlatList — index 0 is the newest message
+      const isLast = index === 0;
 
       return (
         <MessageBubble
@@ -489,6 +509,7 @@ export default function ConversationScreen({ navigation, route }) {
           isOwn={isOwn}
           first={item.first}
           last={item.last}
+          isLast={isLast}
           reactions={reactionsMap?.[item.messageId]}
           myUserId={userId}
           otherImage={image}
@@ -525,7 +546,6 @@ export default function ConversationScreen({ navigation, route }) {
       highlightedMsgId,
     ],
   );
-
   // ── Header status ─────────────────────────────────────────────────────
   const headerStatus = isTyping
     ? { text: '✍️ typing...', color: '#FF0059' }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,116 +6,135 @@ import {
   StyleSheet,
   Modal,
   Pressable,
+  Dimensions,
 } from 'react-native';
 import Animated, {
-  FadeIn,
-  FadeOut,
-  SlideInDown,
-  SlideOutDown,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
 } from 'react-native-reanimated';
 
+const { width: W } = Dimensions.get('window');
+const MENU_W = 220;
+
 const ITEMS = [
-  { key: 'media', ico: '🖼️', label: 'View Shared Media' },
-  { key: 'search', ico: '🔍', label: 'Search Messages' },
-  { key: 'mute', ico: '🔕', label: 'Mute Notifications', toggle: true },
-  { key: 'clear', ico: '🗑️', label: 'Clear Chat', danger: true },
-  { key: 'block', ico: '🚫', label: 'Block & Report', danger: true },
+  { key: 'media', label: 'Media, links & docs' },
+  { key: 'search', label: 'Search' },
+  { key: 'mute', label: 'Mute notifications', toggle: true },
+  { key: 'clear', label: 'Clear chat', danger: false },
+  { key: 'block', label: 'Block & Report', danger: true },
 ];
 
-export const ChatMenuSheet = ({ visible, isMuted, onClose, onSelect }) => (
-  <Modal
-    visible={visible}
-    transparent
-    animationType="none"
-    onRequestClose={onClose}
-    statusBarTranslucent
-  >
-    <Animated.View
-      entering={FadeIn.duration(180)}
-      exiting={FadeOut.duration(180)}
-      style={s.backdrop}
+export const ChatMenuSheet = ({ visible, isMuted, onClose, onSelect }) => {
+  const opacity = useSharedValue(0);
+  const scaleY = useSharedValue(0.88);
+  const transY = useSharedValue(-8);
+
+  useEffect(() => {
+    if (visible) {
+      opacity.value = withTiming(1, {
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
+      });
+      scaleY.value = withTiming(1, {
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+      });
+      transY.value = withTiming(0, {
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+      });
+    } else {
+      opacity.value = withTiming(0, {
+        duration: 120,
+        easing: Easing.in(Easing.cubic),
+      });
+      scaleY.value = withTiming(0.88, { duration: 120 });
+      transY.value = withTiming(-8, { duration: 120 });
+    }
+  }, [visible, opacity, scaleY, transY]);
+
+  const menuStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scaleY: scaleY.value }, { translateY: transY.value }],
+  }));
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value * 0.3,
+  }));
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
     >
-      <Pressable style={{ flex: 1 }} onPress={onClose} />
-    </Animated.View>
+      {/* Backdrop — very light */}
+      <Animated.View
+        style={[StyleSheet.absoluteFillObject, s.backdrop, backdropStyle]}
+        pointerEvents="none"
+      />
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
 
-    <Animated.View
-      entering={SlideInDown.springify().damping(20).stiffness(260)}
-      exiting={SlideOutDown.duration(200)}
-      style={s.sheet}
-    >
-      <View style={s.handle} />
-
-      {ITEMS.map((item, i) => (
-        <React.Fragment key={item.key}>
-          {i > 0 && <View style={s.div} />}
-          <TouchableOpacity
-            style={s.row}
-            onPress={() => {
-              onClose();
-              onSelect(item.key);
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={s.ico}>{item.ico}</Text>
-            <Text style={[s.label, item.danger && s.danger]}>
-              {item.key === 'mute'
-                ? isMuted
-                  ? '🔔 Unmute Notifications'
-                  : '🔕 Mute Notifications'
-                : item.label}
-            </Text>
-          </TouchableOpacity>
-        </React.Fragment>
-      ))}
-
-      <View style={s.bottomPad} />
-    </Animated.View>
-  </Modal>
-);
+      {/* Dropdown — top right, below header */}
+      <Animated.View style={[s.menu, menuStyle]}>
+        {ITEMS.map((item, i) => (
+          <React.Fragment key={item.key}>
+            {i > 0 && <View style={s.div} />}
+            <TouchableOpacity
+              style={s.row}
+              onPress={() => {
+                onClose();
+                setTimeout(() => onSelect(item.key), 150);
+              }}
+              activeOpacity={0.6}
+            >
+              <Text style={[s.label, item.danger && s.danger]}>
+                {item.key === 'mute'
+                  ? isMuted
+                    ? 'Unmute notifications'
+                    : 'Mute notifications'
+                  : item.label}
+              </Text>
+            </TouchableOpacity>
+          </React.Fragment>
+        ))}
+      </Animated.View>
+    </Modal>
+  );
+};
 
 const s = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  sheet: {
+  backdrop: { backgroundColor: '#9999994a' },
+  menu: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    top: 110, // below header
+    right: 8,
+    width: MENU_W,
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 10,
-    paddingHorizontal: 0,
+    borderRadius: 6,
+    paddingVertical: 6,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
     shadowRadius: 12,
-    elevation: 16,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#E2E8F0',
-    alignSelf: 'center',
-    marginBottom: 12,
+    elevation: 14,
+    transformOrigin: 'top right',
+    zIndex: 999,
   },
   div: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: '#F1F5F9',
-    marginHorizontal: 16,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
   },
-  ico: { fontSize: 20, width: 28 },
-  label: { fontSize: 15, fontWeight: '500', color: '#0F172A' },
+  label: { fontSize: 15, color: '#0F172A' },
   danger: { color: '#EF4444' },
-  bottomPad: { height: 24 },
 });

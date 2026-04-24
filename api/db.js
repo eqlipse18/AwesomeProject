@@ -7,6 +7,7 @@ import {
   QueryCommand,
   BatchGetCommand,
   UpdateCommand,
+  BatchWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
 import { SESClient } from '@aws-sdk/client-ses';
@@ -48,6 +49,7 @@ export {
   QueryCommand,
   BatchGetCommand,
   UpdateCommand,
+  BatchWriteCommand,
 };
 
 // export { docClient, PutCommand, GetCommand, QueryCommand }; diplicate email wale k liye

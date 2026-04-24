@@ -37,6 +37,7 @@ const fmt = ts =>
       })
     : '';
 
+// ── Reply quote ───────────────────────────────────────────────────────────────
 const ReplyQuote = ({ replyTo, isOwn, onPress }) => {
   if (!replyTo?.messageId) return null;
 
@@ -77,27 +78,23 @@ const q = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     marginBottom: 6,
-    minHeight: 38, // ← ensure height
+    minHeight: 38,
   },
-  own: { backgroundColor: '#ff6a9e94' }, // dark on red gradient
-  other: { backgroundColor: 'rgba(255, 0, 0, 0.06)' }, // subtle on white
-
+  own: { backgroundColor: '#ff6a9e94' },
+  other: { backgroundColor: 'rgba(255, 0, 0, 0.06)' },
   accent: { width: 2, flexShrink: 0 },
   accentOwn: { backgroundColor: '#FF0059' },
   accentOther: { backgroundColor: '#FF0059' },
-
   body: { flex: 1, paddingHorizontal: 8, paddingVertical: 6 },
-
   sender: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
-  senderOwn: { color: 'rgba(255,255,255,0.9)' }, // white on red
-  senderOther: { color: '#FF0059' }, // pink on white
-
+  senderOwn: { color: 'rgba(255,255,255,0.9)' },
+  senderOther: { color: '#FF0059' },
   txt: { fontSize: 12, lineHeight: 17, color: '#0F172A' },
-  txtOwn: { color: 'rgba(255, 255, 255, 0.95)' }, // white on red
-  txtOther: { color: '#ff0099' }, // dark on white
+  txtOwn: { color: 'rgba(255, 255, 255, 0.95)' },
+  txtOther: { color: '#ff0099' },
 });
 
-// ── Reaction tip ──────────────────────────────────────────────────────────
+// ── Reaction tip ──────────────────────────────────────────────────────────────
 const RxTip = ({ reactions, isOwn, onPress }) => {
   if (!reactions || !Object.keys(reactions).length) return null;
   const emojis = [...new Set(Object.values(reactions))].slice(0, 3).join('');
@@ -147,6 +144,7 @@ export const MessageBubble = React.memo(
     isOwn,
     first,
     last,
+    isLast, // ← NEW: true only for index===0 in inverted list (newest msg)
     reactions,
     myUserId,
     otherImage,
@@ -156,10 +154,10 @@ export const MessageBubble = React.memo(
     onLongPress,
     onRxTipPress,
     onMediaPress,
-    onSwipeReply, // onSwipeReply now called on finger RELEASE
+    onSwipeReply,
     onPressReplyQuote,
     onAvatarPress,
-    isHighlighted, // ← ADD
+    isHighlighted,
   }) => {
     const isSelected = selectedMsgId === message.messageId;
     const isDeleted = message.type === 'deleted';
@@ -169,21 +167,38 @@ export const MessageBubble = React.memo(
     const containerRef = useRef(null);
     const isVoice = message.type === 'audio';
 
-    const entryOpacity = useSharedValue(0);
-    const entryY = useSharedValue(12);
+    // ── Animation guard ───────────────────────────────────────────────────
+    // hasAnimated prevents re-animating on re-renders (status update, edit, etc.)
+    const hasAnimated = useRef(false);
+    const isNewMessage = isLast && !hasAnimated.current;
+
+    // Own messages slide slightly faster — feels more immediate
+    const duration = isOwn ? 180 : 220;
+
+    // ── Entry animation ───────────────────────────────────────────────────
+    // New messages  → start from (opacity:0, y:12), animate in
+    // Old messages  → start at final state, no animation
+    const entryOpacity = useSharedValue(isNewMessage ? 0 : 1);
+    const entryY = useSharedValue(isNewMessage ? 12 : 0);
 
     useEffect(() => {
-      entryOpacity.value = withTiming(1, { duration: 220 });
-      entryY.value = withTiming(0, {
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-      });
-    }, []);
+      if (isNewMessage) {
+        entryOpacity.value = withTiming(1, { duration, delay: 20 });
+        entryY.value = withTiming(0, {
+          duration,
+          delay: 20,
+          easing: Easing.out(Easing.cubic),
+        });
+        hasAnimated.current = true; // lock — never animates again for this instance
+      }
+    }, [isNewMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const entryStyle = useAnimatedStyle(() => ({
       transform: [{ translateY: entryY.value }],
       opacity: entryOpacity.value,
     }));
+
+    // ── Border radii ──────────────────────────────────────────────────────
     const radius = isOwn
       ? {
           borderTopLeftRadius: BIG_R,
@@ -198,7 +213,7 @@ export const MessageBubble = React.memo(
           borderBottomLeftRadius: last ? BIG_R : SML_R,
         };
 
-    // ── Swipe — full bubble hitSlop, trigger on release ──────────────────
+    // ── Swipe gesture ─────────────────────────────────────────────────────
     const swipeX = useSharedValue(0);
     const triggered = useRef(false);
 
@@ -208,8 +223,8 @@ export const MessageBubble = React.memo(
 
     const swipeGesture = isOwn
       ? Gesture.Pan()
-          .minDistance(4) // ← very sensitive start
-          .activeOffsetX([-8, Infinity]) // ← start from tiny move
+          .minDistance(4)
+          .activeOffsetX([-8, Infinity])
           .failOffsetY([-20, 20])
           .onUpdate(e => {
             'worklet';
@@ -218,7 +233,6 @@ export const MessageBubble = React.memo(
           })
           .onEnd(() => {
             'worklet';
-            // ── Reply bar only on finger release ──
             if (triggered.current) runOnJS(fireReply)();
             triggered.current = false;
             swipeX.value = withSpring(0, {
@@ -251,7 +265,6 @@ export const MessageBubble = React.memo(
       transform: [{ translateX: swipeX.value }],
     }));
 
-    // Arrow opacity + scale
     const arrowStyle = useAnimatedStyle(() => {
       const abs = Math.abs(swipeX.value);
       return {
@@ -269,6 +282,7 @@ export const MessageBubble = React.memo(
       };
     });
 
+    // ── Handlers ──────────────────────────────────────────────────────────
     const handleLongPress = useCallback(() => {
       containerRef.current?.measureInWindow((x, y, width, height) => {
         onLongPress?.(message, { x, y, width, height });
@@ -288,15 +302,23 @@ export const MessageBubble = React.memo(
       });
     }, [message, isOwn, onRxTipPress]);
 
+    // ── Render ────────────────────────────────────────────────────────────
     return (
       <Animated.View
-        // layout={LinearTransition.springify().damping(25).stiffness(250)}
+        // ✅ Layout transition:
+        //   - New message  → entry animation handles it (no layout anim needed)
+        //   - Old messages → smooth upward shift when new message pushes them up
+        layout={
+          !isNewMessage
+            ? LinearTransition.duration(200).easing(Easing.out(Easing.cubic))
+            : undefined
+        }
         style={[
           s.row,
           isOwn ? s.rowOwn : s.rowOther,
           !first && s.rowGrouped,
           hasReactions && s.rowWithRx,
-          entryStyle, // ← ADD
+          entryStyle,
         ]}
       >
         {/* Arrow — received */}
@@ -333,7 +355,7 @@ export const MessageBubble = React.memo(
               delayLongPress={340}
               style={{ position: 'relative' }}
             >
-              {/* ── Highlight overlay ── */}
+              {/* Highlight overlay */}
               {isHighlighted && (
                 <Animated.View
                   entering={FadeIn.duration(100)}
@@ -342,6 +364,7 @@ export const MessageBubble = React.memo(
                   pointerEvents="none"
                 />
               )}
+
               {/* Reply quote */}
               {!!message.replyTo?.messageId && (
                 <ReplyQuote
@@ -363,7 +386,6 @@ export const MessageBubble = React.memo(
                   <Text style={s.deletedTxt}>🚫 This message was deleted</Text>
                 </View>
               ) : isVoice ? (
-                // ── Voice message bubble ──
                 isOwn ? (
                   <LinearGradient
                     colors={['#FF0059', '#FF5289']}
@@ -485,7 +507,7 @@ export const MessageBubble = React.memo(
               </Animated.View>
             )}
 
-            {/* Deleted timestamp on tap */}
+            {/* Deleted timestamp */}
             {isDeleted && isSelected && (
               <Animated.View
                 layout={LinearTransition.springify()}
@@ -497,7 +519,7 @@ export const MessageBubble = React.memo(
               </Animated.View>
             )}
 
-            {/* Last own — delivery */}
+            {/* Delivery status */}
             {isOwn && isLastOwn && !isDeleted && !isSelected && (
               <Animated.View layout={LinearTransition.springify()}>
                 <DeliveryStatus
@@ -529,6 +551,7 @@ export const MessageBubble = React.memo(
       prev.isOwn === next.isOwn &&
       prev.first === next.first &&
       prev.last === next.last &&
+      prev.isLast === next.isLast && // ← ADD
       prev.isLastOwn === next.isLastOwn &&
       prev.isHighlighted === next.isHighlighted &&
       prev.selectedMsgId === next.selectedMsgId &&
@@ -541,7 +564,6 @@ const s = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    // ← NO paddingHorizontal here — full width
     marginBottom: 3,
     overflow: 'visible',
   },
@@ -574,7 +596,6 @@ const s = StyleSheet.create({
   avt: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F1F5F9' },
   avtFb: { justifyContent: 'center', alignItems: 'center' },
 
-  // ← NO maxWidth in px — use percentage so it goes edge to edge
   col: { maxWidth: MAX_W, alignItems: 'flex-start' },
   colOwn: { alignItems: 'flex-end' },
 
@@ -616,8 +637,9 @@ const s = StyleSheet.create({
     marginBottom: 5,
   },
   originalTxtOther: { fontSize: 12, color: '#94A3B8', fontStyle: 'italic' },
+
   highlightOverlay: {
-    backgroundColor: 'rgba(0, 251, 255, 0.25)', // subtle pink — matches app theme
+    backgroundColor: 'rgba(0, 251, 255, 0.25)',
     borderRadius: 20,
     zIndex: 10,
   },

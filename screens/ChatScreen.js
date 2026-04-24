@@ -579,12 +579,12 @@ export default function ChatScreen({ navigation }) {
 // Styles
 // ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: '#fef3fe' },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fef3fe',
   },
   listContent: { paddingBottom: 32 },
 
@@ -596,7 +596,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#ffedff',
   },
   headerTitle: {
     fontSize: 28,

@@ -31,6 +31,11 @@ import VisitorsScreen from '../screens/VisitorsScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import PremiumScreen from '../screens/PremiumScreen';
+import SharedMediaScreen from '../screens/SharedMediaScreen';
+import SearchMessagesScreen from '../screens/SearchMessagesScreen';
+import ReportQuestionScreen from '../screens/ReportQuestionScreen';
+import ReportAnswerScreen from '../screens/ReportAnswerScreen';
+import BlockedConfirmScreen from '../screens/BlockedConfirmScreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -88,6 +93,31 @@ function AppStack() {
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="Premium" component={PremiumScreen} />
+      <Stack.Screen
+        name="SharedMedia"
+        component={SharedMediaScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="SearchMessages"
+        component={SearchMessagesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ReportQuestion"
+        component={ReportQuestionScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ReportAnswer"
+        component={ReportAnswerScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="BlockedConfirm"
+        component={BlockedConfirmScreen}
+        options={{ headerShown: false, presentation: 'transparentModal' }}
+      />
     </Stack.Navigator>
   );
 }

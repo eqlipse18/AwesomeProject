@@ -17,6 +17,7 @@ import {
   PutCommand,
   UpdateCommand,
   BatchGetCommand,
+  BatchWriteCommand,
 } from './db.js';
 import { s3Client } from './db.js';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
@@ -633,13 +634,11 @@ router.patch('/messages/edit', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /chat/:matchId — clear all messages
 router.delete('/chat/:matchId', authenticate, async (req, res) => {
   try {
     const { matchId } = req.params;
     const { userId } = req.user;
 
-    // Fetch all messages for this match
     const result = await docClient.send(
       new QueryCommand({
         TableName: 'flame-Messages',
@@ -649,16 +648,13 @@ router.delete('/chat/:matchId', authenticate, async (req, res) => {
       }),
     );
 
-    // Batch delete — 25 items at a time (DynamoDB limit)
     const items = result.Items || [];
-    const chunks = [];
-    for (let i = 0; i < items.length; i += 25) {
-      chunks.push(items.slice(i, i + 25));
-    }
 
-    await Promise.all(
-      chunks.map(chunk =>
-        docClient.send({
+    // Batch delete 25 at a time
+    for (let i = 0; i < items.length; i += 25) {
+      const chunk = items.slice(i, i + 25);
+      await docClient.send(
+        new BatchWriteCommand({
           RequestItems: {
             'flame-Messages': chunk.map(item => ({
               DeleteRequest: {
@@ -667,10 +663,9 @@ router.delete('/chat/:matchId', authenticate, async (req, res) => {
             })),
           },
         }),
-      ),
-    );
+      );
+    }
 
-    // Clear lastMessage in match
     await docClient.send(
       new UpdateCommand({
         TableName: 'flame-Matches',
@@ -698,33 +693,44 @@ router.delete('/chat/:matchId', authenticate, async (req, res) => {
 });
 
 // POST /users/block — block user
-router.post('/users/block', authenticate, async (req, res) => {
+// POST /users/report — report + block
+router.post('/users/report', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
-    const { blockedUserId, matchId, reason = 'No reason provided' } = req.body;
-
-    if (!blockedUserId)
-      return res
-        .status(400)
-        .json({ success: false, error: 'blockedUserId required' });
-
+    const { targetUserId, matchId, reason, details = '' } = req.body;
     const now = new Date().toISOString();
 
-    // Save block record
+    // Save report
+    await docClient.send(
+      new PutCommand({
+        TableName: 'flame-Reports',
+        Item: {
+          reportId: uuidv4(),
+          reporterId: userId,
+          reportedId: targetUserId,
+          matchId: matchId || null,
+          reason,
+          details: details.slice(0, 500),
+          createdAt: now,
+          status: 'pending',
+        },
+      }),
+    );
+
+    // Save block
     await docClient.send(
       new PutCommand({
         TableName: 'flame-Blocks',
         Item: {
           blockerId: userId,
-          blockedId: blockedUserId,
+          blockedId: targetUserId,
           matchId: matchId || null,
-          reason,
           createdAt: now,
         },
       }),
     );
 
-    // Update match status to blocked
+    // Update match status
     if (matchId) {
       await docClient.send(
         new UpdateCommand({
@@ -744,11 +750,8 @@ router.post('/users/block', authenticate, async (req, res) => {
 
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error('[POST /users/block]', err.message);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to block user' });
+    console.error('[POST /users/report]', err.message);
+    return res.status(500).json({ success: false, error: 'Failed to report' });
   }
 });
-
 export default router;
