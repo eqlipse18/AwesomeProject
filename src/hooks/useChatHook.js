@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { AppState } from 'react-native';
 import Config from 'react-native-config';
-import { io } from 'socket.io-client';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSocket } from '../../utils/socket';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -16,20 +17,6 @@ const createApiClient = token =>
     },
     timeout: 15000,
   });
-
-let socketInstance = null;
-const getSocket = token => {
-  if (!socketInstance || !socketInstance.connected) {
-    socketInstance = io(API_BASE_URL, {
-      transports: ['websocket'],
-      auth: { token },
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
-  }
-  return socketInstance;
-};
 
 // ── Cache helpers ─────────────────────────────────────────────────────────
 const CACHE_PREFIX = 'flame_msgs_';
@@ -784,9 +771,12 @@ export function useConversation({ token, matchId, userId }) {
     clearTimeout(typingTimeout.current);
     typingTimeout.current = setTimeout(() => {
       socket.current?.emit('stop_typing', { matchId, userId });
-    }, 1500);
+    }, 4000);
   }, [matchId, userId]);
 
+  const stopTyping = useCallback(() => {
+    socket.current?.emit('stop_typing', { matchId, userId });
+  }, [matchId, userId]);
   // ── loadMore ──────────────────────────────────────────────────────────
   const loadMore = useCallback(() => {
     if (nextCursor && !loading && !isFetchingMore) {
@@ -808,6 +798,7 @@ export function useConversation({ token, matchId, userId }) {
     sendMedia,
     sendVoice,
     emitTyping,
+    stopTyping,
     loadMore,
     reactToMessage,
     deleteMessage,

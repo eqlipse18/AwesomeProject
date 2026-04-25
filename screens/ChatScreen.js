@@ -7,6 +7,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -104,7 +105,7 @@ const NewMatchBubble = ({ match, onPress, isOnline }) => (
     <View
       style={[
         styles.bubbleRing,
-        { borderColor: isOnline ? '#FF7480' : '#E1DBDD' },
+        { borderColor: isOnline ? '#22C55E' : '#E1DBDD' },
       ]}
     >
       {match.image ? (
@@ -297,7 +298,7 @@ const ChatRow = ({ match, onPress, isOnline, lastActiveText }) => {
           {hasUnread ? (
             <View style={styles.unreadBadge}>
               <Text style={styles.unreadText}>
-                {match.unreadCount > 99 ? '99+' : match.unreadCount}
+                {match.unreadCount > 3 ? '3+' : match.unreadCount}
               </Text>
             </View>
           ) : lastActiveText ? (
@@ -397,7 +398,12 @@ const EmptyState = ({ onSwipe }) => (
 export default function ChatScreen({ navigation }) {
   const { token, userId } = useContext(AuthContext);
   const { matches, loading, refetch } = useMatches({ token, userId });
-  const { getStatus, onlineMap } = useOnlineStatus({ token, userId });
+
+  const { getStatus, onlineMap } = useOnlineStatus({
+    token,
+    userId,
+    watchUserIds: watchIds,
+  });
 
   const [refreshing, setRefreshing] = useState(false);
   const [likedUsers, setLikedUsers] = useState([]);
@@ -420,6 +426,22 @@ export default function ChatScreen({ navigation }) {
       console.log('[ChatScreen] fetchLikedUsers error:', err.message);
     }
   }, [token]);
+
+  useFocusEffect(() => {
+    StatusBar.setBackgroundColor('#ffedff');
+    StatusBar.setBarStyle('dark-content');
+
+    return () => {
+      // optional reset (agar dusre screen ka alag color hai)
+      StatusBar.setBackgroundColor('#ffedff');
+      // StatusBar.setBarStyle('dark-content');
+    };
+  });
+
+  const watchIds = useMemo(
+    () => matches.map(m => m.userId).filter(Boolean),
+    [matches],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -478,7 +500,7 @@ export default function ChatScreen({ navigation }) {
     <View>
       {newMatches.length > 0 && (
         <View>
-          <Text style={styles.sectionLabel}>NEW MATCHES</Text>
+          <Text style={styles.sectionLabel}>New Matches</Text>
           <FlatList
             data={newMatches}
             horizontal
@@ -564,7 +586,7 @@ export default function ChatScreen({ navigation }) {
           newMatches.length > 0 ? (
             <View style={styles.noChatsContainer}>
               <Text style={styles.noChatsText}>
-                Tap a match above to start chatting! 👆
+                Tap a match to start chatting
               </Text>
             </View>
           ) : null
@@ -579,7 +601,7 @@ export default function ChatScreen({ navigation }) {
 // Styles
 // ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fef3fe' },
+  container: { flex: 1, backgroundColor: '#ffedff' },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -608,7 +630,7 @@ const styles = StyleSheet.create({
   // Section labels
   sectionLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: 'BebasNeuer-Regular',
     color: '#B0ACAD',
     letterSpacing: 0.8,
     paddingHorizontal: 20,
@@ -617,7 +639,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel2: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: 'BebasNeuer-Regular',
     color: '#B0ACAD',
     letterSpacing: 0.8,
     paddingHorizontal: 20,
@@ -631,16 +653,21 @@ const styles = StyleSheet.create({
   },
 
   // Bubble
-  bubbleWrapper: { alignItems: 'center', width: 72 },
+  bubbleWrapper: {
+    alignItems: 'center',
+    width: 72,
+  },
   bubbleRing: {
     width: 66,
     height: 66,
     borderRadius: 33,
     borderWidth: 2,
+    borderColor: '#FBF5F6',
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
-    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    // overflow: 'hidden',
   },
   bubbleImage: {
     width: 58,
@@ -648,9 +675,10 @@ const styles = StyleSheet.create({
     borderRadius: 29,
     justifyContent: 'center',
     alignItems: 'center',
-    overflow: 'hidden',
+
+    // overflow: 'hidden',
   },
-  bubbleInitial: { fontSize: 22, color: '#fff', fontWeight: '700' },
+  bubbleInitial: { fontSize: 10, color: '#f82424', fontWeight: '700' },
   bubbleOnlineDot: {
     position: 'absolute',
     bottom: 2,
@@ -663,12 +691,13 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   bubbleName: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#302E2F',
-    fontWeight: '600',
     marginTop: 6,
     textAlign: 'center',
     width: 72,
+    fontFamily: 'Nunito-SemiBold',
+    letterSpacing: 0.5,
   },
 
   // Likes Banner
@@ -676,12 +705,14 @@ const styles = StyleSheet.create({
   bannerOuter: {
     borderRadius: 16,
     overflow: 'hidden',
+    borderColor: 'white',
+    borderWidth: 1.5,
 
-    shadowColor: '#000000',
-    shadowOpacity: 0.45,
-    shadowRadius: 25,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 12,
+    // shadowColor: '#000000',
+    // shadowOpacity: 0.45,
+    // shadowRadius: 10,
+    // shadowOffset: { width: 0, height: 10 },
+    // elevation: 4,
   },
   bannerGradient: {
     flexDirection: 'row',
@@ -694,7 +725,7 @@ const styles = StyleSheet.create({
   bannerCount: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#4E0010',
+    color: '#2e000af2',
     marginBottom: 3,
     letterSpacing: -0.2,
   },
@@ -710,7 +741,7 @@ const styles = StyleSheet.create({
   stackedAvatar: {
     position: 'absolute',
     top: 0,
-    overflow: 'hidden',
+    // overflow: 'hidden',
     borderWidth: 2,
     borderColor: '#FFF0F3',
   },
@@ -735,7 +766,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
-    overflow: 'hidden',
+    // overflow: 'hidden',
   },
   chatAvatarInitial: { fontSize: 20, color: '#fff', fontWeight: '700' },
   chatOnlineDot: {
@@ -867,5 +898,5 @@ const styles = StyleSheet.create({
   emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 
   noChatsContainer: { padding: 28, alignItems: 'center' },
-  noChatsText: { color: '#B0ACAD', fontSize: 14, textAlign: 'center' },
+  noChatsText: { color: '#B0ACAD', fontSize: 12, textAlign: 'center' },
 });

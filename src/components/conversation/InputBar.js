@@ -48,6 +48,7 @@ export const InputBar = forwardRef(
       onCancelEdit,
       onEditSave,
       onSendVoice,
+      onFocusChange,
     },
     ref,
   ) => {
@@ -255,6 +256,8 @@ export const InputBar = forwardRef(
           {!isRec && (
             <TextInput
               ref={inputRef}
+              onFocus={() => onFocusChange?.(true)} // ← add
+              onBlur={() => onFocusChange?.(false)} // ← add
               style={[s.input, isEdit && s.inputEdit]}
               value={text}
               onChangeText={t => {

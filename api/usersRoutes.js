@@ -124,6 +124,28 @@ router.get('/users/new', authenticate, async (req, res) => {
       .json({ success: false, error: 'Failed to fetch new users' });
   }
 });
+// GET /users/:userId/status
+router.get('/:userId/status', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: 'Users',
+        Key: { userId },
+        ProjectionExpression: 'isOnline, lastActiveAt',
+      }),
+    );
+    const user = result.Item;
+    if (!user) return res.status(404).json({ success: false });
+    res.json({
+      success: true,
+      isOnline: user.isOnline || false,
+      lastActiveAt: user.lastActiveAt || null,
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
 
 // GET /profile-visitors
 router.get('/profile-visitors', authenticate, async (req, res) => {

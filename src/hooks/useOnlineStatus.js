@@ -1,36 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { io } from 'socket.io-client';
+
 import Config from 'react-native-config';
-
+import { getSocket } from '../../utils/socket';
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
-
-let socketInstance = null;
-
-const getSocket = token => {
-  if (!socketInstance || !socketInstance.connected) {
-    socketInstance = io(API_BASE_URL, {
-      transports: ['websocket'],
-      auth: { token },
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-    });
-  }
-  return socketInstance;
-};
 
 export const formatLastActive = (lastActiveAt, maxDays = 30) => {
   if (!lastActiveAt) return 'Not active recently';
-
   const now = new Date();
   const last = new Date(lastActiveAt);
   const diffMs = now - last;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
-
   if (diffMins < 2) return 'Just now';
   if (diffMins < 60) return `Active ${diffMins}m ago`;
   if (diffHours < 24) return `Active ${diffHours}h ago`;
@@ -45,24 +28,28 @@ export const isRecentlyActive = (lastActiveAt, days = 7) => {
   return diffDays <= days;
 };
 
-export function useOnlineStatus({ token, userId }) {
+export function useOnlineStatus({ token, userId, watchUserIds = [] }) {
   const [onlineMap, setOnlineMap] = useState({});
   const socket = useRef(null);
   const activityInterval = useRef(null);
-  const backgroundTimer = useRef(null); // ✅ grace period timer
+  const backgroundTimer = useRef(null);
   const appState = useRef(AppState.currentState);
   const isConnected = useRef(true);
 
+  // ✅ Keep watchUserIds in a ref so fetchInitialStatus always has latest value
+  const watchUserIdsRef = useRef(watchUserIds);
+  useEffect(() => {
+    watchUserIdsRef.current = watchUserIds;
+  }, [watchUserIds]);
+
   const emitOnline = useCallback(() => {
     if (socket.current?.connected && userId) {
-      console.log('[OnlineStatus] Emitting user_online');
       socket.current.emit('user_online', { userId });
     }
   }, [userId]);
 
   const emitOffline = useCallback(() => {
     if (socket.current?.connected && userId) {
-      console.log('[OnlineStatus] Emitting user_offline');
       socket.current.emit('user_offline', { userId });
     }
   }, [userId]);
@@ -73,79 +60,95 @@ export function useOnlineStatus({ token, userId }) {
     }
   }, [userId]);
 
+  // ✅ Defined outside useEffect — accessible in cleanup
+  const fetchInitialStatus = useCallback(() => {
+    watchUserIdsRef.current.forEach(targetId => {
+      socket.current?.emit('get_user_status', { targetUserId: targetId });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!socket.current?.connected || !watchUserIdsRef.current.length) return;
+    // Jab bhi watchUserIds change ho (matches load hone pe) fresh status fetch karo
+    watchUserIdsRef.current.forEach(targetId => {
+      socket.current?.emit('get_user_status', { targetUserId: targetId });
+    });
+  }, [watchUserIds]);
+
+  // ✅ Defined outside useEffect — accessible in cleanup
+  const handleStatusResponse = useCallback(
+    ({ userId: uid, isOnline, lastActiveAt }) => {
+      setOnlineMap(prev => ({
+        ...prev,
+        [uid]: { isOnline, lastActiveAt },
+      }));
+    },
+    [],
+  );
+
+  const handleOnlineStatusChanged = useCallback(
+    ({ userId: changedId, isOnline, lastActiveAt }) => {
+      setOnlineMap(prev => ({
+        ...prev,
+        [changedId]: {
+          isOnline,
+          lastActiveAt: lastActiveAt || prev[changedId]?.lastActiveAt,
+        },
+      }));
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!token || !userId) return;
 
     socket.current = getSocket(token);
 
-    // ✅ Connect pe immediately online emit karo
+    const onConnect = () => {
+      emitOnline();
+      fetchInitialStatus();
+    };
+
     if (socket.current.connected) {
       emitOnline();
+      fetchInitialStatus();
     } else {
-      socket.current.on('connect', emitOnline);
+      socket.current.on('connect', onConnect);
     }
 
-    // ✅ Online status changes sun
-    socket.current.on(
-      'online_status_changed',
-      ({ userId: changedId, isOnline, lastActiveAt }) => {
-        setOnlineMap(prev => ({
-          ...prev,
-          [changedId]: {
-            isOnline,
-            lastActiveAt: lastActiveAt || prev[changedId]?.lastActiveAt,
-          },
-        }));
-      },
-    );
+    socket.current.on('user_status_response', handleStatusResponse);
+    socket.current.on('online_status_changed', handleOnlineStatusChanged);
 
-    // ✅ Activity ping every 60s
+    // Activity ping every 60s
     activityInterval.current = setInterval(emitActivity, 60000);
 
-    // ════════════════════════════════════════
-    // LEVEL 2 — AppState handler
-    // ════════════════════════════════════════
+    // AppState — background grace period
     const appStateSub = AppState.addEventListener('change', nextState => {
-      const prev = appState.current;
       appState.current = nextState;
-
       if (nextState === 'active') {
-        // App foreground mein aayi
-        console.log('[OnlineStatus] App active — going online');
-        clearTimeout(backgroundTimer.current); // grace period cancel
+        clearTimeout(backgroundTimer.current);
         emitOnline();
-        // Activity interval restart
+        fetchInitialStatus();
         clearInterval(activityInterval.current);
         activityInterval.current = setInterval(emitActivity, 60000);
       } else if (nextState === 'background' || nextState === 'inactive') {
-        // App background mein gayi
-        // ✅ 10 min grace period — tab tak online dikhate hain
-        console.log('[OnlineStatus] App background — 10min grace period');
         backgroundTimer.current = setTimeout(() => {
-          console.log('[OnlineStatus] Grace period over — going offline');
           emitOffline();
           clearInterval(activityInterval.current);
-        }, 10 * 60 * 1000); // 10 minutes
+        }, 10 * 60 * 1000);
       }
     });
 
-    // ════════════════════════════════════════
-    // LEVEL 3 — NetInfo handler
-    // ════════════════════════════════════════
+    // NetInfo
     const netInfoUnsub = NetInfo.addEventListener(state => {
       const connected = state.isConnected && state.isInternetReachable;
-
       if (connected && !isConnected.current) {
-        // Internet wapas aaya — online emit karo
-        console.log('[OnlineStatus] Internet reconnected — going online');
         isConnected.current = true;
         emitOnline();
-        // Activity interval restart
+        fetchInitialStatus();
         clearInterval(activityInterval.current);
         activityInterval.current = setInterval(emitActivity, 60000);
       } else if (!connected && isConnected.current) {
-        // Internet chala gaya — offline emit karo
-        console.log('[OnlineStatus] Internet lost — going offline');
         isConnected.current = false;
         emitOffline();
         clearInterval(activityInterval.current);
@@ -153,14 +156,25 @@ export function useOnlineStatus({ token, userId }) {
     });
 
     return () => {
-      socket.current?.off('connect', emitOnline);
-      socket.current?.off('online_status_changed');
+      // ✅ All handlers defined outside — no scope issue
+      socket.current?.off('connect', onConnect);
+      socket.current?.off('user_status_response', handleStatusResponse);
+      socket.current?.off('online_status_changed', handleOnlineStatusChanged);
       clearInterval(activityInterval.current);
       clearTimeout(backgroundTimer.current);
       appStateSub.remove();
       netInfoUnsub();
     };
-  }, [token, userId, emitOnline, emitOffline, emitActivity]);
+  }, [
+    token,
+    userId,
+    emitOnline,
+    emitOffline,
+    emitActivity,
+    fetchInitialStatus,
+    handleStatusResponse,
+    handleOnlineStatusChanged,
+  ]);
 
   const getStatus = useCallback(
     (targetUserId, profileData = {}) => {

@@ -1,5 +1,10 @@
 import { Server } from 'socket.io';
-import { docClient, UpdateCommand, QueryCommand } from './db.js'; // ✅ QueryCommand add
+import {
+  docClient,
+  UpdateCommand,
+  QueryCommand,
+  GetCommand,
+} from '../api/db.js';
 
 let io = null;
 const onlineUsers = new Map();
@@ -137,6 +142,27 @@ export const initSocket = httpServer => {
         isOnline: false,
         lastActiveAt: now,
       });
+    });
+    // User ka current status request karo
+    socket.on('get_user_status', async ({ targetUserId }) => {
+      try {
+        const result = await docClient.send(
+          new GetCommand({
+            TableName: 'Users',
+            Key: { userId: targetUserId },
+            ProjectionExpression: 'isOnline, lastActiveAt',
+          }),
+        );
+        const user = result.Item || {};
+        // Sirf requesting socket ko response do
+        socket.emit('user_status_response', {
+          userId: targetUserId,
+          isOnline: user.isOnline || false,
+          lastActiveAt: user.lastActiveAt || null,
+        });
+      } catch (e) {
+        console.error('[get_user_status]', e.message);
+      }
     });
 
     socket.on('user_offline', async ({ userId }) => {

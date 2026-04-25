@@ -25,8 +25,11 @@ import Animated, { LinearTransition } from 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthContext } from '../AuthContex';
-import { useConversation } from '../src/hooks/useChatHook';
-import { formatLastActive } from '../src/hooks/useOnlineStatus';
+import { useConversation, getSocket } from '../src/hooks/useChatHook';
+import {
+  useOnlineStatus,
+  formatLastActive,
+} from '../src/hooks/useOnlineStatus';
 
 import { DateSeparator } from '../src/components/conversation/DateSeparator';
 import { MessageBubble } from '../src/components/conversation/MessageBubble';
@@ -140,7 +143,8 @@ export default function ConversationScreen({ navigation, route }) {
     hasMore,
     sendMessage,
     sendMedia,
-    emitTyping,
+    emitTyping, // ← ADD
+    stopTyping,
     loadMore,
     reactToMessage,
     reactionsMap,
@@ -149,6 +153,7 @@ export default function ConversationScreen({ navigation, route }) {
     cacheLoaded,
     sendVoice,
     clearChat,
+
     blockUser,
   } = useConversation({ token, matchId, userId });
 
@@ -158,7 +163,19 @@ export default function ConversationScreen({ navigation, route }) {
   const [showSearch, setShowSearch] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const { getStatus } = useOnlineStatus({
+    token,
+    userId,
+    watchUserIds: [targetUserId],
+  });
+  const status =
+    getStatus(targetUserId, {
+      isOnline: initOnline,
+      lastActiveAt: initLastActive,
+    }) || {};
 
+  const isOnline = status.isOnline ?? initOnline;
+  const lastActive = status.lastActiveAt ?? initLastActive;
   // Context menu
   const [ctxMenu, setCtxMenu] = useState({
     visible: false,
@@ -200,6 +217,26 @@ export default function ConversationScreen({ navigation, route }) {
     [sendVoice],
   );
 
+  const typingIntervalRef = useRef(null);
+
+  const handleFocusChange = useCallback(
+    focused => {
+      if (focused) {
+        emitTyping();
+        typingIntervalRef.current = setInterval(emitTyping, 1500);
+      } else {
+        clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+        stopTyping(); // ← direct, no socket needed
+      }
+    },
+    [emitTyping, stopTyping],
+  );
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => clearInterval(typingIntervalRef.current);
+  }, []);
   // ── Track unread while scrolled up ───────────────────────────────────
   useEffect(() => {
     const diff = messages.length - prevLen.current;
@@ -549,10 +586,10 @@ export default function ConversationScreen({ navigation, route }) {
   // ── Header status ─────────────────────────────────────────────────────
   const headerStatus = isTyping
     ? { text: '✍️ typing...', color: '#FF0059' }
-    : initOnline
+    : isOnline
     ? { text: 'Online', color: '#22C55E' }
     : {
-        text: initLastActive ? formatLastActive(initLastActive) : '',
+        text: lastActive ? formatLastActive(lastActive) : '',
         color: '#94A3B8',
       };
 
@@ -608,7 +645,7 @@ export default function ConversationScreen({ navigation, route }) {
               <View
                 style={[
                   s.hDot,
-                  { backgroundColor: initOnline ? '#22C55E' : '#CBD5E1' },
+                  { backgroundColor: isOnline ? '#22C55E' : '#CBD5E1' },
                 ]}
               />
             </View>
@@ -704,6 +741,7 @@ export default function ConversationScreen({ navigation, route }) {
             ref={inputRef}
             onSend={handleSend}
             onAttach={() => setShowAttach(true)}
+            onFocusChange={handleFocusChange}
             emitTyping={emitTyping}
             sending={sending}
             replyingTo={replyingTo}
