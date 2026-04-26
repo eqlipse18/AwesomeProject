@@ -1242,7 +1242,7 @@ export default function LikesScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      {/* <StatusBar barStyle="dark-content" backgroundColor="#fff" /> */}
 
       {/* ── Header ── */}
       <View style={styles.header}>
