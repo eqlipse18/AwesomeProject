@@ -18,6 +18,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -46,6 +47,7 @@ import { ChatMenuSheet } from '../src/components/conversation/ChatMenuSheet';
 import { SearchMessagesSheet } from '../src/components/conversation/SearchMessagesSheet';
 import { SharedMediaSheet } from '../src/components/conversation/SharedMediaSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import changeNavigationBarColor from 'react-native-navigation-bar-color';
 
 // ════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -183,7 +185,25 @@ export default function ConversationScreen({ navigation, route }) {
     bubbleLayout: null,
   });
 
+  const [ctxVisible, setCtxVisible] = useState(false);
+  const openCtx = (msg, layout) => {
+    setCtxMenu({ visible: true, msg, bubbleLayout: layout });
+    setCtxVisible(true);
+  };
+
+  const closeCtx = () => {
+    setCtxMenu(p => ({ ...p, visible: false }));
+    setCtxVisible(false);
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    ctxVisible
+      ? changeNavigationBarColor('#ff0090', false)
+      : changeNavigationBarColor('#fef3fe', true);
+  }, [ctxVisible]);
   // Reaction tooltip
+
   const [rxTooltip, setRxTooltip] = useState({
     visible: false,
     msg: null,
@@ -323,10 +343,12 @@ export default function ConversationScreen({ navigation, route }) {
   }, []);
 
   // ── Long press → context menu ─────────────────────────────────────────
-  const onLongPress = useCallback((msg, bubbleLayout) => {
-    setCtxMenu({ visible: true, msg, bubbleLayout });
+  // Line ~180 — yeh fix kar
+  const onLongPress = useCallback((message, layout) => {
+    InteractionManager.runAfterInteractions(() => {
+      setCtxMenu({ visible: true, msg: message, bubbleLayout: layout }); // setContextMenu → setCtxMenu, message → msg
+    });
   }, []);
-
   // ── Context menu actions ──────────────────────────────────────────────
   const onCtxReact = useCallback(
     async emoji => {
@@ -762,22 +784,6 @@ export default function ConversationScreen({ navigation, route }) {
         </SafeAreaView>
       </KeyboardAvoidingView>
 
-      {/* ── iMessage Context Menu ── */}
-      <FloatingContextMenu
-        visible={ctxMenu.visible}
-        message={ctxMenu.msg}
-        isOwn={ctxMenu.msg?.senderId === userId}
-        bubbleLayout={ctxMenu.bubbleLayout}
-        otherImage={image} // ← route.params se
-        otherName={name} // ← route.params se
-        onClose={() => setCtxMenu(p => ({ ...p, visible: false }))}
-        onReact={onCtxReact}
-        onReply={onCtxReply}
-        onCopy={onCtxCopy}
-        onEdit={onCtxEdit}
-        onDelete={onCtxDelete}
-      />
-
       {/* ── Reaction Tooltip ── */}
       <ReactionTooltip
         visible={rxTooltip.visible}
@@ -821,6 +827,21 @@ export default function ConversationScreen({ navigation, route }) {
         messages={messages}
         onClose={() => setShowMedia(false)}
         onPressMedia={uri => setPreviewUri(uri)}
+      />
+
+      <FloatingContextMenu
+        visible={ctxMenu.visible}
+        message={ctxMenu.msg}
+        isOwn={ctxMenu.msg?.senderId === userId}
+        bubbleLayout={ctxMenu.bubbleLayout}
+        otherImage={image}
+        otherName={name}
+        onClose={() => setCtxMenu(p => ({ ...p, visible: false }))}
+        onReact={onCtxReact}
+        onReply={onCtxReply}
+        onCopy={onCtxCopy}
+        onEdit={onCtxEdit}
+        onDelete={onCtxDelete}
       />
     </GestureHandlerRootView>
   );

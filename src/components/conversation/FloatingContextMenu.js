@@ -1,20 +1,105 @@
+// Modal HATA DO — yeh sab replace karo
 import React, { useMemo } from 'react';
 import {
   View,
   Text,
-  Modal,
   Pressable,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
   Image,
 } from 'react-native';
-import Animated, { FadeIn, FadeOut, FadeInDown } from 'react-native-reanimated';
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withDelay,
+  FadeIn,
+  FadeOut,
+  Easing,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: W } = Dimensions.get('window');
+const { width: W, height: H } = Dimensions.get('window');
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-const RX_H = 50;
+const RX_H = 52;
+
+const ReactionButton = ({ emoji, index, onPress }) => {
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(6);
+  const pressOpacity = useSharedValue(1);
+
+  React.useEffect(() => {
+    opacity.value = withDelay(
+      index * 15,
+      withTiming(1, { duration: 110, easing: Easing.out(Easing.ease) }),
+    );
+    translateY.value = withDelay(
+      index * 15,
+      withTiming(0, { duration: 120, easing: Easing.out(Easing.cubic) }),
+    );
+  }, []);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value * pressOpacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  return (
+    <Reanimated.View style={animStyle}>
+      <TouchableOpacity
+        style={s.rxBtn}
+        onPress={onPress}
+        onPressIn={() => {
+          pressOpacity.value = withTiming(0.5, { duration: 80 });
+        }}
+        onPressOut={() => {
+          pressOpacity.value = withTiming(1, { duration: 120 });
+        }}
+        activeOpacity={1}
+      >
+        <Text style={s.rxEmoji}>{emoji}</Text>
+      </TouchableOpacity>
+    </Reanimated.View>
+  );
+};
+
+const ReactionStrip = ({ rxPos, children }) => {
+  const translateY = useSharedValue(10);
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.94);
+
+  React.useEffect(() => {
+    translateY.value = withSpring(0, {
+      damping: 32,
+      stiffness: 400,
+      mass: 0.5,
+    });
+    opacity.value = withTiming(1, {
+      duration: 100,
+      easing: Easing.out(Easing.ease),
+    });
+    scale.value = withSpring(1, { damping: 30, stiffness: 380, mass: 0.5 });
+  }, []);
+
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <Reanimated.View
+      style={[
+        s.rxStrip,
+        { top: rxPos.rxTop, left: rxPos.rxLeft, width: rxPos.RX_W },
+        style,
+      ]}
+    >
+      {children}
+    </Reanimated.View>
+  );
+};
 
 export const FloatingContextMenu = ({
   visible,
@@ -22,7 +107,7 @@ export const FloatingContextMenu = ({
   isOwn,
   bubbleLayout,
   otherImage,
-  otherName, // ← pass from ConversationScreen
+  otherName,
   onClose,
   onReact,
   onReply,
@@ -36,12 +121,11 @@ export const FloatingContextMenu = ({
   const rxPos = useMemo(() => {
     if (!bubbleLayout) return {};
     const { x: bx, y: by, width: bw } = bubbleLayout;
-    const RX_W = 256;
+    const RX_W = 264;
     const rxLeft = isOwn
       ? Math.max(8, bx + bw - RX_W)
       : Math.max(8, Math.min(bx, W - RX_W - 8));
-    // Always just above bubble
-    const rxTop = Math.max(HEADER_H + 8, by - RX_H - 6);
+    const rxTop = Math.max(HEADER_H + 12, by - RX_H - 8);
     return { rxLeft, rxTop, RX_W };
   }, [bubbleLayout, isOwn, HEADER_H]);
 
@@ -79,44 +163,35 @@ export const FloatingContextMenu = ({
       else if (key === 'copy') onCopy?.();
       else if (key === 'edit') onEdit?.();
       else if (key === 'delete') onDelete?.();
-    }, 150);
+    }, 180);
   };
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
-      {/* Dim overlay */}
-      <Animated.View
-        entering={FadeIn.duration(150)}
-        exiting={FadeOut.duration(150)}
-        style={[
-          StyleSheet.absoluteFillObject,
-          { backgroundColor: 'rgba(0,0,0,0.5)' },
-        ]}
+    // Modal nahi — seedha View, position absolute, full screen
+    <View style={s.root} pointerEvents="box-none">
+      {/* Backdrop */}
+      <Reanimated.View
+        entering={FadeIn.duration(160)}
+        exiting={FadeOut.duration(140)}
+        style={s.backdrop}
         pointerEvents="none"
       />
       <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
 
-      {/* ── SWAPPED HEADER — same position as real header ── */}
-      <Animated.View
+      {/* Header */}
+      <Reanimated.View
         entering={FadeIn.duration(120)}
+        exiting={FadeOut.duration(100)}
         style={[s.header, { paddingTop: insets.top, height: HEADER_H }]}
       >
-        {/* Left — close button */}
         <TouchableOpacity
           onPress={onClose}
           style={s.headerBtn}
-          activeOpacity={0.7}
+          activeOpacity={0.6}
         >
           <Text style={s.headerIco}>←</Text>
         </TouchableOpacity>
 
-        {/* Center — other user info (same as normal header) */}
         <View style={s.headerCenter}>
           {otherImage ? (
             <Image source={{ uri: otherImage }} style={s.headerAvt} />
@@ -130,14 +205,13 @@ export const FloatingContextMenu = ({
           </Text>
         </View>
 
-        {/* Right — action icons */}
         <View style={s.headerActions}>
           {actions.map(a => (
             <TouchableOpacity
               key={a.key}
               style={s.headerBtn}
               onPress={() => handleAction(a.key)}
-              activeOpacity={0.7}
+              activeOpacity={0.6}
             >
               <Text style={[s.actionIco, a.danger && s.actionIcoDanger]}>
                 {a.ico}
@@ -145,50 +219,43 @@ export const FloatingContextMenu = ({
             </TouchableOpacity>
           ))}
         </View>
-      </Animated.View>
+      </Reanimated.View>
 
-      {/* ── REACTION STRIP — just above bubble, connected ── */}
-      <Animated.View
-        entering={FadeInDown.duration(180)
-          .springify()
-          .damping(22)
-          .stiffness(360)}
-        style={[
-          s.rxStrip,
-          {
-            top: rxPos.rxTop,
-            left: rxPos.rxLeft,
-            width: rxPos.RX_W,
-          },
-        ]}
-      >
-        {REACTIONS.map((emoji, i) => (
-          <Animated.View
-            key={emoji}
-            entering={FadeInDown.delay(i * 20)
-              .duration(140)
-              .springify()
-              .damping(22)}
-          >
-            <TouchableOpacity
-              style={s.rxBtn}
+      {/* Reaction strip */}
+      {rxPos.rxLeft !== undefined && (
+        <ReactionStrip rxPos={rxPos}>
+          {REACTIONS.map((emoji, i) => (
+            <ReactionButton
+              key={emoji}
+              emoji={emoji}
+              index={i}
               onPress={() => {
                 onReact?.(emoji);
                 onClose();
               }}
-              activeOpacity={0.65}
-            >
-              <Text style={s.rxEmoji}>{emoji}</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        ))}
-      </Animated.View>
-    </Modal>
+            />
+          ))}
+        </ReactionStrip>
+      )}
+    </View>
   );
 };
 
 const s = StyleSheet.create({
-  // Header — exact same style as ConversationScreen header
+  // Yeh root full screen cover karta hai — Modal ki jagah
+  root: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
+    elevation: 999,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
   header: {
     position: 'absolute',
     top: 0,
@@ -202,10 +269,10 @@ const s = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: 'rgba(0,0,0,0.08)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
     zIndex: 20,
   },
   headerBtn: {
@@ -244,29 +311,28 @@ const s = StyleSheet.create({
   actionIco: { fontSize: 19 },
   actionIcoDanger: { color: '#EF4444' },
 
-  // Reaction strip
   rxStrip: {
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
     backgroundColor: '#fff',
-    borderRadius: 28,
+    borderRadius: 32,
     height: RX_H,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.12,
     shadowRadius: 12,
-    elevation: 14,
+    elevation: 12,
     zIndex: 15,
   },
   rxBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  rxEmoji: { fontSize: 24 },
+  rxEmoji: { fontSize: 26 },
 });

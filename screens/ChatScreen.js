@@ -35,15 +35,19 @@ import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native';
 import SearchIcon from '../assets/SVG/search';
 import RocketIcon from '../assets/SVG/RocketIcon';
-import Animated, {
+import Reanimated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
   withSequence,
   withDelay,
+  withSpring,
+  cancelAnimation,
+  runOnJS,
   Easing,
+  withRepeat,
 } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -75,129 +79,76 @@ const formatLastMsg = msg => {
 // ─────────────────────────────────────────────
 const useCyclingText = (texts, holdDuration = 2000, slideDuration = 350) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const translateY = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
 
   useEffect(() => {
     let isMounted = true;
     let currentIdx = 0;
+    let holdTimer = null;
 
-    const animate = () => {
+    const slideOut = () => {
       if (!isMounted) return;
 
-      // Slide up + fade out
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: -20,
-          duration: slideDuration,
-          easing: Easing.in(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: slideDuration,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        if (!isMounted) return;
+      translateY.value = withTiming(-20, {
+        duration: slideDuration,
+        easing: Easing.in(Easing.ease),
+      });
 
-        // Snap to bottom (invisible)
-        translateY.setValue(20);
-
-        // Next index
-        currentIdx = (currentIdx + 1) % texts.length;
-        setCurrentIndex(currentIdx);
-
-        // Slide up into view + fade in
-        Animated.parallel([
-          Animated.timing(translateY, {
-            toValue: 0,
-            duration: slideDuration,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: slideDuration,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          if (!isMounted) return;
-          // Hold then repeat
-          setTimeout(animate, holdDuration);
-        });
+      opacity.value = withTiming(0, { duration: slideDuration }, finished => {
+        'worklet';
+        if (!finished) return;
+        runOnJS(onSlideOutDone)();
       });
     };
 
-    const timeout = setTimeout(animate, holdDuration);
+    const onSlideOutDone = () => {
+      if (!isMounted) return;
+
+      translateY.value = 20;
+
+      currentIdx = (currentIdx + 1) % texts.length;
+      setCurrentIndex(currentIdx);
+
+      translateY.value = withTiming(0, {
+        duration: slideDuration,
+        easing: Easing.out(Easing.ease),
+      });
+
+      opacity.value = withTiming(1, { duration: slideDuration }, finished => {
+        'worklet';
+        if (!finished) return;
+        runOnJS(scheduleNext)();
+      });
+    };
+
+    const scheduleNext = () => {
+      if (!isMounted) return;
+      holdTimer = setTimeout(slideOut, holdDuration);
+    };
+
+    holdTimer = setTimeout(slideOut, holdDuration);
 
     return () => {
       isMounted = false;
-      clearTimeout(timeout);
-      translateY.setValue(0);
-      opacity.setValue(1);
+      clearTimeout(holdTimer);
+      cancelAnimation(translateY);
+      cancelAnimation(opacity);
+      translateY.value = 0;
+      opacity.value = 1;
     };
   }, []);
 
-  return { translateY, opacity, currentIndex };
+  return { animatedStyle, currentIndex };
 };
 // ─────────────────────────────────────────────
 // New Match Bubble
 // ─────────────────────────────────────────────
-const NewMatchSkeleton = () => {
-  const shimmer = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmer, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmer, {
-          toValue: 0,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    ).start();
-    return () => shimmer.stopAnimation();
-  }, []);
-
-  const opacity = shimmer.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.35, 0.8],
-  });
-
-  return (
-    <View style={styles.bubbleWrapper}>
-      {/* Circle skeleton */}
-      <Animated.View
-        style={{
-          width: AVATAR_SIZE + 4, // match bubbleRing size
-          height: AVATAR_SIZE + 4,
-          borderRadius: (AVATAR_SIZE + 4) / 2,
-          backgroundColor: '#E1DBDD',
-          opacity,
-        }}
-      />
-      {/* Name line skeleton */}
-      <Animated.View
-        style={{
-          width: 36,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: '#E1DBDD',
-          marginTop: 6,
-          opacity,
-        }}
-      />
-    </View>
-  );
-};
 
 const NewMatchBubble = ({ match, onPress, isOnline }) => (
   <TouchableOpacity
@@ -251,7 +202,7 @@ const AVATAR_SIZE = 38;
 const OVERLAP = 14;
 
 const LikesBanner = ({ likedUsers, likeCount, blurred, onPress }) => {
-  const { translateY, opacity, currentIndex } = useCyclingText(
+  const { animatedStyle, currentIndex } = useCyclingText(
     BANNER_TEXTS,
     2000,
     300,
@@ -282,17 +233,9 @@ const LikesBanner = ({ likedUsers, likeCount, blurred, onPress }) => {
           <View
             style={{ height: 20, overflow: 'hidden', justifyContent: 'center' }}
           >
-            <Animated.Text
-              style={[
-                styles.bannerSub,
-                {
-                  transform: [{ translateY }],
-                  opacity,
-                },
-              ]}
-            >
+            <Reanimated.Text style={[styles.bannerSub, animatedStyle]}>
               {BANNER_TEXTS[currentIndex]}
-            </Animated.Text>
+            </Reanimated.Text>
           </View>
         </View>
 
@@ -429,69 +372,171 @@ const ChatRow = ({ match, onPress, isOnline, lastActiveText }) => {
 // ─────────────────────────────────────────────
 // Boost Banner — dynamic cycling text
 // ─────────────────────────────────────────────
-const useSlotAnimation = (holdDuration = 2000, slideDuration = 300) => {
+const useSlotAnimation = (
+  totalItems,
+  holdDuration = 2000,
+  slideDuration = 300,
+) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const translateY = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(1)).current;
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
 
   useEffect(() => {
     let isMounted = true;
     let currentIdx = 0;
+    let holdTimer = null;
 
-    const animate = length => {
+    const slideOut = () => {
       if (!isMounted) return;
 
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: -20,
-          duration: slideDuration,
-          easing: Easing.in(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: slideDuration,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        if (!isMounted) return;
+      translateY.value = withTiming(-20, {
+        duration: slideDuration,
+        easing: Easing.in(Easing.ease),
+      });
 
-        translateY.setValue(20);
-        currentIdx = (currentIdx + 1) % length;
-        setCurrentIndex(currentIdx);
-
-        Animated.parallel([
-          Animated.timing(translateY, {
-            toValue: 0,
-            duration: slideDuration,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacity, {
-            toValue: 1,
-            duration: slideDuration,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          if (!isMounted) return;
-          setTimeout(() => animate(length), holdDuration);
-        });
+      opacity.value = withTiming(0, { duration: slideDuration }, finished => {
+        'worklet';
+        if (!finished) return;
+        runOnJS(onSlideOutDone)();
       });
     };
 
-    const timeout = setTimeout(() => animate(BOOST_TEXTS.length), holdDuration);
+    const onSlideOutDone = () => {
+      if (!isMounted) return;
+
+      // Snap bottom invisible
+      translateY.value = 20;
+
+      // Next index + text swap
+      currentIdx = (currentIdx + 1) % totalItems;
+      setCurrentIndex(currentIdx);
+
+      // Slide in
+      translateY.value = withTiming(0, {
+        duration: slideDuration,
+        easing: Easing.out(Easing.ease),
+      });
+
+      opacity.value = withTiming(1, { duration: slideDuration }, finished => {
+        'worklet';
+        if (!finished) return;
+        runOnJS(scheduleNext)();
+      });
+    };
+
+    const scheduleNext = () => {
+      if (!isMounted) return;
+      holdTimer = setTimeout(slideOut, holdDuration);
+    };
+
+    // Initial hold
+    holdTimer = setTimeout(slideOut, holdDuration);
 
     return () => {
       isMounted = false;
-      clearTimeout(timeout);
-      translateY.setValue(0);
-      opacity.setValue(1);
+      clearTimeout(holdTimer);
+      cancelAnimation(translateY);
+      cancelAnimation(opacity);
+      translateY.value = 0;
+      opacity.value = 1;
     };
   }, []);
 
-  return { translateY, opacity, currentIndex };
+  return { animatedStyle, currentIndex };
 };
 
+const useRocketAnimation = () => {
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(1);
+  const scale = useSharedValue(1);
+
+  // Idle float loop
+  useEffect(() => {
+    translateY.value = withRepeat(
+      withSequence(
+        withTiming(-4, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
+    );
+  }, []);
+
+  const triggerWoosh = onDone => {
+    // Stop float — snap back to 0 first
+    cancelAnimation(translateY);
+    translateY.value = withTiming(0, { duration: 80 });
+
+    // Small charge-up
+    scale.value = withSequence(
+      withTiming(1.25, { duration: 120, easing: Easing.out(Easing.ease) }),
+      withTiming(1.0, { duration: 60 }),
+    );
+
+    // Diagonal woosh — top right
+    translateX.value = withDelay(
+      100,
+      withTiming(160, { duration: 550, easing: Easing.in(Easing.ease) }),
+    );
+    translateY.value = withDelay(
+      100,
+      withTiming(-140, { duration: 550, easing: Easing.in(Easing.ease) }),
+    );
+
+    // Fade out mid-flight
+    opacity.value = withDelay(
+      280,
+      withTiming(
+        0,
+        { duration: 320, easing: Easing.in(Easing.ease) },
+        finished => {
+          'worklet';
+          if (!finished) return;
+
+          // Reset silently
+          translateX.value = 0;
+          translateY.value = 0;
+          scale.value = 1;
+
+          // Fade back in + restart float
+          opacity.value = withTiming(1, { duration: 200 }, () => {
+            'worklet';
+            runOnJS(restartFloat)();
+            if (onDone) runOnJS(onDone)();
+          });
+        },
+      ),
+    );
+  };
+
+  const restartFloat = () => {
+    translateY.value = withRepeat(
+      withSequence(
+        withTiming(-4, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
+    );
+  };
+
+  const rocketStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+    opacity: opacity.value,
+  }));
+
+  return { rocketStyle, triggerWoosh };
+};
 const BOOST_TEXTS = [
   { main: 'Boost Now 🚀', sub: 'Boost your profile now 💖' },
   { main: 'Get 3x More Matches ✨', sub: 'Stand out from the crowd' },
@@ -499,57 +544,39 @@ const BOOST_TEXTS = [
 ];
 
 const BoostBanner = () => {
-  const { translateY, opacity, currentIndex } = useSlotAnimation(2800, 300);
+  const { animatedStyle, currentIndex } = useSlotAnimation(
+    BOOST_TEXTS.length,
+    2800,
+    300,
+  );
+  const { rocketStyle, triggerWoosh } = useRocketAnimation();
   const current = BOOST_TEXTS[currentIndex];
-  const rocketScale = useSharedValue(1);
-  const rocketY = useSharedValue(0);
-  const rocketOpacity = useSharedValue(1);
-  const triggerBoost = () => {
-    rocketScale.value = withSequence(
-      withTiming(1.2, { duration: 150 }),
-      withSpring(1, { damping: 6 }),
-    );
 
-    rocketY.value = withSequence(
-      withDelay(100, withTiming(-120, { duration: 700 })),
-      withTiming(0, { duration: 0 }),
-    );
-
-    rocketOpacity.value = withSequence(
-      withDelay(100, withTiming(0, { duration: 700 })),
-      withTiming(1, { duration: 0 }),
-    );
+  const handleBoost = () => {
+    triggerWoosh(() => {
+      // Baad mein yahan: navigation.navigate('BoostScreen')
+    });
   };
-  const rocketStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: rocketScale.value }, { translateY: rocketY.value }],
-    opacity: rocketOpacity.value,
-  }));
 
   return (
     <View style={styles.boostBanner}>
       <View style={styles.boostLeft}>
-        <Animated.View style={[styles.boostIcon, rocketStyle]}>
-          <View>
-            <RocketIcon width={25} height={25} />
-          </View>
-        </Animated.View>
-        {/* Overflow container — clips the slide */}
+        <Reanimated.View style={[styles.boostIcon, rocketStyle]}>
+          <RocketIcon width={25} height={25} />
+        </Reanimated.View>
+
         <View style={{ flex: 1, overflow: 'hidden' }}>
-          <Animated.View
-            style={{
-              opacity,
-              transform: [{ translateY }],
-            }}
-          >
+          <Reanimated.View style={animatedStyle}>
             <Text style={styles.boostTitle}>{current.main}</Text>
             <Text style={styles.boostSub}>{current.sub}</Text>
-          </Animated.View>
+          </Reanimated.View>
         </View>
       </View>
+
       <TouchableOpacity
         style={styles.boostBtn}
         activeOpacity={0.8}
-        onPress={triggerBoost}
+        onPress={handleBoost} // 👈 yahan
       >
         <Text style={styles.boostBtnText}>BOOST</Text>
       </TouchableOpacity>
@@ -708,17 +735,13 @@ export default function ChatScreen({ navigation }) {
               }
               contentContainerStyle={styles.bubblesContainer}
               extraData={onlineMap}
-              renderItem={({ item, index }) =>
-                isLoading ? (
-                  <NewMatchSkeleton key={`sk-${index}`} />
-                ) : (
-                  <NewMatchBubble
-                    match={item}
-                    onPress={() => handleMatchPress(item)}
-                    isOnline={getStatus(item.userId, item).isOnline}
-                  />
-                )
-              }
+              renderItem={({ item, index }) => (
+                <NewMatchBubble
+                  match={item}
+                  onPress={() => handleMatchPress(item)}
+                  isOnline={getStatus(item.userId, item).isOnline}
+                />
+              )}
             />
           </View>
         )}
@@ -1027,11 +1050,24 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 16,
     marginBottom: 50,
-    backgroundColor: '#FFF0F3',
-    borderRadius: 16,
-    padding: 14,
+
+    backgroundColor: '#FFF5FA', // softer pink
+    backdropFilter: 'blur(10px)', // subtle blur for frosted effect
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+
+    // subtle border
     borderWidth: 1,
-    borderColor: '#FFC2CD',
+    borderColor: 'rgba(255, 105, 180, 0.2)',
+
+    // premium shadow
+    shadowColor: '#FF3B30',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+
+    elevation: 10,
   },
   boostLeft: {
     flexDirection: 'row',

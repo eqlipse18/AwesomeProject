@@ -284,8 +284,8 @@ export const MessageBubble = React.memo(
 
     // ── Handlers ──────────────────────────────────────────────────────────
     const handleLongPress = useCallback(() => {
-      containerRef.current?.measureInWindow((x, y, width, height) => {
-        onLongPress?.(message, { x, y, width, height });
+      containerRef.current?.measure((_x, _y, width, height, pageX, pageY) => {
+        onLongPress?.(message, { x: pageX, y: pageY, width, height });
       });
     }, [message, onLongPress]);
 
@@ -352,7 +352,8 @@ export const MessageBubble = React.memo(
               ref={containerRef}
               onPress={handlePress}
               onLongPress={handleLongPress}
-              delayLongPress={340}
+              delayLongPress={150}
+              android_ripple={null}
               style={{ position: 'relative' }}
             >
               {/* Highlight overlay */}
