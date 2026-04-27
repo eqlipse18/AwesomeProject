@@ -21,8 +21,6 @@ import {
   StatusBar,
   RefreshControl,
   ActivityIndicator,
-  Animated,
-  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -36,6 +34,16 @@ import Config from 'react-native-config';
 import axios from 'axios';
 import { useFocusEffect } from '@react-navigation/native';
 import SearchIcon from '../assets/SVG/search';
+import RocketIcon from '../assets/SVG/RocketIcon';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  withSequence,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -65,37 +73,132 @@ const formatLastMsg = msg => {
 // ─────────────────────────────────────────────
 // Animated cycling text hook
 // ─────────────────────────────────────────────
-const useCyclingText = (texts, interval = 2800) => {
-  const [index, setIndex] = useState(0);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+const useCyclingText = (texts, holdDuration = 2000, slideDuration = 350) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      Animated.sequence([
-        Animated.timing(fadeAnim, {
+    let isMounted = true;
+    let currentIdx = 0;
+
+    const animate = () => {
+      if (!isMounted) return;
+
+      // Slide up + fade out
+      Animated.parallel([
+        Animated.timing(translateY, {
+          toValue: -20,
+          duration: slideDuration,
+          easing: Easing.in(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
           toValue: 0,
-          duration: 300,
+          duration: slideDuration,
           useNativeDriver: true,
-          easing: Easing.ease,
         }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-          easing: Easing.ease,
-        }),
-      ]).start();
-      setIndex(prev => (prev + 1) % texts.length);
-    }, interval);
-    return () => clearInterval(timer);
-  }, [texts.length, interval, fadeAnim]);
+      ]).start(() => {
+        if (!isMounted) return;
 
-  return { text: texts[index], fadeAnim };
+        // Snap to bottom (invisible)
+        translateY.setValue(20);
+
+        // Next index
+        currentIdx = (currentIdx + 1) % texts.length;
+        setCurrentIndex(currentIdx);
+
+        // Slide up into view + fade in
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: slideDuration,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: slideDuration,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          if (!isMounted) return;
+          // Hold then repeat
+          setTimeout(animate, holdDuration);
+        });
+      });
+    };
+
+    const timeout = setTimeout(animate, holdDuration);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+      translateY.setValue(0);
+      opacity.setValue(1);
+    };
+  }, []);
+
+  return { translateY, opacity, currentIndex };
 };
-
 // ─────────────────────────────────────────────
 // New Match Bubble
 // ─────────────────────────────────────────────
+const NewMatchSkeleton = () => {
+  const shimmer = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmer, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+    return () => shimmer.stopAnimation();
+  }, []);
+
+  const opacity = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.35, 0.8],
+  });
+
+  return (
+    <View style={styles.bubbleWrapper}>
+      {/* Circle skeleton */}
+      <Animated.View
+        style={{
+          width: AVATAR_SIZE + 4, // match bubbleRing size
+          height: AVATAR_SIZE + 4,
+          borderRadius: (AVATAR_SIZE + 4) / 2,
+          backgroundColor: '#E1DBDD',
+          opacity,
+        }}
+      />
+      {/* Name line skeleton */}
+      <Animated.View
+        style={{
+          width: 36,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: '#E1DBDD',
+          marginTop: 6,
+          opacity,
+        }}
+      />
+    </View>
+  );
+};
+
 const NewMatchBubble = ({ match, onPress, isOnline }) => (
   <TouchableOpacity
     style={styles.bubbleWrapper}
@@ -148,7 +251,11 @@ const AVATAR_SIZE = 38;
 const OVERLAP = 14;
 
 const LikesBanner = ({ likedUsers, likeCount, blurred, onPress }) => {
-  const { text: cyclingText, fadeAnim } = useCyclingText(BANNER_TEXTS, 2800);
+  const { translateY, opacity, currentIndex } = useCyclingText(
+    BANNER_TEXTS,
+    2000,
+    300,
+  );
   const previews = likedUsers.slice(0, 3);
   const stackWidth =
     previews.length > 0
@@ -172,12 +279,21 @@ const LikesBanner = ({ likedUsers, likeCount, blurred, onPress }) => {
           <Text style={styles.bannerCount}>
             {likeCount} {likeCount === 1 ? 'person' : 'people'} liked you
           </Text>
-          <Animated.Text
-            style={[styles.bannerSub, { opacity: fadeAnim }]}
-            numberOfLines={1}
+          <View
+            style={{ height: 20, overflow: 'hidden', justifyContent: 'center' }}
           >
-            {cyclingText}
-          </Animated.Text>
+            <Animated.Text
+              style={[
+                styles.bannerSub,
+                {
+                  transform: [{ translateY }],
+                  opacity,
+                },
+              ]}
+            >
+              {BANNER_TEXTS[currentIndex]}
+            </Animated.Text>
+          </View>
         </View>
 
         {/* Right — overlapping real images, dynamic count */}
@@ -313,6 +429,69 @@ const ChatRow = ({ match, onPress, isOnline, lastActiveText }) => {
 // ─────────────────────────────────────────────
 // Boost Banner — dynamic cycling text
 // ─────────────────────────────────────────────
+const useSlotAnimation = (holdDuration = 2000, slideDuration = 300) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let isMounted = true;
+    let currentIdx = 0;
+
+    const animate = length => {
+      if (!isMounted) return;
+
+      Animated.parallel([
+        Animated.timing(translateY, {
+          toValue: -20,
+          duration: slideDuration,
+          easing: Easing.in(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: slideDuration,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        if (!isMounted) return;
+
+        translateY.setValue(20);
+        currentIdx = (currentIdx + 1) % length;
+        setCurrentIndex(currentIdx);
+
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: slideDuration,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: slideDuration,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          if (!isMounted) return;
+          setTimeout(() => animate(length), holdDuration);
+        });
+      });
+    };
+
+    const timeout = setTimeout(() => animate(BOOST_TEXTS.length), holdDuration);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+      translateY.setValue(0);
+      opacity.setValue(1);
+    };
+  }, []);
+
+  return { translateY, opacity, currentIndex };
+};
+
 const BOOST_TEXTS = [
   { main: 'Boost Now 🚀', sub: 'Boost your profile now 💖' },
   { main: 'Get 3x More Matches ✨', sub: 'Stand out from the crowd' },
@@ -320,42 +499,58 @@ const BOOST_TEXTS = [
 ];
 
 const BoostBanner = () => {
-  const [boostIdx, setBoostIdx] = useState(0);
-  const boostFade = useRef(new Animated.Value(1)).current;
+  const { translateY, opacity, currentIndex } = useSlotAnimation(2800, 300);
+  const current = BOOST_TEXTS[currentIndex];
+  const rocketScale = useSharedValue(1);
+  const rocketY = useSharedValue(0);
+  const rocketOpacity = useSharedValue(1);
+  const triggerBoost = () => {
+    rocketScale.value = withSequence(
+      withTiming(1.2, { duration: 150 }),
+      withSpring(1, { damping: 6 }),
+    );
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      Animated.sequence([
-        Animated.timing(boostFade, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(boostFade, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-      setBoostIdx(prev => (prev + 1) % BOOST_TEXTS.length);
-    }, 3200);
-    return () => clearInterval(timer);
-  }, [boostFade]);
+    rocketY.value = withSequence(
+      withDelay(100, withTiming(-120, { duration: 700 })),
+      withTiming(0, { duration: 0 }),
+    );
 
-  const current = BOOST_TEXTS[boostIdx];
+    rocketOpacity.value = withSequence(
+      withDelay(100, withTiming(0, { duration: 700 })),
+      withTiming(1, { duration: 0 }),
+    );
+  };
+  const rocketStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: rocketScale.value }, { translateY: rocketY.value }],
+    opacity: rocketOpacity.value,
+  }));
 
   return (
     <View style={styles.boostBanner}>
       <View style={styles.boostLeft}>
-        <View style={styles.boostIcon}>
-          <Text style={{ fontSize: 20 }}>🚀</Text>
-        </View>
-        <Animated.View style={{ opacity: boostFade, flex: 1 }}>
-          <Text style={styles.boostTitle}>{current.main}</Text>
-          <Text style={styles.boostSub}>{current.sub}</Text>
+        <Animated.View style={[styles.boostIcon, rocketStyle]}>
+          <View>
+            <RocketIcon width={25} height={25} />
+          </View>
         </Animated.View>
+        {/* Overflow container — clips the slide */}
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+          <Animated.View
+            style={{
+              opacity,
+              transform: [{ translateY }],
+            }}
+          >
+            <Text style={styles.boostTitle}>{current.main}</Text>
+            <Text style={styles.boostSub}>{current.sub}</Text>
+          </Animated.View>
+        </View>
       </View>
-      <TouchableOpacity style={styles.boostBtn} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={styles.boostBtn}
+        activeOpacity={0.8}
+        onPress={triggerBoost}
+      >
         <Text style={styles.boostBtnText}>BOOST</Text>
       </TouchableOpacity>
     </View>
@@ -496,58 +691,67 @@ export default function ChatScreen({ navigation }) {
     );
   }
 
-  const ListHeader = () => (
-    <View>
-      {newMatches.length > 0 && (
-        <View>
-          <Text style={styles.sectionLabel}>New Matches</Text>
-          <FlatList
-            data={newMatches}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={item => item.matchId}
-            contentContainerStyle={styles.bubblesContainer}
-            extraData={onlineMap}
-            renderItem={({ item }) => {
-              const status = getStatus(item.userId, item);
-              return (
-                <NewMatchBubble
-                  match={item}
-                  onPress={() => handleMatchPress(item)}
-                  isOnline={status.isOnline}
-                />
-              );
-            }}
-          />
-        </View>
-      )}
+  const ListHeader = () => {
+    const isLoading = loading && newMatches.length === 0;
 
-      {likeCount > 0 && (
-        <View style={styles.bannerSection}>
-          <LikesBanner
-            likedUsers={likedUsers}
-            likeCount={likeCount}
-            blurred={likesBlurred}
-            onPress={() => navigation.navigate('Like')}
-          />
-        </View>
-      )}
+    return (
+      <View>
+        {(isLoading || newMatches.length > 0) && (
+          <View>
+            <Text style={styles.sectionLabel}>New Matches</Text>
+            <FlatList
+              data={isLoading ? Array(5).fill(null) : newMatches}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item, index) =>
+                isLoading ? `skeleton-${index}` : item.matchId
+              }
+              contentContainerStyle={styles.bubblesContainer}
+              extraData={onlineMap}
+              renderItem={({ item, index }) =>
+                isLoading ? (
+                  <NewMatchSkeleton key={`sk-${index}`} />
+                ) : (
+                  <NewMatchBubble
+                    match={item}
+                    onPress={() => handleMatchPress(item)}
+                    isOnline={getStatus(item.userId, item).isOnline}
+                  />
+                )
+              }
+            />
+          </View>
+        )}
 
-      {activeChats.length > 0 && (
-        <Text style={styles.sectionLabel2}>RECENT MESSAGES</Text>
-      )}
-    </View>
-  );
+        {likeCount > 0 && (
+          <View style={styles.bannerSection}>
+            <LikesBanner
+              likedUsers={likedUsers}
+              likeCount={likeCount}
+              blurred={likesBlurred}
+              onPress={() => navigation.navigate('Like')}
+            />
+          </View>
+        )}
+
+        {activeChats.length > 0 && (
+          <Text style={styles.sectionLabel2}>RECENT MESSAGES</Text>
+        )}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      {/* <StatusBar barStyle="dark-content" backgroundColor="#ffffff" /> */}
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Messages</Text>
+
         <TouchableOpacity
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           activeOpacity={0.7}
+          onPress={() => navigation.navigate('SearchChats', { matches })} // ← ADD
         >
           <SearchIcon size={23} color="#374151" />
         </TouchableOpacity>
@@ -822,7 +1026,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginHorizontal: 20,
     marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 50,
     backgroundColor: '#FFF0F3',
     borderRadius: 16,
     padding: 14,
@@ -842,6 +1046,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   boostTitle: {
     fontSize: 13,
