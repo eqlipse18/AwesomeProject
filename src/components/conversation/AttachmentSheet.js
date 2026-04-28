@@ -15,8 +15,12 @@ import Animated, {
   FadeOut,
   FadeInDown,
   LinearTransition,
+  Easing,
+  SlideInDown,
 } from 'react-native-reanimated';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import CameraIcon from '../../../assets//SVG/camera';
+import ImageIcon from '../../../assets//SVG/image';
 
 const requestCameraPermission = async () => {
   if (Platform.OS !== 'android') return true;
@@ -36,8 +40,8 @@ const requestCameraPermission = async () => {
   }
 };
 
-const _entering = FadeInDown.springify().damping(18).stiffness(300);
-const _layout = LinearTransition.springify();
+const _entering = SlideInDown.duration(250);
+const _layout = LinearTransition.duration(200);
 
 export const AttachmentSheet = ({ visible, onClose, onMediaSelected }) => {
   const handleCamera = useCallback(async () => {
@@ -90,7 +94,7 @@ export const AttachmentSheet = ({ visible, onClose, onMediaSelected }) => {
         style={s.bg}
       >
         <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-        <Animated.View entering={_entering} layout={_layout} style={s.sheet}>
+        <Animated.View entering={_entering} style={s.sheet}>
           <View style={s.handle} />
           <Text style={s.title}>Send Media</Text>
 
@@ -101,7 +105,7 @@ export const AttachmentSheet = ({ visible, onClose, onMediaSelected }) => {
               activeOpacity={0.8}
             >
               <View style={[s.ico, { backgroundColor: '#FFF0F5' }]}>
-                <Text style={{ fontSize: 32 }}>📷</Text>
+                <CameraIcon width={28} height={28} fill="#000" />
               </View>
               <Text style={s.lbl}>Camera</Text>
             </TouchableOpacity>
@@ -112,7 +116,7 @@ export const AttachmentSheet = ({ visible, onClose, onMediaSelected }) => {
               activeOpacity={0.8}
             >
               <View style={[s.ico, { backgroundColor: '#EFF6FF' }]}>
-                <Text style={{ fontSize: 32 }}>🖼️</Text>
+                <ImageIcon width={28} height={28} fill="#000" />
               </View>
               <Text style={s.lbl}>Gallery</Text>
             </TouchableOpacity>

@@ -48,6 +48,8 @@ import { SearchMessagesSheet } from '../src/components/conversation/SearchMessag
 import { SharedMediaSheet } from '../src/components/conversation/SharedMediaSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
+import BackIcon from '../assets/SVG/back';
+import ThreeDotIcon from '../assets/SVG/threedot';
 
 // ════════════════════════════════════════════════════════════════════════════
 // HELPERS
@@ -626,7 +628,7 @@ export default function ConversationScreen({ navigation, route }) {
   return (
     <GestureHandlerRootView style={s.container}>
       <LinearGradient
-        colors={['#FFF5F7', '#FFFBFC', '#FFF5F7']}
+        colors={['#FFF5F7', '#fcc7d4', '#fae2f7']}
         style={StyleSheet.absoluteFillObject}
       />
       <StatusBar
@@ -643,7 +645,9 @@ export default function ConversationScreen({ navigation, route }) {
             style={s.backBtn}
             activeOpacity={0.7}
           >
-            <Text style={s.backIco}>←</Text>
+            <View style={s.backIcoWrap}>
+              <BackIcon width={20} height={20} fill="#000" />
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -691,7 +695,9 @@ export default function ConversationScreen({ navigation, route }) {
             onPress={() => setShowMenu(true)}
             activeOpacity={0.7}
           >
-            <Text style={s.moreIco}>⋮</Text>
+            <View style={s.moreIcoWrap}>
+              <ThreeDotIcon width={18} height={18} fill="#000" />
+            </View>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -744,8 +750,8 @@ export default function ConversationScreen({ navigation, route }) {
                   {image && (
                     <Image source={{ uri: image }} style={s.emptyAvt} />
                   )}
-                  <Text style={s.emptyTitle}>You matched with {name}! 🎉</Text>
-                  <Text style={s.emptySub}>Be the first to say hi 👋</Text>
+                  <Text style={s.emptyTitle}>You matched with {name}! ❤️</Text>
+                  <Text style={s.emptySub}>Waiting for your first move...</Text>
                 </View>
               </View>
             }
@@ -852,34 +858,51 @@ const s = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   headerSafe: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(0,0,0,0.07)',
+    backgroundColor: '#ffeff2',
+    // borderBottomWidth: 0.5,
+    // borderBottomColor: 'rgba(0,0,0,0.07)',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+    paddingVertical: 8,
+    gap: 15,
   },
   backBtn: {
-    width: 36,
-    height: 36,
+    width: 37,
+    height: 37,
     borderRadius: 18,
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  backIco: { fontSize: 18, color: '#0F172A' },
+  backIcoWrap: {
+    width: 20,
+    height: 20,
+    marginRight: 4,
+  },
+
   headerCenter: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  hAvtWrap: { position: 'relative' },
-  hAvt: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F1F5F9' },
+  hAvtWrap: {
+    position: 'relative',
+  },
+  hAvt: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#F1F5F9',
+  },
   hAvtFb: { justifyContent: 'center', alignItems: 'center' },
   hDot: {
     position: 'absolute',
@@ -890,6 +913,7 @@ const s = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 2,
     borderColor: '#fff',
+    zIndex: 10,
   },
   hInfo: { flex: 1 },
   hName: { fontSize: 16, fontWeight: '700', color: '#0F172A' },
@@ -901,40 +925,65 @@ const s = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  moreIco: { fontSize: 20, color: '#64748B', lineHeight: 22 },
+  moreIcoWrap: {
+    width: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   msgList: {
     paddingHorizontal: 8,
     paddingVertical: 12,
     flexGrow: 1,
+    justifyContent: 'center',
     // paddingBottom: 16,
   },
 
   inputWrap: {
-    backgroundColor: '#fff',
-    borderTopWidth: 0.5,
-    borderTopColor: 'rgba(0,0,0,0.07)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 5,
+    backgroundColor: '#fbe9f9',
+    // borderTopWidth: 0.5,
+    // borderTopColor: 'rgba(0,0,0,0.07)',
+    // shadowColor: '#000',
+    // shadowOffset: { width: 0, height: -2 },
+    // shadowOpacity: 0.04,
+    // shadowRadius: 6,
+    // elevation: 10,
   },
 
   emptyWrap: {
-    height: 1000,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
-  emptyAvt: { width: 90, height: 90, borderRadius: 45, marginBottom: 20 },
+  emptyAvt: {
+    width: 92,
+    height: 92,
+    borderRadius: 45,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#F1F5F9',
+  },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#0F172A',
     textAlign: 'center',
     marginBottom: 8,
+    fontFamily: 'Poppins-Bold',
   },
-  emptySub: { fontSize: 14, color: '#94A3B8', textAlign: 'center' },
+  emptySub: {
+    fontSize: 14,
+    color: '#444750',
+    textAlign: 'center',
+    fontFamily: 'Poppins-Regular',
+  },
 });
