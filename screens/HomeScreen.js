@@ -60,6 +60,7 @@ import { getLocationDisplay } from '../utils/locationUtils';
 import FeedFilterModal from '../src/components/feed/FeedFilterModal';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRequests } from '../src/hooks/useRequests';
 
 const PremiumModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
@@ -598,6 +599,7 @@ export default function HomeScreen({ navigation }) {
     limit: 20,
   });
   const [stackKey, setStackKey] = useState(0);
+  const { sendRequest } = useRequests();
 
   // ── Is loading overlay visible? ──
   // Show when: initial loading OR feed is empty but still loading (auto-refetch in progress)
@@ -788,9 +790,12 @@ export default function HomeScreen({ navigation }) {
   const handleSwipeComplete = useCallback(
     async (direction, user, index) => {
       if (!user || matchedUsers) return;
+
       const type = { left: 'pass', right: 'like', up: 'superlike' }[direction];
       if (!type) return;
+
       currentCardIndex.current = index + 1;
+
       swipeProgressX.value = withTiming(0, {
         duration: 300,
         easing: Easing.out(Easing.ease),
@@ -799,22 +804,41 @@ export default function HomeScreen({ navigation }) {
         duration: 300,
         easing: Easing.out(Easing.ease),
       });
+
       try {
+        // 🔥 Existing swipe logic — unchanged
         const result = await swipeStack.handleSwipe(user.userId, type);
+
         if (!result?.success) {
           setLocalError(result?.error || 'Failed to process swipe');
           return;
         }
-        if (result.match)
+
+        // ⭐ Superlike → message request (fire and forget)
+        if (direction === 'up') {
+          sendRequest(user.userId, true)
+            .then(r => {
+              if (!r?.success && !r?.alreadySent) {
+                console.warn('[HomeScreen] sendRequest failed:', r?.error);
+              }
+            })
+            .catch(err => {
+              console.warn('[HomeScreen] sendRequest error:', err.message);
+            });
+        }
+
+        // ❤️ Match handling — unchanged
+        if (result.match) {
           setMatchedUsers({
             user1: { name: 'You', age: '', image: myImage },
             user2: { name: user.name, age: user.age, image: user.image },
           });
+        }
       } catch (err) {
         setLocalError(err.message || 'Unknown error');
       }
     },
-    [swipeStack, matchedUsers, swipeProgressX, swipeProgressY],
+    [swipeStack, matchedUsers, swipeProgressX, swipeProgressY, sendRequest], // ← sendRequest add
   );
 
   const handleKeepSwiping = useCallback(() => setMatchedUsers(null), []);

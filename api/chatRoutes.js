@@ -37,7 +37,7 @@ router.get('/matches', authenticate, async (req, res) => {
     const { limit = 20 } = req.query;
     const parsedLimit = Math.min(parseInt(limit), 50);
 
-    // ── 1. Query both user1Id + user2Id GSIs ──
+    // ── 1. Fetch matches (user1 + user2) ──
     const [user1Resp, user2Resp] = await Promise.all([
       docClient.send(
         new QueryCommand({
@@ -59,29 +59,89 @@ router.get('/matches', authenticate, async (req, res) => {
       ),
     ]);
 
-    // ── 2. Merge + dedupe by matchId + sort ──
+    // ── 2. Merge + dedupe + sort ──
     const seen = new Set();
-    const allMatches = [
-      ...(user1Resp.Items || []).map(m => ({ ...m, otherUserId: m.user2Id })),
-      ...(user2Resp.Items || []).map(m => ({ ...m, otherUserId: m.user1Id })),
+    let allMatches = [
+      ...(user1Resp.Items || []).map(m => ({
+        ...m,
+        otherUserId: m.user2Id,
+      })),
+      ...(user2Resp.Items || []).map(m => ({
+        ...m,
+        otherUserId: m.user1Id,
+      })),
     ]
       .filter(m => {
-        // ✅ Same matchId duplicate hatao
         if (seen.has(m.matchId)) return false;
         seen.add(m.matchId);
         return true;
       })
-      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt))
-      .slice(0, parsedLimit);
+      .sort(
+        (a, b) =>
+          new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0),
+      );
 
     if (allMatches.length === 0) {
       return res.status(200).json({ success: true, matches: [] });
     }
 
-    // ── 3. Batch fetch other users ──
+    // ── 3. Fetch block data (safe + fallback) ──
+    let blockedIds = new Set();
+    let blockedByIds = new Set();
+
+    try {
+      const blocksResp = await docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Blocks',
+          KeyConditionExpression: 'blockerId = :uid',
+          ExpressionAttributeValues: { ':uid': userId },
+          ProjectionExpression: 'blockedId',
+        }),
+      );
+
+      blockedIds = new Set((blocksResp.Items || []).map(b => b.blockedId));
+    } catch (e) {
+      console.warn('[/matches] blockedIds fetch failed:', e.message);
+    }
+
+    try {
+      const blockedByResp = await docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Blocks',
+          IndexName: 'blockedId-index',
+          KeyConditionExpression: 'blockedId = :uid',
+          ExpressionAttributeValues: { ':uid': userId },
+          ProjectionExpression: 'blockerId',
+        }),
+      );
+
+      blockedByIds = new Set((blockedByResp.Items || []).map(b => b.blockerId));
+    } catch (e) {
+      console.warn(
+        '[/matches] blockedByIds GSI missing, using status fallback',
+      );
+    }
+
+    // ── 4. Filter blocked users ──
+    const isBlocked = m =>
+      blockedIds.has(m.otherUserId) ||
+      blockedByIds.has(m.otherUserId) ||
+      m.status === 'blocked';
+
+    allMatches = allMatches.filter(m => !isBlocked(m));
+
+    // IMPORTANT: filter ke baad limit
+    allMatches = allMatches.slice(0, parsedLimit);
+
+    if (allMatches.length === 0) {
+      return res.status(200).json({ success: true, matches: [] });
+    }
+
+    // ── 5. Fetch user data ──
     const otherUserIds = [
       ...new Set(allMatches.map(m => m.otherUserId).filter(Boolean)),
     ];
+
     const batchResp = await docClient.send(
       new BatchGetCommand({
         RequestItems: {
@@ -93,16 +153,12 @@ router.get('/matches', authenticate, async (req, res) => {
       }),
     );
 
-    if (otherUserIds.length === 0) {
-      return res.status(200).json({ success: true, matches: [] });
-    }
-
     const userMap = {};
     (batchResp.Responses?.Users || []).forEach(u => {
       userMap[u.userId] = u;
     });
 
-    // ── 4. Fetch unread counts ──
+    // ── 6. Fetch unread counts ──
     const unreadCounts = await Promise.all(
       allMatches.map(async match => {
         try {
@@ -133,7 +189,7 @@ router.get('/matches', authenticate, async (req, res) => {
       unreadMap[u.matchId] = u.count;
     });
 
-    // ── 5. Format ──
+    // ── 7. Format response ──
     const formatted = allMatches.map(m => ({
       matchId: m.matchId,
       userId: m.otherUserId,
@@ -145,12 +201,16 @@ router.get('/matches', authenticate, async (req, res) => {
       createdAt: m.createdAt,
     }));
 
-    return res.status(200).json({ success: true, matches: formatted });
+    return res.status(200).json({
+      success: true,
+      matches: formatted,
+    });
   } catch (err) {
     console.error('[/matches] Error:', err.message);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to fetch matches' });
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch matches',
+    });
   }
 });
 

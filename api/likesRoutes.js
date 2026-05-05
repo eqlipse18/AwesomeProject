@@ -434,252 +434,252 @@ router.get('/likes/stats', authenticate, async (req, res) => {
 // POST /send-message-request
 // ════════════════════════════════════════════════════════════════════════════
 
-router.post('/send-message-request', authenticate, async (req, res) => {
-  try {
-    const { userId } = req.user;
-    const { recipientId, message } = req.body;
+// router.post('/send-message-request', authenticate, async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     const { recipientId, message } = req.body;
 
-    if (!recipientId || !message) {
-      return res.status(400).json({
-        success: false,
-        error: 'recipientId and message are required',
-      });
-    }
+//     if (!recipientId || !message) {
+//       return res.status(400).json({
+//         success: false,
+//         error: 'recipientId and message are required',
+//       });
+//     }
 
-    const subResponse = await docClient.send(
-      new GetCommand({
-        TableName: 'Subscriptions',
-        Key: { userId },
-        ProjectionExpression: 'isActive',
-      }),
-    );
+//     const subResponse = await docClient.send(
+//       new GetCommand({
+//         TableName: 'Subscriptions',
+//         Key: { userId },
+//         ProjectionExpression: 'isActive',
+//       }),
+//     );
 
-    if (!subResponse.Item?.isActive) {
-      return res.status(403).json({
-        success: false,
-        error: 'Premium subscription required to send messages',
-        requiresPremium: true,
-      });
-    }
+//     if (!subResponse.Item?.isActive) {
+//       return res.status(403).json({
+//         success: false,
+//         error: 'Premium subscription required to send messages',
+//         requiresPremium: true,
+//       });
+//     }
 
-    const { v4: uuidv4 } = await import('uuid');
-    const requestId = uuidv4();
-    const now = new Date().toISOString();
+//     const { v4: uuidv4 } = await import('uuid');
+//     const requestId = uuidv4();
+//     const now = new Date().toISOString();
 
-    await docClient.send(
-      new PutCommand({
-        TableName: 'MessageRequests',
-        Item: {
-          requestId,
-          createdAt: now,
-          senderId: userId,
-          recipientId,
-          message,
-          status: 'pending',
-          respondedAt: null,
-          expiresAt: getTomorrowMidnightUnix(),
-        },
-      }),
-    );
+//     await docClient.send(
+//       new PutCommand({
+//         TableName: 'MessageRequests',
+//         Item: {
+//           requestId,
+//           createdAt: now,
+//           senderId: userId,
+//           recipientId,
+//           message,
+//           status: 'pending',
+//           respondedAt: null,
+//           expiresAt: getTomorrowMidnightUnix(),
+//         },
+//       }),
+//     );
 
-    return res
-      .status(201)
-      .json({ success: true, message: 'Message request sent', requestId });
-  } catch (error) {
-    console.error('[/send-message-request] Error:', error);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to send message request' });
-  }
-});
+//     return res
+//       .status(201)
+//       .json({ success: true, message: 'Message request sent', requestId });
+//   } catch (error) {
+//     console.error('[/send-message-request] Error:', error);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: 'Failed to send message request' });
+//   }
+// });
 
-// ════════════════════════════════════════════════════════════════════════════
-// GET /match-requests/pending
-// ════════════════════════════════════════════════════════════════════════════
+// // ════════════════════════════════════════════════════════════════════════════
+// // GET /match-requests/pending
+// // ════════════════════════════════════════════════════════════════════════════
 
-router.get('/match-requests/pending', authenticate, async (req, res) => {
-  try {
-    const { userId } = req.user;
+// router.get('/match-requests/pending', authenticate, async (req, res) => {
+//   try {
+//     const { userId } = req.user;
 
-    const response = await docClient.send(
-      new QueryCommand({
-        TableName: 'MatchRequests',
-        IndexName: 'superliked-status-index',
-        KeyConditionExpression: 'superliked = :userId',
-        FilterExpression: '#status = :status',
-        ProjectionExpression:
-          'requestId, superliker, createdAt, metadata, matchId',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: { ':userId': userId, ':status': 'pending' },
-        ScanIndexForward: false,
-      }),
-    );
+//     const response = await docClient.send(
+//       new QueryCommand({
+//         TableName: 'MatchRequests',
+//         IndexName: 'superliked-status-index',
+//         KeyConditionExpression: 'superliked = :userId',
+//         FilterExpression: '#status = :status',
+//         ProjectionExpression:
+//           'requestId, superliker, createdAt, metadata, matchId',
+//         ExpressionAttributeNames: { '#status': 'status' },
+//         ExpressionAttributeValues: { ':userId': userId, ':status': 'pending' },
+//         ScanIndexForward: false,
+//       }),
+//     );
 
-    return res.status(200).json({
-      success: true,
-      requests: response.Items || [],
-      total: response.Items?.length || 0,
-    });
-  } catch (error) {
-    console.error('[/match-requests/pending] Error:', error);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to fetch pending requests' });
-  }
-});
+//     return res.status(200).json({
+//       success: true,
+//       requests: response.Items || [],
+//       total: response.Items?.length || 0,
+//     });
+//   } catch (error) {
+//     console.error('[/match-requests/pending] Error:', error);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: 'Failed to fetch pending requests' });
+//   }
+// });
 
-// ════════════════════════════════════════════════════════════════════════════
-// POST /match-request/accept
-// ════════════════════════════════════════════════════════════════════════════
+// // ════════════════════════════════════════════════════════════════════════════
+// // POST /match-request/accept
+// // ════════════════════════════════════════════════════════════════════════════
 
-router.post('/match-request/accept', authenticate, async (req, res) => {
-  try {
-    const { requestId } = req.body;
+// router.post('/match-request/accept', authenticate, async (req, res) => {
+//   try {
+//     const { requestId } = req.body;
 
-    if (!requestId)
-      return res
-        .status(400)
-        .json({ success: false, error: 'requestId is required' });
+//     if (!requestId)
+//       return res
+//         .status(400)
+//         .json({ success: false, error: 'requestId is required' });
 
-    const now = new Date().toISOString();
+//     const now = new Date().toISOString();
 
-    // Fetch request first to get matchId + createdAt
-    const reqResponse = await docClient.send(
-      new GetCommand({
-        TableName: 'MatchRequests',
-        Key: { requestId },
-        ProjectionExpression: 'matchId, superliker, createdAt',
-      }),
-    );
+//     // Fetch request first to get matchId + createdAt
+//     const reqResponse = await docClient.send(
+//       new GetCommand({
+//         TableName: 'MatchRequests',
+//         Key: { requestId },
+//         ProjectionExpression: 'matchId, superliker, createdAt',
+//       }),
+//     );
 
-    if (!reqResponse.Item) {
-      return res
-        .status(404)
-        .json({ success: false, error: 'Match request not found' });
-    }
+//     if (!reqResponse.Item) {
+//       return res
+//         .status(404)
+//         .json({ success: false, error: 'Match request not found' });
+//     }
 
-    const { matchId, createdAt } = reqResponse.Item;
+//     const { matchId, createdAt } = reqResponse.Item;
 
-    // Update request status
-    await docClient.send(
-      new UpdateCommand({
-        TableName: 'MatchRequests',
-        Key: { requestId, createdAt },
-        UpdateExpression:
-          'SET #status = :status, respondedAt = :now, expiresAt = :expiresAt',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':status': 'accepted',
-          ':now': now,
-          ':expiresAt': null,
-        },
-      }),
-    );
+//     // Update request status
+//     await docClient.send(
+//       new UpdateCommand({
+//         TableName: 'MatchRequests',
+//         Key: { requestId, createdAt },
+//         UpdateExpression:
+//           'SET #status = :status, respondedAt = :now, expiresAt = :expiresAt',
+//         ExpressionAttributeNames: { '#status': 'status' },
+//         ExpressionAttributeValues: {
+//           ':status': 'accepted',
+//           ':now': now,
+//           ':expiresAt': null,
+//         },
+//       }),
+//     );
 
-    // Activate match
-    await docClient.send(
-      new UpdateCommand({
-        TableName: 'flame-Matches',
-        Key: { matchId },
-        UpdateExpression:
-          'SET #status = :status, chatEnabled = :chatEnabled, requesterApproval.approved = :approved, requesterApproval.approvedAt = :now',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':status': 'active',
-          ':chatEnabled': true,
-          ':approved': true,
-          ':now': now,
-        },
-      }),
-    );
+//     // Activate match
+//     await docClient.send(
+//       new UpdateCommand({
+//         TableName: 'flame-Matches',
+//         Key: { matchId },
+//         UpdateExpression:
+//           'SET #status = :status, chatEnabled = :chatEnabled, requesterApproval.approved = :approved, requesterApproval.approvedAt = :now',
+//         ExpressionAttributeNames: { '#status': 'status' },
+//         ExpressionAttributeValues: {
+//           ':status': 'active',
+//           ':chatEnabled': true,
+//           ':approved': true,
+//           ':now': now,
+//         },
+//       }),
+//     );
 
-    return res.status(200).json({
-      success: true,
-      message: 'SUPERLIKE accepted, match is now active',
-      matchId,
-    });
-  } catch (error) {
-    console.error('[/match-request/accept] Error:', error);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to accept request' });
-  }
-});
+//     return res.status(200).json({
+//       success: true,
+//       message: 'SUPERLIKE accepted, match is now active',
+//       matchId,
+//     });
+//   } catch (error) {
+//     console.error('[/match-request/accept] Error:', error);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: 'Failed to accept request' });
+//   }
+// });
 
-// ════════════════════════════════════════════════════════════════════════════
-// POST /match-request/reject
-// ════════════════════════════════════════════════════════════════════════════
+// // ════════════════════════════════════════════════════════════════════════════
+// // POST /match-request/reject
+// // ════════════════════════════════════════════════════════════════════════════
 
-router.post('/match-request/reject', authenticate, async (req, res) => {
-  try {
-    const { requestId } = req.body;
+// router.post('/match-request/reject', authenticate, async (req, res) => {
+//   try {
+//     const { requestId } = req.body;
 
-    if (!requestId)
-      return res
-        .status(400)
-        .json({ success: false, error: 'requestId is required' });
+//     if (!requestId)
+//       return res
+//         .status(400)
+//         .json({ success: false, error: 'requestId is required' });
 
-    const now = new Date().toISOString();
+//     const now = new Date().toISOString();
 
-    // Fetch request to get matchId + createdAt
-    const reqResponse = await docClient.send(
-      new GetCommand({
-        TableName: 'MatchRequests',
-        Key: { requestId },
-        ProjectionExpression: 'matchId, createdAt',
-      }),
-    );
+//     // Fetch request to get matchId + createdAt
+//     const reqResponse = await docClient.send(
+//       new GetCommand({
+//         TableName: 'MatchRequests',
+//         Key: { requestId },
+//         ProjectionExpression: 'matchId, createdAt',
+//       }),
+//     );
 
-    if (!reqResponse.Item) {
-      return res
-        .status(404)
-        .json({ success: false, error: 'Match request not found' });
-    }
+//     if (!reqResponse.Item) {
+//       return res
+//         .status(404)
+//         .json({ success: false, error: 'Match request not found' });
+//     }
 
-    const { matchId, createdAt } = reqResponse.Item;
+//     const { matchId, createdAt } = reqResponse.Item;
 
-    // Update request
-    await docClient.send(
-      new UpdateCommand({
-        TableName: 'MatchRequests',
-        Key: { requestId, createdAt },
-        UpdateExpression:
-          'SET #status = :status, respondedAt = :now, expiresAt = :expiresAt',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':status': 'rejected',
-          ':now': now,
-          ':expiresAt': getTomorrowMidnightUnix(),
-        },
-      }),
-    );
+//     // Update request
+//     await docClient.send(
+//       new UpdateCommand({
+//         TableName: 'MatchRequests',
+//         Key: { requestId, createdAt },
+//         UpdateExpression:
+//           'SET #status = :status, respondedAt = :now, expiresAt = :expiresAt',
+//         ExpressionAttributeNames: { '#status': 'status' },
+//         ExpressionAttributeValues: {
+//           ':status': 'rejected',
+//           ':now': now,
+//           ':expiresAt': getTomorrowMidnightUnix(),
+//         },
+//       }),
+//     );
 
-    // Reject match
-    if (matchId) {
-      await docClient.send(
-        new UpdateCommand({
-          TableName: 'flame-Matches',
-          Key: { matchId },
-          UpdateExpression: 'SET #status = :status, chatEnabled = :chatEnabled',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: {
-            ':status': 'rejected',
-            ':chatEnabled': false,
-          },
-        }),
-      );
-    }
+//     // Reject match
+//     if (matchId) {
+//       await docClient.send(
+//         new UpdateCommand({
+//           TableName: 'flame-Matches',
+//           Key: { matchId },
+//           UpdateExpression: 'SET #status = :status, chatEnabled = :chatEnabled',
+//           ExpressionAttributeNames: { '#status': 'status' },
+//           ExpressionAttributeValues: {
+//             ':status': 'rejected',
+//             ':chatEnabled': false,
+//           },
+//         }),
+//       );
+//     }
 
-    return res.status(200).json({
-      success: true,
-      message: 'SUPERLIKE rejected. Will disappear in 24 hours.',
-    });
-  } catch (error) {
-    console.error('[/match-request/reject] Error:', error);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to reject request' });
-  }
-});
+//     return res.status(200).json({
+//       success: true,
+//       message: 'SUPERLIKE rejected. Will disappear in 24 hours.',
+//     });
+//   } catch (error) {
+//     console.error('[/match-request/reject] Error:', error);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: 'Failed to reject request' });
+//   }
+// });
 
 export default router;

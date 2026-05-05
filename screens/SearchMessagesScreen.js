@@ -156,6 +156,7 @@ const sr = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 10,
+    backgroundColor: '#fff', // ← ADD explicitly
     borderBottomWidth: 0.5,
     borderBottomColor: '#F1F5F9',
   },
@@ -169,9 +170,18 @@ const sr = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     gap: 8,
+    minHeight: 42, // ← ADD
+    borderWidth: 1, // ← ADD — visible border
+    borderColor: '#E2E8F0', // ← ADD
   },
   searchIco: { fontSize: 15 },
-  input: { flex: 1, fontSize: 15, color: '#0F172A', padding: 0 },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: '#0F172A',
+    padding: 0,
+    minHeight: 36, // ← ADD — Android mein input collapse hota hai
+  },
   clearIco: { fontSize: 12, color: '#94A3B8' },
 
   countBar: {

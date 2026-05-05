@@ -21,6 +21,7 @@ import {
   StatusBar,
   RefreshControl,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -47,7 +48,7 @@ import Reanimated, {
   Easing,
   withRepeat,
 } from 'react-native-reanimated';
-import Animated from 'react-native-reanimated';
+import { useRequests } from '../src/hooks/useRequests';
 
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
@@ -587,8 +588,38 @@ const BoostBanner = () => {
 // ─────────────────────────────────────────────
 // Empty State
 // ─────────────────────────────────────────────
-const EmptyState = ({ onSwipe }) => (
+const EmptyState = ({ onSwipe, onRequests, receivedCount }) => (
   <View style={styles.emptyWrapper}>
+    {/* Requests banner — agar koi request hai toh highlight */}
+    {receivedCount > 0 && (
+      <TouchableOpacity
+        style={styles.emptyRequestsBanner}
+        onPress={onRequests}
+        activeOpacity={0.85}
+      >
+        <LinearGradient
+          colors={['#FFF0F3', '#FFE4EC']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.emptyRequestsGradient}
+        >
+          <Text style={styles.emptyRequestsIco}>💌</Text>
+          <View style={styles.emptyRequestsInfo}>
+            <Text style={styles.emptyRequestsTitle}>
+              {receivedCount} Message{' '}
+              {receivedCount === 1 ? 'Request' : 'Requests'}
+            </Text>
+            <Text style={styles.emptyRequestsSub}>
+              Someone wants to connect with you!
+            </Text>
+          </View>
+          <View style={styles.emptyRequestsBadge}>
+            <Text style={styles.emptyRequestsBadgeTxt}>{receivedCount}</Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    )}
+
     <LinearGradient
       colors={['#FFF0F3', '#FBF5F6']}
       style={styles.emptyIconCircle}
@@ -619,7 +650,10 @@ const EmptyState = ({ onSwipe }) => (
 // ─────────────────────────────────────────────
 export default function ChatScreen({ navigation }) {
   const { token, userId } = useContext(AuthContext);
-  const { matches, loading, refetch } = useMatches({ token, userId });
+  const { matches, setMatches, loading, refetch } = useMatches({
+    token,
+    userId,
+  });
 
   const { getStatus, onlineMap } = useOnlineStatus({
     token,
@@ -627,10 +661,22 @@ export default function ChatScreen({ navigation }) {
     watchUserIds: watchIds,
   });
 
+  useEffect(() => {
+    const handler = ({ blockedUserId }) => {
+      setMatches(prev => prev.filter(m => m.userId !== blockedUserId));
+    };
+
+    // Custom event emitter pattern
+    const sub = DeviceEventEmitter.addListener('user_blocked', handler);
+    return () => sub.remove();
+  }, [setMatches]);
+
   const [refreshing, setRefreshing] = useState(false);
   const [likedUsers, setLikedUsers] = useState([]);
   const [likeCount, setLikeCount] = useState(0);
   const [likesBlurred, setLikesBlurred] = useState(true);
+
+  const { received, fetchReceived, receivedCount } = useRequests();
 
   const fetchLikedUsers = useCallback(async () => {
     if (!token) return;
@@ -667,10 +713,10 @@ export default function ChatScreen({ navigation }) {
 
   useFocusEffect(
     useCallback(() => {
-      // Har baar screen focus pe aaye tab refetch
       refetch();
       fetchLikedUsers();
-    }, [refetch, fetchLikedUsers]),
+      fetchReceived(); // ← ADD
+    }, [refetch, fetchLikedUsers, fetchReceived]),
   );
 
   const onRefresh = useCallback(async () => {
@@ -686,6 +732,8 @@ export default function ChatScreen({ navigation }) {
         targetUserId: match.userId,
         name: match.name,
         image: match.image,
+        requestStatus: match.requestStatus, // 'pending'
+        requestId: match.requestId,
       });
     },
     [navigation],
@@ -713,7 +761,11 @@ export default function ChatScreen({ navigation }) {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Messages</Text>
         </View>
-        <EmptyState onSwipe={() => navigation.navigate('Home')} />
+        <EmptyState
+          onSwipe={() => navigation.navigate('Home')}
+          onRequests={() => navigation.navigate('Requests')}
+          receivedCount={receivedCount}
+        />
       </SafeAreaView>
     );
   }
@@ -727,21 +779,26 @@ export default function ChatScreen({ navigation }) {
           <View>
             <Text style={styles.sectionLabel}>New Matches</Text>
             <FlatList
-              data={isLoading ? Array(5).fill(null) : newMatches}
+              data={newMatches}
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(item, index) =>
-                isLoading ? `skeleton-${index}` : item.matchId
+                isLoading
+                  ? `skeleton-${index}`
+                  : item?.matchId || `match-${index}`
               }
               contentContainerStyle={styles.bubblesContainer}
               extraData={onlineMap}
-              renderItem={({ item, index }) => (
-                <NewMatchBubble
-                  match={item}
-                  onPress={() => handleMatchPress(item)}
-                  isOnline={getStatus(item.userId, item).isOnline}
-                />
-              )}
+              renderItem={({ item, index }) => {
+                if (!item) return null; // ← bas itna
+                return (
+                  <NewMatchBubble
+                    match={item}
+                    onPress={() => handleMatchPress(item)}
+                    isOnline={getStatus(item.userId, item).isOnline}
+                  />
+                );
+              }}
             />
           </View>
         )}
@@ -758,7 +815,23 @@ export default function ChatScreen({ navigation }) {
         )}
 
         {activeChats.length > 0 && (
-          <Text style={styles.sectionLabel2}>RECENT MESSAGES</Text>
+          <View style={styles.recentHeader}>
+            <Text style={styles.sectionLabel2}>RECENT MESSAGES</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Requests')}
+              style={styles.requestsTabBtn}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.requestsTabTxt}>Requests</Text>
+              {receivedCount > 0 && (
+                <View style={styles.requestsTabBadge}>
+                  <Text style={styles.requestsTabBadgeTxt}>
+                    {receivedCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         )}
       </View>
     );
@@ -770,16 +843,33 @@ export default function ChatScreen({ navigation }) {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Messages</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          {/* Requests — ALWAYS visible */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Requests')}
+            style={styles.requestsBtn}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.requestsIco}>💌</Text>
+            {receivedCount > 0 && (
+              <View style={styles.requestsBadge}>
+                <Text style={styles.requestsBadgeTxt}>
+                  {receivedCount > 9 ? '9+' : receivedCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('SearchChats', { matches })} // ← ADD
-        >
-          <SearchIcon size={23} color="#374151" />
-        </TouchableOpacity>
+          {/* Search */}
+          <TouchableOpacity
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('SearchChats', { matches })}
+          >
+            <SearchIcon size={23} color="#374151" />
+          </TouchableOpacity>
+        </View>
       </View>
-
       <FlatList
         data={activeChats}
         keyExtractor={item => item.matchId}
@@ -1144,4 +1234,90 @@ const styles = StyleSheet.create({
 
   noChatsContainer: { padding: 28, alignItems: 'center' },
   noChatsText: { color: '#B0ACAD', fontSize: 12, textAlign: 'center' },
+
+  emptyRequestsBanner: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 28,
+    borderWidth: 1.5,
+    borderColor: '#FFB3C6',
+  },
+  emptyRequestsGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  emptyRequestsIco: { fontSize: 28 },
+  emptyRequestsInfo: { flex: 1 },
+  emptyRequestsTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#B90034',
+    marginBottom: 2,
+  },
+  emptyRequestsSub: { fontSize: 12, color: '#793F4C' },
+  emptyRequestsBadge: {
+    backgroundColor: '#B90034',
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  emptyRequestsBadgeTxt: { color: '#fff', fontSize: 12, fontWeight: '800' },
+
+  requestsBtn: {
+    position: 'relative',
+    width: 34,
+    height: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  requestsIco: { fontSize: 22 },
+  requestsBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#B90034',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  requestsBadgeTxt: { color: '#fff', fontSize: 9, fontWeight: '800' },
+
+  recentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 16,
+  },
+  requestsTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  requestsTabTxt: {
+    fontSize: 12,
+    color: '#B90034',
+    fontWeight: '700',
+    fontFamily: 'Nunito-Bold',
+  },
+  requestsTabBadge: {
+    backgroundColor: '#B90034',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  requestsTabBadgeTxt: { color: '#fff', fontSize: 10, fontWeight: '800' },
 });

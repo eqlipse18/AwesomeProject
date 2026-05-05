@@ -20,17 +20,33 @@ export default function ReportAnswerScreen({ navigation, route }) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      // Submit report + block
       await route.params.onSubmitReport?.({
         targetUserId,
         matchId,
         reason,
         details,
       });
-      navigation.navigate('BlockedConfirm', { name });
+
+      // ── 1. Pehle Home tab pe navigate karo ──────────────────────────
+      navigation.reset({
+        index: 0,
+        routes: [
+          {
+            name: 'Tabs', // ← tumhara BottomTabs route name
+            state: {
+              routes: [{ name: 'Home' }], // ← Home tab active
+              index: 0,
+            },
+          },
+        ],
+      });
+
+      // ── 2. Thoda delay de — tabs settle ho jaayein ──────────────────
+      setTimeout(() => {
+        navigation.navigate('BlockedConfirm', { name });
+      }, 600);
     } catch (e) {
       console.error('[Report]', e.message);
-    } finally {
       setSubmitting(false);
     }
   };

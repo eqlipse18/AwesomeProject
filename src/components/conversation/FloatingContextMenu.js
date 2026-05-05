@@ -20,6 +20,11 @@ import Reanimated, {
   Easing,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BackIcon from '../../../assets/SVG/back';
+import ReplyIcon from '../../../assets/SVG/reply';
+import CopyIcon from '../../../assets/SVG/copy';
+import EditIcon from '../../../assets/SVG/edit';
+import BinIcon from '../../../assets/SVG/bin';
 
 const { width: W, height: H } = Dimensions.get('window');
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -134,22 +139,26 @@ export const FloatingContextMenu = ({
   const isDeleted = message.type === 'deleted';
 
   const actions = [
-    { key: 'reply', ico: '↩️', label: 'Reply' },
+    {
+      key: 'reply',
+      ico: <ReplyIcon width={20} height={20} fill="#0048ff" />,
+      label: 'Reply',
+    },
     {
       key: 'copy',
-      ico: '📋',
+      ico: <CopyIcon width={20} height={20} fill="#0F172A" />,
       label: 'Copy',
       hide: message.type !== 'text' || isDeleted,
     },
     {
       key: 'edit',
-      ico: '✏️',
+      ico: <EditIcon width={20} height={20} fill="#0F172A" />,
       label: 'Edit',
       hide: !isOwn || message.type !== 'text' || isDeleted,
     },
     {
       key: 'delete',
-      ico: '🗑️',
+      ico: <BinIcon width={20} height={20} fill="#0F172A" />,
       label: 'Delete',
       danger: true,
       hide: !isOwn || isDeleted,
@@ -189,7 +198,9 @@ export const FloatingContextMenu = ({
           style={s.headerBtn}
           activeOpacity={0.6}
         >
-          <Text style={s.headerIco}>←</Text>
+          <View style={s.backBtn}>
+            <BackIcon width={20} height={20} fill="#000" />
+          </View>
         </TouchableOpacity>
 
         <View style={s.headerCenter}>
@@ -213,9 +224,7 @@ export const FloatingContextMenu = ({
               onPress={() => handleAction(a.key)}
               activeOpacity={0.6}
             >
-              <Text style={[s.actionIco, a.danger && s.actionIcoDanger]}>
-                {a.ico}
-              </Text>
+              <View style={s.actionIcoWrap}>{a.ico}</View>
             </TouchableOpacity>
           ))}
         </View>
@@ -254,7 +263,7 @@ const s = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    backgroundColor: 'rgba(0, 0, 0, 0.17)',
   },
   header: {
     position: 'absolute',
@@ -291,9 +300,9 @@ const s = StyleSheet.create({
     marginHorizontal: 4,
   },
   headerAvt: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#F1F5F9',
   },
   headerAvtFb: { justifyContent: 'center', alignItems: 'center' },
@@ -308,8 +317,19 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
-  actionIco: { fontSize: 19 },
-  actionIcoDanger: { color: '#EF4444' },
+  actionIcoWrap: {
+    width: 37,
+    height: 37,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
 
   rxStrip: {
     position: 'absolute',
@@ -333,6 +353,20 @@ const s = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  backBtn: {
+    width: 37,
+    height: 37,
+    borderRadius: 18,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   rxEmoji: { fontSize: 26 },
 });

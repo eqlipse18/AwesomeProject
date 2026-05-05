@@ -44,6 +44,7 @@ import { AuthContext } from '../AuthContex';
 import { useMyLocation } from '../LocationContext';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 import { getLocationDisplay } from '../utils/locationUtils';
+import { useRequests } from '../src/hooks/useRequests';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const IMAGE_HEIGHT = SCREEN_HEIGHT * 0.52;
@@ -162,6 +163,7 @@ const SectionHeader = ({ title }) => (
 
 export default function UserProfileScreen({ navigation, route }) {
   const {
+    userId,
     targetUserId,
     imageUrl: transitionImageUrl,
     // ✅ Coords passed from HomeScreen / DailyScreen
@@ -173,6 +175,7 @@ export default function UserProfileScreen({ navigation, route }) {
     originWidth = SCREEN_WIDTH,
     originHeight = IMAGE_HEIGHT,
   } = route.params;
+  const profileUserId = userId || targetUserId;
 
   const { token } = useContext(AuthContext);
   const myLocation = useMyLocation();
@@ -315,12 +318,46 @@ export default function UserProfileScreen({ navigation, route }) {
     setPreviewVisible(true);
   }, []);
 
-  if (error) {
+  const { sendRequest } = useRequests();
+  const [reqState, setReqState] = useState('idle');
+
+  const handleSendRequest = useCallback(async () => {
+    if (reqState !== 'idle') return;
+    setReqState('sending');
+
+    const result = await sendRequest(profileUserId, false); // ← targetUserId → profileUserId
+
+    if (result.success || result.alreadySent) {
+      setReqState('sent');
+    } else {
+      setReqState('error');
+      setTimeout(() => setReqState('idle'), 2000);
+    }
+  }, [reqState, profileUserId, sendRequest]);
+
+  if (!profileUserId) {
     return (
       <SafeAreaView style={styles.centered}>
         <StatusBar barStyle="dark-content" />
         <Text style={styles.errorEmoji}>😕</Text>
         <Text style={styles.errorTitle}>Profile not found</Text>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.retryBtn}
+        >
+          <Text style={styles.retryText}>Go Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  // PHIR — error check
+  if (error) {
+    return (
+      <SafeAreaView style={styles.centered}>
+        <StatusBar barStyle="dark-content" />
+        <Text style={styles.errorEmoji}>⚠️</Text>
+        <Text style={styles.errorTitle}>Something went wrong</Text>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.retryBtn}
@@ -436,19 +473,20 @@ export default function UserProfileScreen({ navigation, route }) {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
-                    styles.actionBtn,
-                    styles.msgBtn,
-                    actionDone === 'requested' && styles.actionBtnDone,
+                    styles.requestBtn,
+                    reqState === 'sent' && styles.requestBtnSent,
+                    reqState === 'sending' && styles.requestBtnLoading,
+                    reqState === 'error' && styles.requestBtnError,
                   ]}
-                  onPress={() => setActionDone('requested')}
-                  disabled={!!actionDone}
+                  onPress={handleSendRequest}
+                  disabled={reqState !== 'idle'}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.actionBtnIcon}>
-                    {actionDone === 'requested' ? '✓' : '💬'}
-                  </Text>
-                  <Text style={styles.actionBtnText}>
-                    {actionDone === 'requested' ? 'Requested!' : 'Message'}
+                  <Text style={styles.requestBtnTxt}>
+                    {reqState === 'idle' && '💌 Send Message Request'}
+                    {reqState === 'sending' && '⏳ Sending...'}
+                    {reqState === 'sent' && '✓ Request Sent'}
+                    {reqState === 'error' && '✕ Failed, try again'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -606,7 +644,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#fff',
   },
-  sheetLoading: { height: 200, justifyContent: 'center', alignItems: 'center' },
+  sheetLoading: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   heroImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   imageFallback: {
     backgroundColor: '#222',

@@ -116,7 +116,7 @@ router.post('/register', authenticate, async (req, res) => {
           isPremium = :isPremium,
           lastActiveAt = :lastActiveAt,
           updatedAt = :updatedAt,
-          feedFilters = :feedFilters,
+          feedFilters = :feedFilters
       `,
       ExpressionAttributeValues: {
         ':firstName': raw.firstName.trim(),

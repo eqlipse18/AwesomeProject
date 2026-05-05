@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Dimensions,
   Image,
+  PanResponder, // ← PanResponder
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -15,42 +16,52 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+// ← GestureDetector + Gesture REMOVE karo
 
 const { height: H } = Dimensions.get('window');
 const SHEET_H = 320;
 
 export default function BlockedConfirmScreen({ navigation, route }) {
   const { name, image } = route.params;
-
   const translateY = useSharedValue(SHEET_H);
 
   useEffect(() => {
-    translateY.value = withSpring(0, { damping: 20, stiffness: 220 });
+    // Thoda aur delay do — screen settle hone ke baad spring start ho
+    const timer = setTimeout(() => {
+      translateY.value = withSpring(0, { damping: 20, stiffness: 180 });
+    }, 100); // ← pehle 0 tha
+    return () => clearTimeout(timer);
   }, [translateY]);
+
+  const goToChat = useCallback(() => {
+    navigation.goBack(); // ← sirf modal close karo, Home already behind hai
+  }, [navigation]);
 
   const dismiss = () => {
     translateY.value = withTiming(
       SHEET_H,
-      {
-        duration: 280,
-        easing: Easing.in(Easing.cubic),
-      },
-      () => runOnJS(navigation.navigate)('Chat'),
+      { duration: 280, easing: Easing.in(Easing.cubic) },
+      () => runOnJS(goToChat)(),
     );
   };
 
-  // Swipe down to dismiss
-  const swipeGesture = Gesture.Pan()
-    .onUpdate(e => {
-      'worklet';
-      if (e.translationY > 0) translateY.value = e.translationY;
-    })
-    .onEnd(e => {
-      'worklet';
-      if (e.translationY > 80) runOnJS(dismiss)();
-      else translateY.value = withSpring(0, { damping: 20, stiffness: 220 });
-    });
+  // PanResponder — no RNGH needed
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 5,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) translateY.value = g.dy;
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80) {
+          dismiss();
+        } else {
+          translateY.value = withSpring(0, { damping: 20, stiffness: 220 });
+        }
+      },
+    }),
+  ).current;
 
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -58,37 +69,36 @@ export default function BlockedConfirmScreen({ navigation, route }) {
 
   return (
     <View style={s.root}>
-      {/* Blurred background — user profile image */}
       {image && (
         <Image source={{ uri: image }} style={s.bgImage} blurRadius={8} />
       )}
       <View style={s.overlay} />
 
-      {/* Sheet */}
-      <GestureDetector gesture={swipeGesture}>
-        <Animated.View style={[s.sheet, sheetStyle]}>
-          <View style={s.handle} />
+      {/* Sheet — PanResponder se swipe */}
+      <Animated.View
+        style={[s.sheet, sheetStyle]}
+        {...panResponder.panHandlers} // ← spread handlers
+      >
+        <View style={s.handle} />
 
-          {/* Checkmark */}
-          <View style={s.checkWrap}>
-            <Text style={s.checkIco}>✓</Text>
-          </View>
+        <View style={s.checkWrap}>
+          <Text style={s.checkIco}>✓</Text>
+        </View>
 
-          <Text style={s.title}>Blocked user</Text>
-          <Text style={s.body}>
-            {name} is now blocked. This user can no longer see your profile or
-            contact you.
-          </Text>
+        <Text style={s.title}>Blocked user</Text>
+        <Text style={s.body}>
+          {name} is now blocked. This user can no longer see your profile or
+          contact you.
+        </Text>
 
-          <TouchableOpacity
-            style={s.okBtn}
-            onPress={dismiss}
-            activeOpacity={0.85}
-          >
-            <Text style={s.okTxt}>OK</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </GestureDetector>
+        <TouchableOpacity
+          style={s.okBtn}
+          onPress={dismiss}
+          activeOpacity={0.85}
+        >
+          <Text style={s.okTxt}>OK</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }

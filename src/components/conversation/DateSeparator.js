@@ -18,13 +18,22 @@ const s = StyleSheet.create({
     marginVertical: 18,
     paddingHorizontal: 16,
   },
-  line: { flex: 1, height: 1, backgroundColor: 'rgba(0,0,0,0.06)' },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e1e3e7', // cleaner than rgba black
+  },
   pill: {
     marginHorizontal: 12,
-    backgroundColor: 'rgba(0,0,0,0.05)',
+    backgroundColor: '#F1F5F9', // soft slate
     paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingVertical: 6,
+    borderRadius: 999, // full pill
   },
-  txt: { fontSize: 11, fontWeight: '600', color: '#94A3B8' },
+  txt: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B', // better contrast
+    letterSpacing: 0.5,
+  },
 });

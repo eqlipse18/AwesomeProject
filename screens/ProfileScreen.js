@@ -8,698 +8,668 @@ import React, {
 import {
   View,
   Text,
-  Image,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
+  Image,
   FlatList,
-  Dimensions,
+  ScrollView,
   StatusBar,
-  ActivityIndicator,
+  Dimensions,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
-import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import Config from 'react-native-config';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import axios from 'axios';
+import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../AuthContex';
+import Config from 'react-native-config';
 
 const { width: W } = Dimensions.get('window');
-const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
+const API = Config.API_BASE_URL || 'http://192.168.100.154:9000';
+const CARD_W = W * 0.72;
 
-// ── Plans data ───────────────────────────────────────────────────────────────
-const PLANS = [
+// ── Superlike Pricing Modal ────────────────────────────────────────────────
+const SUPERLIKE_PLANS = [
+  { id: 'sl5', count: 5, price: '₹99', tag: null },
+  { id: 'sl10', count: 10, price: '₹179', tag: 'Popular' },
+  { id: 'sl25', count: 25, price: '₹399', tag: 'Best Value' },
+];
+
+const SuperlikeModal = ({ visible, onClose }) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="slide"
+    onRequestClose={onClose}
+  >
+    <View style={m.overlay}>
+      <View style={m.sheet}>
+        <View style={m.handle} />
+        <Text style={m.sheetTitle}>⭐ Buy Superlikes</Text>
+        <Text style={m.sheetSub}>Stand out and get noticed instantly</Text>
+        {SUPERLIKE_PLANS.map(plan => (
+          <TouchableOpacity key={plan.id} style={m.planRow} activeOpacity={0.8}>
+            <View style={m.planLeft}>
+              <Text style={m.planIco}>⭐</Text>
+              <View>
+                <Text style={m.planTitle}>{plan.count} Superlikes</Text>
+                {plan.tag && <Text style={m.planTag}>{plan.tag}</Text>}
+              </View>
+            </View>
+            <View style={m.planPriceBtn}>
+              <Text style={m.planPrice}>{plan.price}</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={m.closeBtn} onPress={onClose}>
+          <Text style={m.closeTxt}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+);
+
+// ── Boost Pricing Modal ────────────────────────────────────────────────────
+const BOOST_PLANS = [
+  { id: 'b1', days: 1, label: '1 Day Boost', price: '₹99', tag: null },
+  { id: 'b3', days: 3, label: '3 Day Boost', price: '₹249', tag: 'Popular' },
+  { id: 'b7', days: 7, label: '7 Day Boost', price: '₹499', tag: 'Best Value' },
+];
+
+const BoostModal = ({ visible, onClose }) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="slide"
+    onRequestClose={onClose}
+  >
+    <View style={m.overlay}>
+      <View style={m.sheet}>
+        <View style={m.handle} />
+        <Text style={m.sheetTitle}>🚀 Boost Your Profile</Text>
+        <Text style={m.sheetSub}>Be seen by 10x more people in your area</Text>
+        {BOOST_PLANS.map(plan => (
+          <TouchableOpacity key={plan.id} style={m.planRow} activeOpacity={0.8}>
+            <View style={m.planLeft}>
+              <Text style={m.planIco}>🚀</Text>
+              <View>
+                <Text style={m.planTitle}>{plan.label}</Text>
+                {plan.tag && <Text style={m.planTag}>{plan.tag}</Text>}
+              </View>
+            </View>
+            <View style={m.planPriceBtn}>
+              <Text style={m.planPrice}>{plan.price}</Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={m.closeBtn} onPress={onClose}>
+          <Text style={m.closeTxt}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+);
+
+// ── Premium Cards ──────────────────────────────────────────────────────────
+const CARDS = [
+  {
+    id: 'superlike',
+    type: 'modal',
+    colors: ['#1a1a2e', '#16213e', '#0f3460'],
+    emoji: '⭐',
+    badge: 'Superlikes',
+    title: 'Get More Superlikes',
+    sub: 'Superlike to stand out',
+    btnTxt: 'Buy Now',
+  },
+  {
+    id: 'boost',
+    type: 'modal',
+    colors: ['#2d1b69', '#11998e', '#38ef7d'],
+    emoji: '🚀',
+    badge: 'Boost',
+    title: 'Boost Your Profile',
+    sub: 'Be seen by 10x more people',
+    btnTxt: 'Boost Now',
+  },
   {
     id: 'plus',
-    badge: 'PLUS',
-    name: 'Flame Plus',
-    price: '₹399',
-    period: '/ mo',
-    features: [
-      'Unlimited swipes',
-      'See who liked you',
-      '5 Super Likes / day',
-      'Rewind last swipe',
-    ],
-    gradColors: ['#1e1b4b', '#3730a3'],
-    accentColor: '#818cf8',
-    badgeBg: 'rgba(129,140,248,0.25)',
-    ctaBg: '#6366f1',
-    ctaLabel: 'Get Plus',
+    type: 'navigate',
+    colors: ['#B90034', '#FF4E7E', '#FF8FA3'],
+    emoji: '🔥',
+    badge: 'FLAME PLUS',
+    title: 'Flame Plus',
+    sub: 'Unlimited likes & more',
+    btnTxt: '₹299/month',
+    price: '₹299',
   },
   {
     id: 'ultra',
-    badge: 'ULTRA',
-    name: 'Flame Ultra',
-    price: '₹799',
-    period: '/ mo',
-    features: [
-      'Everything in Plus',
-      'Priority in feed',
-      'Read receipts',
-      'Daily profile boost',
-    ],
-    gradColors: ['#431407', '#9a3412'],
-    accentColor: '#fb923c',
-    badgeBg: 'rgba(251,146,60,0.22)',
-    ctaBg: '#f97316',
-    ctaLabel: 'Get Ultra',
+    type: 'navigate',
+    colors: ['#0f0c29', '#302b63', '#24243e'],
+    emoji: '💎',
+    badge: 'FLAME ULTRA',
+    title: 'Flame Ultra',
+    sub: 'The ultimate experience',
+    btnTxt: '₹399/month',
+    price: '₹399',
   },
 ];
 
-// ── Discover buttons data ────────────────────────────────────────────────────
-const makeDiscoverItems = stats => [
-  {
-    id: 'likes',
-    icon: '❤️',
-    label: 'Who Liked Me',
-    sub: stats.likes > 0 ? `${stats.likes} new` : 'See all',
-    bg: '#fff0f4',
-    iconBg: '#FF0059',
-    route: 'Likes',
-  },
-  {
-    id: 'views',
-    icon: '👁',
-    label: 'Profile Views',
-    sub: stats.views > 0 ? `${stats.views} views` : 'View all',
-    bg: '#f0eeff',
-    iconBg: '#7C3AED',
-    route: 'Visitors',
-  },
-  {
-    id: 'premium',
-    icon: '★',
-    label: 'Go Premium',
-    sub: 'Unlock all',
-    bg: '#fffbeb',
-    iconBg: '#F59E0B',
-    route: 'Premium',
-  },
-  {
-    id: 'rewind',
-    icon: '↩',
-    label: 'Rewind Swipe',
-    sub: 'Last card',
-    bg: '#f0fdf4',
-    iconBg: '#10B981',
-    route: null, // handle inline
-  },
-];
+const PremiumCard = ({ card, onPress }) => (
+  <TouchableOpacity style={s.cardWrap} onPress={onPress} activeOpacity={0.9}>
+    <LinearGradient
+      colors={card.colors}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={s.card}
+    >
+      <View style={s.cardBadge}>
+        <Text style={s.cardBadgeTxt}>{card.badge}</Text>
+      </View>
+      <Text style={s.cardEmoji}>{card.emoji}</Text>
+      <Text style={s.cardTitle}>{card.title}</Text>
+      <Text style={s.cardSub}>{card.sub}</Text>
+      <View style={s.cardBtn}>
+        <Text style={s.cardBtnTxt}>{card.btnTxt}</Text>
+      </View>
+    </LinearGradient>
+  </TouchableOpacity>
+);
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Stat Row ───────────────────────────────────────────────────────────────
+const StatRow = ({ emoji, title, sub, count, onPress, entering }) => (
+  <Animated.View entering={entering}>
+    <TouchableOpacity style={s.statRow} onPress={onPress} activeOpacity={0.75}>
+      <View style={s.statLeft}>
+        <Text style={s.statEmoji}>{emoji}</Text>
+        <View>
+          <Text style={s.statTitle}>{title}</Text>
+          <Text style={s.statSub}>{sub}</Text>
+        </View>
+      </View>
+      <View style={s.statRight}>
+        {count > 0 && (
+          <View style={s.statBadge}>
+            <Text style={s.statBadgeTxt}>{count > 99 ? '99+' : count}</Text>
+          </View>
+        )}
+        <Text style={s.statChevron}>›</Text>
+      </View>
+    </TouchableOpacity>
+  </Animated.View>
+);
+
+// ── Main Screen ────────────────────────────────────────────────────────────
 export default function ProfileScreen({ navigation }) {
-  const {
-    token,
-    userId,
-    userInfo,
-    setUserInfo,
-    userImage,
-    setUserImage,
-    subscription,
-  } = useContext(AuthContext);
-
+  const { token, userId, userImage } = useContext(AuthContext);
   const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ likes: 0, views: 0 });
-  const autoTimer = useRef(null);
-  const planRef = useRef(null);
-  const [planIdx, setPlanIdx] = useState(0);
+  const [likeCount, setLikeCount] = useState(0);
+  const [viewCount, setViewCount] = useState(0);
+  const [showSuperlike, setShowSuperlike] = useState(false);
+  const [showBoost, setShowBoost] = useState(false);
 
-  // ── Fetch profile + stats ─────────────────────────────────────────────
-  useEffect(() => {
-    if (!token || !userId) return;
-    (async () => {
-      try {
-        setLoading(true);
-        const [pRes, sRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/users/${userId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }).then(r => r.json()),
-          fetch(`${API_BASE_URL}/profile/stats`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-            .then(r => r.json())
-            .catch(() => null),
-        ]);
-        if (pRes) {
-          setProfile(pRes);
-          if (setUserInfo) setUserInfo(pRes);
-          const img =
-            pRes.imageUrls?.[0] || pRes.image || pRes.profileImage || null;
-          if (img && setUserImage) setUserImage(img);
-        }
-        if (sRes) {
-          setStats({
-            likes: sRes.likeCount ?? sRes.likes ?? 0,
-            views: sRes.viewCount ?? sRes.views ?? 0,
-          });
-        }
-      } catch (e) {
-        console.log('[ProfileScreen] fetch error:', e.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [token, userId]);
-
-  // ── Plan carousel auto-scroll ─────────────────────────────────────────
-  const startAutoScroll = useCallback(() => {
-    clearInterval(autoTimer.current);
-    autoTimer.current = setInterval(() => {
-      setPlanIdx(prev => {
-        const next = (prev + 1) % PLANS.length;
-        planRef.current?.scrollToIndex({ index: next, animated: true });
-        return next;
+  const fetchProfile = useCallback(async () => {
+    try {
+      const resp = await axios.get(`${API}/user-profile`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-    }, 3200);
-  }, []);
+      if (resp.data.success) setProfile(resp.data.user);
+    } catch (e) {
+      console.error('[ProfileScreen] fetchProfile:', e.message);
+    }
+  }, [token]);
 
-  useEffect(() => {
-    startAutoScroll();
-    return () => clearInterval(autoTimer.current);
-  }, [startAutoScroll]);
+  const fetchStats = useCallback(async () => {
+    try {
+      const [likesResp, viewsResp] = await Promise.all([
+        axios.get(`${API}/likes/stats`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${API}/users/visitors/count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+      if (likesResp.data.success) {
+        setLikeCount(likesResp.data.stats?.totalReceived || 0);
+      }
+      if (viewsResp.data.success) {
+        setViewCount(viewsResp.data.count || 0);
+      }
+    } catch (e) {
+      console.error('[ProfileScreen] fetchStats:', e.message);
+    }
+  }, [token]);
 
-  const onPlanScroll = useCallback(
-    e => {
-      const idx = Math.round(e.nativeEvent.contentOffset.x / W);
-      setPlanIdx(idx);
-      startAutoScroll(); // reset timer on manual swipe
-    },
-    [startAutoScroll],
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+      fetchStats();
+    }, [fetchProfile, fetchStats]),
   );
 
-  // ── Derived ───────────────────────────────────────────────────────────
-  const images = profile?.imageUrls || userInfo?.imageUrls || [];
-  // Hero = second image if exists, else first image, else null
-  const heroImage = images[1] || images[0] || userImage || null;
-  // Avatar = first image always
-  const avatarImg = images[0] || userImage || userInfo?.image || null;
+  const handleCardPress = card => {
+    if (card.id === 'superlike') setShowSuperlike(true);
+    else if (card.id === 'boost') setShowBoost(true);
+    else navigation.navigate('Premium', { plan: card.id });
+  };
 
-  const displayName = profile?.name || userInfo?.name || '';
-  const displayAge = profile?.age || userInfo?.age || '';
-  const displayCity =
-    profile?.city ||
-    userInfo?.city ||
-    profile?.location?.city ||
-    userInfo?.location?.city ||
-    '';
-
-  const isPremium = !!subscription?.isActive;
-  const discoverItems = makeDiscoverItems(stats);
-
-  if (loading) {
-    return (
-      <View style={s.loader}>
-        <ActivityIndicator size="large" color="#FF0059" />
-      </View>
-    );
-  }
+  const avatar = profile?.imageUrls?.[0] || userImage || null;
+  const name = profile?.firstName || 'User';
+  const age = profile?.ageForSort || '';
 
   return (
-    <SafeAreaView style={s.safe} edges={['top']}>
-      <StatusBar
-        barStyle="light-content"
-        translucent
-        backgroundColor="transparent"
-      />
+    <SafeAreaView style={s.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F5F0EB" />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 32 }}
+        contentContainerStyle={s.scroll}
       >
-        {/* ── Hero image ── */}
-        <View style={s.hero}>
-          {heroImage ? (
-            <Image
-              source={{ uri: heroImage }}
-              style={s.heroBg}
-              resizeMode="cover"
-            />
-          ) : (
-            <LinearGradient colors={['#FF0059', '#FF5289']} style={s.heroBg} />
-          )}
-          {/* dark overlay for readability */}
-          <View style={s.heroOverlay} />
-
-          {/* Top action buttons */}
-          <View style={s.topBtns}>
-            <TouchableOpacity
-              style={s.topBtn}
-              onPress={() => navigation.navigate('Boost')}
-              activeOpacity={0.8}
-            >
-              <Text style={s.topBtnIco}>⚡</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.topBtn}
-              onPress={() => navigation.navigate('Settings')}
-              activeOpacity={0.8}
-            >
-              <Text style={s.topBtnIco}>⚙️</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Avatar centred at bottom edge */}
-          <View style={s.avatarAnchor}>
-            <View style={s.avatarRing}>
-              {avatarImg ? (
-                <Image source={{ uri: avatarImg }} style={s.avatarImg} />
-              ) : (
-                <View style={[s.avatarImg, s.avatarFb]}>
-                  <Text style={s.avatarFbTxt}>
-                    {displayName.charAt(0).toUpperCase() || '?'}
-                  </Text>
-                </View>
-              )}
-            </View>
-            {isPremium && (
-              <View style={s.premDot}>
-                <Text style={s.premDotTxt}>★</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* ── Name block ── */}
-        <Animated.View
-          entering={FadeInDown.delay(80).springify()}
-          style={s.nameBlock}
-        >
-          <View style={s.nameRow}>
-            <Text style={s.nameText}>{displayName}</Text>
-            {!!displayAge && (
-              <View style={s.ageChip}>
-                <Text style={s.ageChipTxt}>{displayAge}</Text>
-              </View>
-            )}
-          </View>
-          {!!displayCity && <Text style={s.locText}>📍 {displayCity}</Text>}
-        </Animated.View>
-
-        {/* ── Two action buttons ── */}
-        <Animated.View
-          entering={FadeInDown.delay(140).springify()}
-          style={s.twoBtns}
-        >
-          <TouchableOpacity
-            style={s.btnEdit}
-            onPress={() => navigation.navigate('EditProfile')}
-            activeOpacity={0.85}
-          >
-            <Text style={s.btnEditTxt}>✏️ Edit Profile</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.btnVerify}
-            onPress={() => navigation.navigate('Verify')}
-            activeOpacity={0.85}
-          >
-            <Text style={s.btnVerifyTxt}>🛡 Verify Profile</Text>
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* ── Discover – horizontal scroll ── */}
-        <Text style={s.secTitle}>DISCOVER</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.discRow}
-        >
-          {discoverItems.map((item, i) => (
-            <Animated.View
-              key={item.id}
-              entering={FadeInDown.delay(160 + i * 50).springify()}
-            >
+        {/* ── Top section ─────────────────────────────────────────── */}
+        <View style={s.topSection}>
+          {/* Header row */}
+          <View style={s.headerRow}>
+            <Text style={s.screenTitle}>Me</Text>
+            <View style={s.headerRight}>
+              {/* Verify button */}
               <TouchableOpacity
-                style={[s.discCard, { backgroundColor: item.bg }]}
-                onPress={() => item.route && navigation.navigate(item.route)}
+                style={s.verifyBtn}
+                onPress={() => navigation.navigate('Verify')}
                 activeOpacity={0.8}
               >
-                <View style={[s.discIcon, { backgroundColor: item.iconBg }]}>
-                  <Text style={s.discIconTxt}>{item.icon}</Text>
-                </View>
-                <Text style={s.discLabel}>{item.label}</Text>
-                <Text style={s.discSub}>{item.sub}</Text>
+                <Text style={s.verifyIco}>✓</Text>
+                <Text style={s.verifyTxt}>Verify Profile</Text>
               </TouchableOpacity>
-            </Animated.View>
-          ))}
-        </ScrollView>
-
-        {/* ── Premium Plans ── */}
-        <Text style={[s.secTitle, { marginTop: 8 }]}>UPGRADE YOUR FLAME</Text>
-
-        <FlatList
-          ref={planRef}
-          data={PLANS}
-          keyExtractor={p => p.id}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.planList}
-          onScroll={onPlanScroll}
-          scrollEventThrottle={16}
-          onScrollToIndexFailed={() => {}}
-          renderItem={({ item }) => (
-            <View style={[s.planCard, { width: W - 32 }]}>
-              <LinearGradient colors={item.gradColors} style={s.planGrad}>
-                {/* Top row */}
-                <View style={s.planTopRow}>
-                  <View
-                    style={[s.planBadge, { backgroundColor: item.badgeBg }]}
-                  >
-                    <Text style={[s.planBadgeTxt, { color: item.accentColor }]}>
-                      {item.badge}
-                    </Text>
-                  </View>
-                  <View>
-                    <Text style={s.planPrice}>
-                      {item.price} <Text style={s.planPer}>{item.period}</Text>
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={s.planName}>{item.name}</Text>
-
-                <View style={s.planFeats}>
-                  {item.features.map(f => (
-                    <View key={f} style={s.featRow}>
-                      <View
-                        style={[
-                          s.featDot,
-                          { backgroundColor: item.accentColor },
-                        ]}
-                      />
-                      <Text style={s.featTxt}>{f}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <TouchableOpacity
-                  style={[s.planCta, { backgroundColor: item.ctaBg }]}
-                  onPress={() =>
-                    navigation.navigate('Premium', { planId: item.id })
-                  }
-                  activeOpacity={0.85}
-                >
-                  <Text style={s.planCtaTxt}>{item.ctaLabel}</Text>
-                </TouchableOpacity>
-              </LinearGradient>
+              {/* Settings */}
+              <TouchableOpacity
+                style={s.settingsBtn}
+                onPress={() => navigation.navigate('Settings')}
+                activeOpacity={0.7}
+              >
+                <Text style={s.settingsIco}>⚙️</Text>
+              </TouchableOpacity>
             </View>
-          )}
-        />
-
-        {/* Plan dots */}
-        <View style={s.dots}>
-          {PLANS.map((_, i) => (
-            <View key={i} style={[s.dot, planIdx === i && s.dotActive]} />
-          ))}
-        </View>
-
-        {/* ── Boost Placeholder ── */}
-        <Animated.View
-          entering={FadeInDown.delay(300).springify()}
-          style={s.boostCard}
-        >
-          <LinearGradient
-            colors={['#FF0059', '#FF5289']}
-            style={s.boostIconWrap}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Text style={s.boostIco}>⚡</Text>
-          </LinearGradient>
-
-          <View style={s.boostInfo}>
-            <Text style={s.boostTitle}>Boost Your Profile</Text>
-            <Text style={s.boostSub}>Get 10× more views for 30 minutes</Text>
           </View>
 
-          <TouchableOpacity
-            style={s.boostBtn}
-            onPress={() => navigation.navigate('Boost')}
-            activeOpacity={0.85}
-          >
-            <Text style={s.boostBtnTxt}>Boost</Text>
-          </TouchableOpacity>
-        </Animated.View>
+          {/* Avatar + info */}
+          <View style={s.avatarSection}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('EditProfile')}
+              activeOpacity={0.9}
+              style={s.avatarWrap}
+            >
+              {avatar ? (
+                <Image source={{ uri: avatar }} style={s.avatar} />
+              ) : (
+                <LinearGradient
+                  colors={['#FFC2CD', '#B90034']}
+                  style={s.avatar}
+                >
+                  <Text style={s.avatarInitial}>{name[0]?.toUpperCase()}</Text>
+                </LinearGradient>
+              )}
+              {/* Edit pencil badge */}
+              <View style={s.editBadge}>
+                <Text style={s.editBadgeIco}>✏️</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Name + age + edit */}
+            <View style={s.profileInfo}>
+              <Text style={s.profileName}>
+                {name}
+                {age ? `, ${age}` : ''}
+              </Text>
+              <TouchableOpacity
+                style={s.editProfileBtn}
+                onPress={() => navigation.navigate('EditProfile')}
+                activeOpacity={0.8}
+              >
+                <Text style={s.editProfileTxt}>Edit Profile</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Premium Cards (horizontal scroll) ────────────────────── */}
+        <View style={s.cardsSection}>
+          <FlatList
+            data={CARDS}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={item => item.id}
+            contentContainerStyle={s.cardsContent}
+            snapToInterval={CARD_W + 12}
+            decelerationRate="fast"
+            renderItem={({ item }) => (
+              <PremiumCard card={item} onPress={() => handleCardPress(item)} />
+            )}
+          />
+        </View>
+
+        {/* ── More Services ─────────────────────────────────────────── */}
+        <View style={s.servicesSection}>
+          <Text style={s.servicesLabel}>More services</Text>
+
+          <View style={s.servicesCard}>
+            <StatRow
+              emoji="❤️"
+              title="See Who Likes Me"
+              sub={`${likeCount} people like you`}
+              count={likeCount}
+              onPress={() => navigation.navigate('Like')}
+              entering={FadeInDown.delay(100).duration(300)}
+            />
+            <View style={s.rowDiv} />
+            <StatRow
+              emoji="👀"
+              title="Who Viewed Me"
+              sub="See who viewed your profile"
+              count={viewCount}
+              onPress={() => navigation.navigate('Visitors')}
+              entering={FadeInDown.delay(150).duration(300)}
+            />
+            <View style={s.rowDiv} />
+            <StatRow
+              emoji="📍"
+              title="Nearby"
+              sub="People near you right now"
+              count={0}
+              onPress={() => navigation.navigate('Nearby')}
+              entering={FadeInDown.delay(200).duration(300)}
+            />
+            <View style={s.rowDiv} />
+            <StatRow
+              emoji="✨"
+              title="Daily New"
+              sub="Fresh profiles every day"
+              count={0}
+              onPress={() => navigation.navigate('Daily')}
+              entering={FadeInDown.delay(250).duration(300)}
+            />
+          </View>
+        </View>
       </ScrollView>
+
+      <SuperlikeModal
+        visible={showSuperlike}
+        onClose={() => setShowSuperlike(false)}
+      />
+      <BoostModal visible={showBoost} onClose={() => setShowBoost(false)} />
     </SafeAreaView>
   );
 }
 
-// ── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFC' },
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: '#F5F0EB' },
+  scroll: { paddingBottom: 40 },
 
-  // Hero
-  hero: {
-    height: 260,
-    position: 'relative',
+  // ── Header ──
+  topSection: {
+    backgroundColor: '#F5F0EB',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
   },
-  heroBg: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-  },
-  topBtns: {
-    position: 'absolute',
-    top: 52,
-    left: 0,
-    right: 0,
+  headerRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    marginBottom: 20,
   },
-  topBtn: {
-    width: 40,
-    height: 40,
+  screenTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    fontFamily: 'Nunito-Bold',
+  },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  verifyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#E8F4FF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  verifyIco: { fontSize: 12, color: '#0EA5E9' },
+  verifyTxt: { fontSize: 12, fontWeight: '700', color: '#0EA5E9' },
+  settingsBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E8E0E8',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  topBtnIco: { fontSize: 18 },
-  avatarAnchor: {
-    position: 'absolute',
-    bottom: -46,
-    alignSelf: 'center',
+  settingsIco: { fontSize: 18 },
+
+  // ── Avatar section ──
+  avatarSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
-  avatarRing: {
-    width: 94,
-    height: 94,
-    borderRadius: 47,
-    borderWidth: 3,
-    borderColor: '#fff',
-    overflow: 'hidden',
-    backgroundColor: '#F1F5F9',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  avatarImg: { width: '100%', height: '100%' },
-  avatarFb: {
+  avatarWrap: { position: 'relative' },
+  avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffd6e4',
+    backgroundColor: '#E8E0E8',
   },
-  avatarFbTxt: { fontSize: 34, color: '#FF0059', fontWeight: '800' },
-  premDot: {
+  avatarInitial: { fontSize: 32, color: '#fff', fontWeight: '800' },
+  editBadge: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
+    bottom: -4,
+    right: -4,
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#F59E0B',
-    borderWidth: 2.5,
-    borderColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  premDotTxt: { fontSize: 10, color: '#fff', fontWeight: '700' },
-
-  // Name
-  nameBlock: { marginTop: 58, alignItems: 'center', paddingHorizontal: 20 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  nameText: { fontSize: 24, fontWeight: '800', color: '#0F172A' },
-  ageChip: {
-    backgroundColor: '#FF0059',
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 2,
-  },
-  ageChipTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
-  locText: { fontSize: 13, color: '#94A3B8', marginTop: 4 },
-
-  // Two buttons
-  twoBtns: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 22,
-  },
-  btnEdit: {
-    flex: 1,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 1.5,
-    borderColor: '#FF0059',
     backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  btnEditTxt: { fontSize: 13, fontWeight: '700', color: '#FF0059' },
-  btnVerify: {
-    flex: 1,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+  editBadgeIco: { fontSize: 12 },
+
+  profileInfo: { flex: 1 },
+  profileName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    marginBottom: 8,
+    fontFamily: 'Nunito-Bold',
+  },
+  editProfileBtn: {
     backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  btnVerifyTxt: { fontSize: 13, fontWeight: '600', color: '#0F172A' },
-
-  // Section title
-  secTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#94A3B8',
-    letterSpacing: 0.8,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-
-  // Discover row
-  discRow: { paddingHorizontal: 16, gap: 10, paddingBottom: 4 },
-  discCard: {
-    width: 90,
-    borderRadius: 18,
-    padding: 14,
-    alignItems: 'center',
-    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    borderColor: '#E2D8E8',
   },
-  discIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  editProfileTxt: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#B90034',
   },
-  discIconTxt: { fontSize: 18, color: '#fff' },
-  discLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#0F172A',
-    textAlign: 'center',
-    lineHeight: 14,
-  },
-  discSub: { fontSize: 9, color: '#94A3B8', textAlign: 'center' },
 
-  // Plans
-  planList: { paddingHorizontal: 16, gap: 0 },
-  planCard: { paddingHorizontal: 0 },
-  planGrad: {
-    borderRadius: 22,
+  // ── Cards ──
+  cardsSection: { marginTop: 4, marginBottom: 16 },
+  cardsContent: { paddingHorizontal: 16, gap: 12 },
+  cardWrap: {
+    width: CARD_W,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  card: {
     padding: 20,
-    marginHorizontal: 0,
-  },
-  planTopRow: {
-    flexDirection: 'row',
+    minHeight: 160,
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
   },
-  planBadge: {
+  cardBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'flex-start',
     paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
-  planBadgeTxt: { fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
-  planPrice: { fontSize: 22, fontWeight: '800', color: '#fff' },
-  planPer: { fontSize: 12, fontWeight: '400', color: 'rgba(255,255,255,0.5)' },
-  planName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.65)',
-    marginBottom: 14,
+  cardBadgeTxt: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
-  planFeats: { gap: 6, marginBottom: 16 },
-  featRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  featDot: { width: 5, height: 5, borderRadius: 3 },
-  featTxt: { fontSize: 12, color: 'rgba(255,255,255,0.82)' },
-  planCta: {
-    height: 38,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  planCtaTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
-
-  // Dots
-  dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 12,
-    marginBottom: 20,
-  },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E2E8F0' },
-  dotActive: { width: 18, backgroundColor: '#FF0059', borderRadius: 3 },
-
-  // Boost
-  boostCard: {
-    marginHorizontal: 16,
+  cardEmoji: { fontSize: 32, marginTop: 8 },
+  cardTitle: { color: '#fff', fontSize: 17, fontWeight: '800', marginTop: 4 },
+  cardSub: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
+  cardBtn: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 20,
+    marginTop: 12,
+  },
+  cardBtnTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+
+  // ── Services ──
+  servicesSection: { paddingHorizontal: 16 },
+  servicesLabel: {
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '600',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  servicesCard: {
     backgroundColor: '#fff',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderStyle: 'dashed',
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+    borderRadius: 20,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.06,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 3,
   },
-  boostIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  statLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  statEmoji: { fontSize: 24 },
+  statTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
+  statSub: { fontSize: 12, color: '#94A3B8', marginTop: 2 },
+  statRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statBadge: {
+    backgroundColor: '#B90034',
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
-    flexShrink: 0,
+    paddingHorizontal: 5,
   },
-  boostIco: { fontSize: 24 },
-  boostInfo: { flex: 1 },
-  boostTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 3,
+  statBadgeTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  statChevron: { fontSize: 22, color: '#CBD5E1' },
+  rowDiv: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#F1F5F9',
+    marginHorizontal: 18,
   },
-  boostSub: { fontSize: 12, color: '#94A3B8', lineHeight: 17 },
-  boostBtn: {
-    height: 34,
+});
+
+// Modal styles
+const m = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 40,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  sheetSub: {
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 17,
-    backgroundColor: '#FF0059',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexShrink: 0,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  boostBtnTxt: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  planLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planIco: { fontSize: 24 },
+  planTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
+  planTag: {
+    fontSize: 10,
+    color: '#B90034',
+    fontWeight: '700',
+    backgroundColor: '#FFE4EC',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  planPriceBtn: {
+    backgroundColor: '#B90034',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  planPrice: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  closeBtn: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  closeTxt: { fontSize: 15, color: '#94A3B8', fontWeight: '600' },
 });

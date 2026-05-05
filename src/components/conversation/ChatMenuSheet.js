@@ -7,7 +7,9 @@ import {
   Modal,
   Pressable,
   Dimensions,
+  Platform,
 } from 'react-native';
+
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -114,10 +116,10 @@ const s = StyleSheet.create({
   menu: {
     position: 'absolute',
     top: 110, // below header
-    right: 8,
+    right: 15,
     width: MENU_W,
-    backgroundColor: '#fff',
-    borderRadius: 6,
+    backgroundColor: '#fef3fe',
+    borderRadius: 30,
     paddingVertical: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },

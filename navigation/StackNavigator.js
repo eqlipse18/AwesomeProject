@@ -37,6 +37,7 @@ import ReportQuestionScreen from '../screens/ReportQuestionScreen';
 import ReportAnswerScreen from '../screens/ReportAnswerScreen';
 import BlockedConfirmScreen from '../screens/BlockedConfirmScreen';
 import SearchChatsScreen from '../screens/SearchChatsScreen';
+import RequestsScreen from '../screens/RequestsScreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -123,6 +124,11 @@ function AppStack() {
         name="SearchChats"
         component={SearchChatsScreen}
         options={{ headerShown: false, animation: 'fade' }}
+      />
+      <Stack.Screen
+        name="Requests"
+        component={RequestsScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

@@ -43,6 +43,7 @@ import subscriptionRouter from './subscriptionRoutes.js';
 import likesRouter from './likesRoutes.js';
 import usersRouter from './usersRoutes.js';
 import filterRouter from './filterRoutes.js';
+import requestRoutes from './requestRoutes.js';
 
 const app = express();
 app.use(express.json());
@@ -1032,3 +1033,5 @@ app.use('/', subscriptionRouter); // /subscription-status  /subscribe  /superlik
 app.use('/', likesRouter); // /likes/sent  /likes/received  /send-message-request  /match-requests/pending  /match-request/accept|reject
 app.use('/', usersRouter);
 app.use('/', filterRouter);
+console.log('[server] routes registered: /requests, /likes');
+app.use('/requests', requestRoutes);

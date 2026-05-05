@@ -150,12 +150,12 @@ export function useMatches({ token, userId }) {
     };
   }, [token, userId, fetchMatches]);
 
-  return { matches, loading, error, refetch: fetchMatches };
+  return { matches, loading, setMatches, error, refetch: fetchMatches };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // useConversation
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════
 export function useConversation({ token, matchId, userId }) {
   const [messages, setMessages] = useState([]);
   const [reactionsMap, setReactionsMap] = useState({});
@@ -220,23 +220,23 @@ export function useConversation({ token, matchId, userId }) {
   }, [matchId, safeSetMessages, safeSetReactionsMap, fetchMessages]);
 
   // blockUser function
+  // useChatHook.js — blockUser ke baad local state se hatao
+  // blockUser — immediately state se hatao
   const blockUser = useCallback(
     async blockedUserId => {
       try {
         await apiClient.current.post('/users/block', {
           blockedUserId,
           matchId,
-          reason: 'Blocked from chat',
         });
-        return true;
+        return { success: true };
       } catch (err) {
         console.error('[blockUser]', err.message);
-        return false;
+        return { success: false };
       }
     },
     [matchId],
   );
-
   // ── Step 1: Load cache instantly on mount ────────────────────────────
   useEffect(() => {
     if (!matchId) return;

@@ -19,6 +19,7 @@ import {
   ActivityIndicator,
   Alert,
   InteractionManager,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -129,6 +130,8 @@ export default function ConversationScreen({ navigation, route }) {
     image,
     isOnline: initOnline = false,
     lastActiveAt: initLastActive = null,
+    requestStatus, // 'pending' | 'accepted' | 'rejected' | undefined
+    requestId,
   } = route.params;
 
   const { token, userId, userImage } = useContext(AuthContext);
@@ -197,6 +200,26 @@ export default function ConversationScreen({ navigation, route }) {
     setCtxMenu(p => ({ ...p, visible: false }));
     setCtxVisible(false);
   };
+  const [reqStatus, setReqStatus] = useState(requestStatus || null);
+
+  // useEffect(() => {
+  //   if (!socket.current) return;
+
+  //   const onAccepted = ({ requestId: rid }) => {
+  //     if (rid === requestId) setReqStatus('accepted');
+  //   };
+  //   const onRejected = ({ requestId: rid }) => {
+  //     if (rid === requestId) setReqStatus('rejected');
+  //   };
+
+  //   socket.current.on('message_request_accepted', onAccepted);
+  //   socket.current.on('message_request_rejected', onRejected);
+
+  //   return () => {
+  //     socket.current?.off('message_request_accepted', onAccepted);
+  //     socket.current?.off('message_request_rejected', onRejected);
+  //   };
+  // }, [requestId]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -510,24 +533,37 @@ export default function ConversationScreen({ navigation, route }) {
           break;
 
         case 'block':
-          navigation.navigate('ReportQuestion', {
-            targetUserId,
-            matchId,
-            name,
-            onSubmitReport: async ({ reason, details }) => {
-              await apiClient.current.post('/users/report', {
-                targetUserId,
-                matchId,
-                reason,
-                details,
-              });
+          Alert.alert('Block & Report', `Block ${name}?`, [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Continue',
+              style: 'destructive',
+              onPress: () => {
+                // Emit immediately — ChatScreen instantly filter karega
+                DeviceEventEmitter.emit('user_blocked', {
+                  blockedUserId: targetUserId,
+                });
 
-              // 👉 optional: block user immediately after report
-              await apiClient.current.post('/users/block', {
-                targetUserId,
-              });
+                navigation.navigate('ReportQuestion', {
+                  targetUserId,
+                  matchId,
+                  name,
+                  onSubmitReport: async ({ reason, details }) => {
+                    await apiClient.current.post('/users/report', {
+                      targetUserId,
+                      matchId,
+                      reason,
+                      details,
+                    });
+                    await apiClient.current.post('/users/block', {
+                      blockedUserId: targetUserId,
+                      matchId,
+                    });
+                  },
+                });
+              },
             },
-          });
+          ]);
           break;
       }
     },
@@ -765,28 +801,53 @@ export default function ConversationScreen({ navigation, route }) {
         />
 
         <SafeAreaView edges={['bottom']} style={s.inputWrap}>
-          <InputBar
-            ref={inputRef}
-            onSend={handleSend}
-            onAttach={() => setShowAttach(true)}
-            onFocusChange={handleFocusChange}
-            emitTyping={emitTyping}
-            sending={sending}
-            replyingTo={replyingTo}
-            onCancelReply={() => setReplyingTo(null)}
-            myUserId={userId}
-            editingMsg={editingMsg}
-            onCancelEdit={() => setEditingMsg(null)}
-            onEditSave={handleEditSave}
-            onSendVoice={handleSendVoice}
-            // micSlot={
-            //   // ← YEH ADD KARO
-            //   <VoiceMicOverlay
-            //     ref={micOverlayRef}
-            //     onSendVoice={handleSendVoice}
-            //   />
-            // }
-          />
+          {reqStatus === 'pending' && (
+            <View style={cs.pendingBar}>
+              <Text style={cs.pendingIco}>⏳</Text>
+              <View>
+                <Text style={cs.pendingTitle}>Waiting for approval</Text>
+                <Text style={cs.pendingSub}>
+                  {name} will be notified of your request
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {reqStatus === 'rejected' && (
+            <View style={cs.rejectedBar}>
+              <Text style={cs.rejectedIco}>✕</Text>
+              <View>
+                <Text style={cs.rejectedTitle}>Request declined</Text>
+                <Text style={cs.rejectedSub}>
+                  {name} has declined your message request
+                </Text>
+              </View>
+            </View>
+          )}
+          {(!reqStatus || reqStatus === 'accepted') && (
+            <InputBar
+              ref={inputRef}
+              onSend={handleSend}
+              onAttach={() => setShowAttach(true)}
+              onFocusChange={handleFocusChange}
+              emitTyping={emitTyping}
+              sending={sending}
+              replyingTo={replyingTo}
+              onCancelReply={() => setReplyingTo(null)}
+              myUserId={userId}
+              editingMsg={editingMsg}
+              onCancelEdit={() => setEditingMsg(null)}
+              onEditSave={handleEditSave}
+              onSendVoice={handleSendVoice}
+              // micSlot={
+              //   // ← YEH ADD KARO
+              //   <VoiceMicOverlay
+              //     ref={micOverlayRef}
+              //     onSendVoice={handleSendVoice}
+              //   />
+              // }
+            />
+          )}
         </SafeAreaView>
       </KeyboardAvoidingView>
 
@@ -986,4 +1047,33 @@ const s = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'Poppins-Regular',
   },
+});
+const cs = StyleSheet.create({
+  pendingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#FEF08A',
+  },
+  pendingIco: { fontSize: 24 },
+  pendingTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
+  pendingSub: { fontSize: 12, color: '#B45309', marginTop: 2 },
+
+  rejectedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#FEE2E2',
+  },
+  rejectedIco: { fontSize: 24 },
+  rejectedTitle: { fontSize: 14, fontWeight: '700', color: '#991B1B' },
+  rejectedSub: { fontSize: 12, color: '#EF4444', marginTop: 2 },
 });
