@@ -809,7 +809,7 @@ export default function ChatScreen({ navigation }) {
               likedUsers={likedUsers}
               likeCount={likeCount}
               blurred={likesBlurred}
-              onPress={() => navigation.navigate('Like')}
+              onPress={() => navigation.navigate('likedme')}
             />
           </View>
         )}
@@ -918,7 +918,7 @@ export default function ChatScreen({ navigation }) {
 // Styles
 // ─────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffedff' },
+  container: { flex: 1, backgroundColor: '#FFF5F7' },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -935,7 +935,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 12,
-    backgroundColor: '#ffedff',
+    backgroundColor: '#FFF5F7',
   },
   headerTitle: {
     fontSize: 28,

@@ -38,15 +38,10 @@ import { MessageBubble } from '../src/components/conversation/MessageBubble';
 import { TypingIndicator } from '../src/components/conversation/TypingIndicator';
 import { FloatingContextMenu } from '../src/components/conversation/FloatingContextMenu';
 import { ReactionTooltip } from '../src/components/conversation/ReactionTooltip';
-import { AttachmentSheet } from '../src/components/conversation/AttachmentSheet';
-import { MediaPreviewModal } from '../src/components/conversation/MediaPreviewModal';
 import { ScrollFAB } from '../src/components/conversation/ScrollFAB';
 import { InputBar } from '../src/components/conversation/InputBar';
-import { VoiceMicOverlay } from '../src/components/conversation/VoiceMicOverlay';
 import Config from 'react-native-config';
 import { ChatMenuSheet } from '../src/components/conversation/ChatMenuSheet';
-import { SearchMessagesSheet } from '../src/components/conversation/SearchMessagesSheet';
-import { SharedMediaSheet } from '../src/components/conversation/SharedMediaSheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import BackIcon from '../assets/SVG/back';
@@ -839,13 +834,6 @@ export default function ConversationScreen({ navigation, route }) {
               onCancelEdit={() => setEditingMsg(null)}
               onEditSave={handleEditSave}
               onSendVoice={handleSendVoice}
-              // micSlot={
-              //   // ← YEH ADD KARO
-              //   <VoiceMicOverlay
-              //     ref={micOverlayRef}
-              //     onSendVoice={handleSendVoice}
-              //   />
-              // }
             />
           )}
         </SafeAreaView>
@@ -866,34 +854,11 @@ export default function ConversationScreen({ navigation, route }) {
         onRemoveMyReaction={onRemoveMyReaction}
       />
 
-      {/* ── Attachment Sheet ── */}
-      <AttachmentSheet
-        visible={showAttach}
-        onClose={() => setShowAttach(false)}
-        onMediaSelected={handleMediaSelected}
-      />
-
-      {/* ── Media Preview ── */}
-      <MediaPreviewModal uri={previewUri} onClose={() => setPreviewUri(null)} />
-
       <ChatMenuSheet
         visible={showMenu}
         isMuted={isMuted}
         onClose={() => setShowMenu(false)}
         onSelect={handleMenuSelect}
-      />
-      <SearchMessagesSheet
-        visible={showSearch}
-        messages={messages}
-        onClose={() => setShowSearch(false)}
-        onJumpTo={scrollToMessage}
-      />
-
-      <SharedMediaSheet
-        visible={showMedia}
-        messages={messages}
-        onClose={() => setShowMedia(false)}
-        onPressMedia={uri => setPreviewUri(uri)}
       />
 
       <FloatingContextMenu

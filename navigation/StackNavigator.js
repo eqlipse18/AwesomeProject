@@ -31,13 +31,13 @@ import VisitorsScreen from '../screens/VisitorsScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import PremiumScreen from '../screens/PremiumScreen';
-import SharedMediaScreen from '../screens/SharedMediaScreen';
 import SearchMessagesScreen from '../screens/SearchMessagesScreen';
 import ReportQuestionScreen from '../screens/ReportQuestionScreen';
 import ReportAnswerScreen from '../screens/ReportAnswerScreen';
 import BlockedConfirmScreen from '../screens/BlockedConfirmScreen';
 import SearchChatsScreen from '../screens/SearchChatsScreen';
 import RequestsScreen from '../screens/RequestsScreen';
+import Likedmescreen from '../screens/Likedmescreen';
 
 import CustomTabBar from './CustomTabBar';
 
@@ -95,11 +95,7 @@ function AppStack() {
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen name="Premium" component={PremiumScreen} />
-      <Stack.Screen
-        name="SharedMedia"
-        component={SharedMediaScreen}
-        options={{ headerShown: false }}
-      />
+
       <Stack.Screen
         name="SearchMessages"
         component={SearchMessagesScreen}
@@ -128,6 +124,11 @@ function AppStack() {
       <Stack.Screen
         name="Requests"
         component={RequestsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="likedme"
+        component={Likedmescreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

@@ -134,7 +134,7 @@ router.get('/feed', authenticate, async (req, res) => {
     const parsedDistance =
       parseInt(distance ?? saved.distance ?? 100, 10) || 100;
     const resolvedShowMe = showMe ?? saved.showMe ?? null;
-    const resolvedGoals = goals ?? saved.goals?.join(',') ?? '';
+    const rawGoals = goals ?? saved.goals ?? [];
     const resolvedVerified =
       verifiedOnly ?? String(saved.verifiedOnly ?? false);
     const resolvedExpand = expandSearch ?? String(saved.expandSearch ?? true);
@@ -150,12 +150,17 @@ router.get('/feed', authenticate, async (req, res) => {
       'Still Figuring Out',
     ];
 
-    const goalsFilter = resolvedGoals
-      ? resolvedGoals
+    const goalsFilter = (() => {
+      if (!rawGoals || rawGoals.length === 0) return [];
+      if (Array.isArray(rawGoals))
+        return rawGoals.filter(g => VALID_GOALS.includes(g));
+      if (typeof rawGoals === 'string')
+        return rawGoals
           .split(',')
           .map(g => g.trim())
-          .filter(g => VALID_GOALS.includes(g))
-      : [];
+          .filter(g => VALID_GOALS.includes(g));
+      return [];
+    })();
     const verifiedFilter =
       resolvedVerified === 'true' || resolvedVerified === true;
     const shouldExpand = resolvedExpand === 'true' || resolvedExpand === true;

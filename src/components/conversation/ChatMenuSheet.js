@@ -21,7 +21,6 @@ const { width: W } = Dimensions.get('window');
 const MENU_W = 220;
 
 const ITEMS = [
-  { key: 'media', label: 'Media, links & docs' },
   { key: 'search', label: 'Search' },
   { key: 'mute', label: 'Mute notifications', toggle: true },
   { key: 'clear', label: 'Clear chat', danger: false },

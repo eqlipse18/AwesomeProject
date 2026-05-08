@@ -186,7 +186,8 @@ const STAT_CONFIGS = [
   },
 ];
 
-const StatsRow = ({ stats, loading }) => {
+const StatsRow = ({ stats, loading, onStatPress }) => {
+  console.log('[Stats]', JSON.stringify(stats));
   if (loading || !stats) {
     return (
       <View style={styles.statsGlassWrapper}>
@@ -222,7 +223,12 @@ const StatsRow = ({ stats, loading }) => {
         {STAT_CONFIGS.map((cfg, i) => (
           <React.Fragment key={cfg.key}>
             {/* ✅ pass value[i] to StatItem */}
-            <StatItem cfg={cfg} value={values[i]} index={i} />
+            <StatItem
+              cfg={cfg}
+              value={values[i]}
+              index={i}
+              onPress={() => onStatPress?.(cfg.key)}
+            />
             {i < STAT_CONFIGS.length - 1 && (
               <View style={styles.statVertDivider} />
             )}
@@ -276,45 +282,81 @@ const AnimatedNumber = ({ value, color, delay = 400 }) => {
 };
 
 // StatItem with animated icon
-const StatItem = ({ cfg, value, index }) => {
+const StatItem = ({ cfg, value, index, onPress }) => {
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.96, {
+      damping: 20,
+      stiffness: 400,
+      mass: 0.5,
+    });
+    opacity.value = withTiming(0.85, { duration: 100 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, {
+      damping: 18,
+      stiffness: 300,
+    });
+    opacity.value = withTiming(1, { duration: 150 });
+  };
+
   return (
-    <LinearGradient
-      colors={cfg.colors}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[
-        styles.statBubble,
-        {
-          borderColor: cfg.borderColor,
-          shadowColor: cfg.valueColor,
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          elevation: 3,
-        },
-      ]}
-    >
-      <View style={[styles.statIconBubble, { backgroundColor: cfg.iconBg }]}>
-        <ReAnimated.View
-          entering={FadeInDown.delay(index * 120)
-            .springify()
-            .damping(14)
-            .stiffness(80)
-            .overshootClamping(false)
-            .restDisplacementThreshold(0.01)
-            .restSpeedThreshold(0.01)}
+    <View style={{ flex: 1 }}>
+      <ReAnimated.View style={[{ flex: 1 }, animStyle]}>
+        <LinearGradient
+          colors={cfg.colors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.statBubble,
+            {
+              flex: 1,
+              borderColor: cfg.borderColor,
+              shadowColor: cfg.valueColor,
+              shadowOpacity: 0.15,
+              shadowRadius: 8,
+              elevation: 3,
+            },
+          ]}
         >
-          <cfg.icon width={18} height={18} fill={cfg.valueColor} />
-        </ReAnimated.View>
-      </View>
+          <View
+            style={[styles.statIconBubble, { backgroundColor: cfg.iconBg }]}
+          >
+            <ReAnimated.View
+              entering={FadeInDown.delay(index * 120)
+                .springify()
+                .damping(14)
+                .stiffness(80)}
+            >
+              <cfg.icon width={18} height={18} fill={cfg.valueColor} />
+            </ReAnimated.View>
+          </View>
+          <AnimatedNumber
+            value={value}
+            color={cfg.valueColor}
+            delay={index * 120 + 200}
+          />
+          <Text style={styles.statLabel}>{cfg.label}</Text>
+        </LinearGradient>
+      </ReAnimated.View>
 
-      <AnimatedNumber
-        value={value}
-        color={cfg.valueColor}
-        delay={index * 120 + 200}
+      {/* Press handler — absoluteFill, drives scale anim */}
+      <TouchableOpacity
+        style={StyleSheet.absoluteFillObject}
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={1}
       />
-
-      <Text style={styles.statLabel}>{cfg.label}</Text>
-    </LinearGradient>
+    </View>
   );
 };
 
@@ -323,54 +365,85 @@ const StatItem = ({ cfg, value, index }) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 const ParentTabBar = ({ activeParent, onPress, likesCount, visitorsCount }) => {
-  // 0 = likes (left), 1 = visitors (right)
   const slideAnim = useRef(
     new Animated.Value(activeParent === 'likes' ? 0 : 1),
   ).current;
   const [containerWidth, setContainerWidth] = useState(0);
 
+  // Scale animations for each tab
+  const likesScale = useRef(
+    new Animated.Value(activeParent === 'likes' ? 1 : 0.96),
+  ).current;
+  const visitorsScale = useRef(
+    new Animated.Value(activeParent === 'visitors' ? 1 : 0.96),
+  ).current;
+
   useEffect(() => {
-    Animated.spring(slideAnim, {
-      toValue: activeParent === 'likes' ? 0 : 1,
-      useNativeDriver: true,
-      bounciness: 6,
-      speed: 16,
-    }).start();
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: activeParent === 'likes' ? 0 : 1,
+        useNativeDriver: true,
+        bounciness: 8,
+        speed: 14,
+      }),
+      Animated.spring(likesScale, {
+        toValue: activeParent === 'likes' ? 1 : 0.96,
+        useNativeDriver: true,
+        bounciness: 6,
+        speed: 18,
+      }),
+      Animated.spring(visitorsScale, {
+        toValue: activeParent === 'visitors' ? 1 : 0.96,
+        useNativeDriver: true,
+        bounciness: 6,
+        speed: 18,
+      }),
+    ]).start();
   }, [activeParent]);
 
-  const PILL_WIDTH = containerWidth > 0 ? (containerWidth - 8) / 2 : 0; // half minus padding
-  const pillTranslateX = slideAnim.interpolate({
+  const PILL_W = containerWidth > 0 ? (containerWidth - 10) / 2 : 0;
+  const pillX = slideAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, PILL_WIDTH],
+    outputRange: [0, PILL_W],
   });
 
   const tabs = [
-    { key: 'likes', label: ' Likes', count: likesCount },
-    { key: 'visitors', label: ' Visitors', count: visitorsCount },
+    {
+      key: 'likes',
+      label: 'Likes',
+      count: likesCount,
+      scale: likesScale,
+    },
+    {
+      key: 'visitors',
+      label: 'Visitors',
+      count: visitorsCount,
+      scale: visitorsScale,
+    },
   ];
 
   return (
-    <View style={styles.parentTabWrapper}>
-      <View
-        style={styles.parentTabContainer}
+    <View style={pTab.wrapper}>
+      <LinearGradient
+        colors={['#FFF5F7', '#FFF5F7', '#FFF5F7']}
+        start={{ x: 1, y: 0 }} // right side
+        end={{ x: 0, y: 1 }} // left-bottom tak diagonal
+        style={pTab.track}
         onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}
       >
-        {/* sliding gradient pill — sits behind labels */}
-        {PILL_WIDTH > 0 && (
+        {/* Sliding white card */}
+        {PILL_W > 0 && (
           <Animated.View
             style={[
-              styles.parentTabPill,
-              {
-                width: PILL_WIDTH,
-                transform: [{ translateX: pillTranslateX }],
-              },
+              pTab.slider,
+              { width: PILL_W, transform: [{ translateX: pillX }] },
             ]}
             pointerEvents="none"
           >
             <LinearGradient
-              colors={['#FF0059', '#FF6B6B']}
+              colors={['#ffffff', '#fffaff']}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
           </Animated.View>
@@ -381,45 +454,34 @@ const ParentTabBar = ({ activeParent, onPress, likesCount, visitorsCount }) => {
           return (
             <TouchableOpacity
               key={tab.key}
-              style={styles.parentTab}
+              style={pTab.tab}
               onPress={() => onPress(tab.key)}
               activeOpacity={0.85}
             >
-              <View style={styles.parentTabInner}>
-                <Text
-                  style={[
-                    styles.parentTabText,
-                    isActive && styles.parentTabTextActive,
-                  ]}
-                >
+              <Animated.View
+                style={[pTab.tabInner, { transform: [{ scale: tab.scale }] }]}
+              >
+                <Text style={pTab.tabEmoji}>{tab.emoji}</Text>
+                <Text style={[pTab.tabLabel, isActive && pTab.tabLabelActive]}>
                   {tab.label}
                 </Text>
                 {tab.count > 0 && (
-                  <View
-                    style={[
-                      styles.parentTabBadge,
-                      isActive && styles.parentTabBadgeActive,
-                    ]}
-                  >
+                  <View style={[pTab.badge, isActive && pTab.badgeActive]}>
                     <Text
-                      style={[
-                        styles.parentTabBadgeText,
-                        isActive && styles.parentTabBadgeTextActive,
-                      ]}
+                      style={[pTab.badgeText, isActive && pTab.badgeTextActive]}
                     >
                       {tab.count > 99 ? '99+' : tab.count}
                     </Text>
                   </View>
                 )}
-              </View>
+              </Animated.View>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </LinearGradient>
     </View>
   );
 };
-
 // ════════════════════════════════════════════════════════════════════════════
 // CHILD TAB BAR — Liked You | You Liked
 // ════════════════════════════════════════════════════════════════════════════
@@ -637,47 +699,62 @@ const ProfileCard = ({
 
         {blurred ? (
           <>
+            {/* Dark overlay — subtle */}
             <View style={styles.glassOverlay} />
-            <View style={styles.upgradeOverlay}>
-              <Text style={styles.upgradeEmoji}>🔥</Text>
-              <Text style={styles.upgradeTitle}>Upgrade to</Text>
-              <Text style={styles.upgradeBrand}>Flame Plus</Text>
-              <View style={styles.upgradePill}>
-                <Text style={styles.upgradePillText}>Unlock →</Text>
+
+            {/* Bottom info — always visible */}
+            <View style={styles.blurredBottomBar}>
+              {/* Name pill placeholder + age */}
+              <View style={styles.blurredNameRow}>
+                <View style={styles.namePill} />
+                {!!item.age && (
+                  <Text style={styles.blurredAge}>{item.age}</Text>
+                )}
+                {item.isVerified && <Text style={styles.verifiedBadge}>✔</Text>}
               </View>
-            </View>
-            <View style={styles.glassStrip}>
-              <Text style={styles.blurredName}>— — — —</Text>
+
+              {/* Online / last active — prominent */}
+              {item.isOnline ? (
+                <View style={styles.onlineRow}>
+                  <View style={styles.onlineDotInline} />
+                  <Text style={[styles.blurredStatus, { color: '#29ec5d' }]}>
+                    Online
+                  </Text>
+                </View>
+              ) : item.lastActiveAt ? (
+                <Text style={styles.blurredStatus}>
+                  {`Active ${formatLastActive(item.lastActiveAt, 3)}`}
+                </Text>
+              ) : null}
             </View>
           </>
         ) : (
           <>
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']}
+              colors={[
+                'transparent',
+                'rgba(140, 60, 120, 0.18)',
+                'rgba(0,0,0,0.72)',
+              ]}
               style={styles.cardGradient}
             />
             <View style={styles.cardInfoOverlay}>
               <View style={styles.nameRow}>
-                <View
-                  style={[
-                    styles.onlineDotInline,
-                    {
-                      backgroundColor: item.isOnline
-                        ? '#22C55E'
-                        : 'rgba(255,255,255,0.35)',
-                    },
-                  ]}
-                />
                 <Text style={styles.cardName} numberOfLines={1}>
                   {item.name}
                   {item.age ? `, ${item.age}` : ''}
                 </Text>
               </View>
-              {!item.isOnline && item.lastActiveAt && (
+              {item.isOnline ? (
+                <View style={styles.onlineRow}>
+                  <View style={styles.onlineDotInline} />
+                  <Text style={styles.onlineText}>Online</Text>
+                </View>
+              ) : item.lastActiveAt ? (
                 <Text style={styles.cardActive}>
                   {formatLastActive(item.lastActiveAt, 3)}
                 </Text>
-              )}
+              ) : null}
               {onLikeBack && !isMutual && (
                 <Text style={styles.likeBackHint}>Hold to like back</Text>
               )}
@@ -716,7 +793,7 @@ const ProfileCard = ({
 // VISITOR AVATAR (top row)
 // ════════════════════════════════════════════════════════════════════════════
 
-const VisitorAvatar = ({ item, onPress }) => (
+const VisitorAvatar = ({ item, onPress, blurred }) => (
   <TouchableOpacity
     style={styles.avatarWrapper}
     onPress={onPress}
@@ -724,7 +801,11 @@ const VisitorAvatar = ({ item, onPress }) => (
   >
     <View style={styles.avatarContainer}>
       {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.avatarImage} />
+        <Image
+          source={{ uri: item.image }}
+          style={styles.avatarImage}
+          blurRadius={blurred ? 18 : 0} // ← ADD
+        />
       ) : (
         <View style={[styles.avatarImage, styles.avatarFallback]}>
           <Text style={{ fontSize: 20 }}>📷</Text>
@@ -732,9 +813,14 @@ const VisitorAvatar = ({ item, onPress }) => (
       )}
       {item.isOnline && <View style={styles.avatarOnlineDot} />}
     </View>
-    <Text style={styles.avatarName} numberOfLines={1}>
-      {item.name}
-    </Text>
+    {/* Name blur */}
+    {blurred ? (
+      <View style={styles.avatarNamePill} /> // ← pill placeholder
+    ) : (
+      <Text style={styles.avatarName} numberOfLines={1}>
+        {item.name}
+      </Text>
+    )}
     <Text style={styles.avatarTime} numberOfLines={1}>
       {formatLastActive(item.visitedAt, 1) || 'Recently'}
     </Text>
@@ -745,46 +831,85 @@ const VisitorAvatar = ({ item, onPress }) => (
 // VISITOR CARD (grid) — online status + seen time, both overlays
 // ════════════════════════════════════════════════════════════════════════════
 
-const VisitorCard = ({ item, onPress }) => (
+const VisitorCard = ({ item, onPress, blurred }) => (
   <ReAnimated.View entering={FadeInDown.duration(300).springify()}>
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.9}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={onPress}
+      activeOpacity={blurred ? 1 : 0.9}
+    >
       {item.image ? (
-        <Image source={{ uri: item.image }} style={styles.cardImage} />
+        <Image
+          source={{ uri: item.image }}
+          style={styles.cardImage}
+          blurRadius={blurred ? 18 : 0} // ← blur
+        />
       ) : (
         <View style={[styles.cardImage, styles.cardImageFallback]}>
           <Text style={{ fontSize: 36 }}>📷</Text>
         </View>
       )}
 
-      {/* online dot — top right */}
-      {item.isOnline && <View style={styles.onlineBadge} />}
-
-      <LinearGradient
-        colors={['transparent', 'rgba(0, 0, 0, 0.2)', 'rgba(0, 0, 0, 0.88)']}
-        style={styles.cardGradient}
-      />
-      <View style={styles.cardInfoOverlay}>
-        <Text style={styles.cardName} numberOfLines={1}>
-          {item.name}
-          {item.age ? `, ${item.age}` : ''}
-        </Text>
-
-        {/* line 1 — active status */}
-        <Text style={styles.cardActive} numberOfLines={1}>
-          {item.isOnline
-            ? '🟢 Online now'
-            : item.lastActiveAt
-            ? `Active ${formatLastActive(item.lastActiveAt, 3)}`
-            : ''}
-        </Text>
-
-        {/* line 2 — when they visited your profile */}
-        {item.visitedAt && (
-          <Text style={styles.visitedAtText} numberOfLines={1}>
-            visited {formatLastActive(item.visitedAt, 1) || 'recently'}
-          </Text>
-        )}
-      </View>
+      {blurred ? (
+        <>
+          <View style={styles.glassOverlay} />
+          <View style={styles.blurredBottomBar}>
+            <View style={styles.blurredNameRow}>
+              <View style={styles.namePill} />
+              {!!item.age && <Text style={styles.blurredAge}>{item.age}</Text>}
+              {item.isVerified && <Text style={styles.verifiedBadge}>✔</Text>}
+            </View>
+            {item.isOnline ? (
+              <View style={styles.onlineRow}>
+                <View style={styles.onlineDotInline} />
+                <Text style={[styles.blurredStatus, { color: '#22C55E' }]}>
+                  Online
+                </Text>
+              </View>
+            ) : item.lastActiveAt ? (
+              <Text style={styles.blurredStatus}>
+                {`Active ${formatLastActive(item.lastActiveAt, 3)}`}
+              </Text>
+            ) : null}
+            {/* Visited time */}
+            {item.visitedAt && (
+              <Text style={styles.visitedAtText}>
+                visited {formatLastActive(item.visitedAt, 1) || 'recently'}
+              </Text>
+            )}
+          </View>
+        </>
+      ) : (
+        <>
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']}
+            style={styles.cardGradient}
+          />
+          <View style={styles.cardInfoOverlay}>
+            <View style={styles.nameRow}>
+              <Text style={styles.cardName} numberOfLines={1}>
+                {item.name}
+                {item.age ? `, ${item.age}` : ''}
+              </Text>
+            </View>
+            {item.isOnline ? (
+              <View style={styles.onlineRow}>
+                <View style={styles.onlineDotInline} />
+                <Text style={styles.onlineText}>Online</Text>
+              </View>
+            ) : item.lastActiveAt ? (
+              <Text style={styles.cardActive}>
+                {formatLastActive(item.lastActiveAt, 3)}
+              </Text>
+            ) : null}
+            {item.visitedAt && (
+              <Text style={styles.visitedAtText}>
+                visited {formatLastActive(item.visitedAt, 1) || 'recently'}
+              </Text>
+            )}
+          </View>
+        </>
+      )}
     </TouchableOpacity>
   </ReAnimated.View>
 );
@@ -858,11 +983,15 @@ const VisitorsContent = ({ navigation, token, totalViews }) => {
   const [visitors, setVisitors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [blurred, setBlurred] = useState(false);
 
   const fetchVisitors = useCallback(async () => {
     try {
       const resp = await apiClient.current.get('/profile-visitors');
-      if (resp.data.success) setVisitors(resp.data.visitors || []);
+      if (resp.data.success) {
+        setVisitors(resp.data.visitors || []);
+        setBlurred(resp.data.blurred || false); // ← API se lo
+      }
     } catch (e) {
       console.error('[VisitorsContent]', e.message);
     } finally {
@@ -935,11 +1064,13 @@ const VisitorsContent = ({ navigation, token, totalViews }) => {
         <View style={styles.row}>
           <VisitorCard
             item={item.left}
+            blurred={blurred}
             onPress={() => handlePress(item.left)}
           />
           {item.right ? (
             <VisitorCard
               item={item.right}
+              blurred={blurred}
               onPress={() => handlePress(item.right)}
             />
           ) : (
@@ -967,6 +1098,7 @@ const VisitorsContent = ({ navigation, token, totalViews }) => {
                 <VisitorAvatar
                   key={item.userId}
                   item={item}
+                  blurred={blurred}
                   onPress={() => handlePress(item)}
                 />
               ))}
@@ -1002,21 +1134,12 @@ export default function LikesScreen({ navigation }) {
   const [matchedUsers, setMatchedUsers] = useState(null);
   const [currentUserImage, setCurrentUserImage] = useState(null);
 
-  const { sentLikes, receivedLikes, stats, loading, refetch } = useLikes({
-    token,
-  });
+  const { sentLikes, receivedLikes, stats, loading, refetch, isBlurred } =
+    useLikes({
+      token,
+    });
   const { subscription } = useSubscription({ token });
   const isPremium = subscription?.isPremium || false;
-  useFocusEffect(() => {
-    StatusBar.setBackgroundColor('#e8f2ff');
-    StatusBar.setBarStyle('dark-content');
-
-    return () => {
-      // optional reset (agar dusre screen ka alag color hai)
-      StatusBar.setBackgroundColor('#e8f2ff');
-      StatusBar.setBarStyle('dark-content');
-    };
-  });
 
   useEffect(() => {
     if (!token) return;
@@ -1132,10 +1255,12 @@ export default function LikesScreen({ navigation }) {
     () => processData(receivedLikes),
     [receivedLikes, processData],
   );
+  console.log('[ReceivedLikes]', JSON.stringify(receivedLikes[0]));
   const processedSent = useMemo(
     () => processData(sentLikes),
     [sentLikes, processData],
   );
+  console.log('[SentLikes]', JSON.stringify(sentLikes[0]));
 
   const getDataWithSeparator = useCallback(data => {
     const newItems = data.filter(
@@ -1204,7 +1329,7 @@ export default function LikesScreen({ navigation }) {
           <View style={styles.row}>
             <ProfileCard
               item={item.left}
-              blurred={false}
+              blurred={activeTab === 'received' ? isBlurred : false}
               onPress={() => handleCardPress(item.left)}
               onMessage={
                 item.left.isMatched ? () => handleMessage(item.left) : null
@@ -1218,7 +1343,7 @@ export default function LikesScreen({ navigation }) {
             {item.right ? (
               <ProfileCard
                 item={item.right}
-                blurred={false}
+                blurred={activeTab === 'received' ? isBlurred : false}
                 onPress={() => handleCardPress(item.right)}
                 onMessage={
                   item.right.isMatched ? () => handleMessage(item.right) : null
@@ -1237,12 +1362,12 @@ export default function LikesScreen({ navigation }) {
       }
       return null;
     },
-    [activeTab, handleCardPress, handleMessage],
+    [activeTab, handleCardPress, handleMessage, isBlurred],
   );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* <StatusBar barStyle="dark-content" backgroundColor="#fff" /> */}
+      <StatusBar barStyle="dark-content" backgroundColor="#FFF5F7" />
 
       {/* ── Header ── */}
       <View style={styles.header}>
@@ -1250,7 +1375,23 @@ export default function LikesScreen({ navigation }) {
       </View>
 
       {/* ── Stats Row ── */}
-      <StatsRow stats={stats} loading={loading} />
+      <StatsRow
+        stats={stats}
+        loading={loading}
+        onStatPress={key => {
+          if (key === 'views') {
+            setActiveParent('visitors');
+          } else if (key === 'likes') {
+            setActiveParent('likes');
+            setActiveTab('received');
+            setActiveFilter('all'); // ← all filter
+          } else if (key === 'superlikes') {
+            setActiveParent('likes');
+            setActiveTab('received');
+            setActiveFilter('superliked'); // ← superliked filter
+          }
+        }}
+      />
 
       {/* ── Parent Tabs ── */}
       <ParentTabBar
@@ -1324,6 +1465,7 @@ export default function LikesScreen({ navigation }) {
             navigation={navigation}
             token={token}
             totalViews={stats?.profileViews || 0}
+            blurred={isBlurred}
           />
         )}
       </View>
@@ -1367,7 +1509,7 @@ export default function LikesScreen({ navigation }) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#e8f2ff' },
+  container: { flex: 1, backgroundColor: '#FFF5F7' },
 
   header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   headerTitle: {
@@ -1380,17 +1522,19 @@ const styles = StyleSheet.create({
   // ── Stats Glassmorphism ──
   statsGlassWrapper: {
     marginHorizontal: 16,
-    marginVertical: 10,
+    marginVertical: 4,
   },
+  // styles mein statsGlassCard update karo
   statsGlassCard: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    backgroundColor: 'rgb(179, 221, 255)',
+    // backgroundColor: 'rgb(179, 221, 255)',
+    backgroundColor: '#FFF5F7',
     borderRadius: 40,
     borderWidth: 2,
-    borderColor: 'rgba(203, 226, 255, 0.8)',
+    borderColor: '#fff8fa',
     overflow: 'hidden',
-    shadowColor: '#5c7599',
+    shadowColor: '#426494',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
@@ -1398,13 +1542,14 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingStart: 10,
     paddingEnd: 7,
+    height: 105, // ← ADD — explicit height dedo, stretch ab kaam karega
   },
   statBubble: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    gap: 2,
     borderWidth: 0,
     borderRightWidth: 0,
     transform: [{ translateY: -3 }],
@@ -1412,22 +1557,23 @@ const styles = StyleSheet.create({
     borderRadius: 40,
   },
   statIconBubble: {
-    width: 32,
-    height: 32,
+    width: 26,
+    height: 26,
+    marginBottom: -6,
+    marginTop: 4,
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: -10,
-    marginTop: 8,
   },
   statIconText: { fontSize: 25, color: '#fff', fontWeight: '700' },
-  statValue: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+  statValue: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
   statLabel: {
     fontSize: 12,
     color: '#424242',
     fontFamily: 'Nunito-Bold',
     textAlign: 'center',
     letterSpacing: 0.3,
+    marginTop: -5,
   },
   statVertDivider: {
     width: 1,
@@ -1530,13 +1676,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 2,
-    backgroundColor: 'rgba(214, 234, 255, 0.6)',
+    backgroundColor: '#FFF5F7',
     borderRadius: 22,
     padding: 4,
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
-    shadowColor: '#b0d0ee',
+    borderColor: 'rgba(255,255,255,0.95)',
+    shadowColor: '#eeb0d6',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 8,
@@ -1601,7 +1747,7 @@ const styles = StyleSheet.create({
 
   // Filter Bar
   filterBarWrapper: {
-    backgroundColor: 'rgb(199, 228, 252)',
+    backgroundColor: 'rgba(255,228,236,0.5)',
     paddingTop: 2,
     borderRadius: 20,
     marginHorizontal: 10,
@@ -1706,10 +1852,22 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  onlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  onlineText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
   onlineDotInline: {
     width: 7,
     height: 7,
     borderRadius: 3.5,
+    backgroundColor: '#22C55E',
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
   },
@@ -1808,7 +1966,7 @@ const styles = StyleSheet.create({
   // Blur / premium
   glassOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15,10,20,0.45)',
+    backgroundColor: 'rgba(15, 10, 20, 0.56)',
   },
   upgradeOverlay: {
     position: 'absolute',
@@ -1911,6 +2069,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 64,
   },
+  avatarNamePill: {
+    width: 52,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(180,180,180,0.45)',
+    marginTop: 2,
+  },
   avatarTime: {
     fontSize: 10,
     color: '#94A3B8',
@@ -1993,5 +2158,126 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     textAlign: 'center',
     lineHeight: 22,
+  },
+
+  blurredBottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 10,
+    paddingBottom: 12,
+    paddingTop: 40,
+    background: 'transparent',
+  },
+  blurredNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  namePill: {
+    width: 90,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'rgba(200,200,200,0.55)',
+  },
+  blurredAge: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  verifiedBadge: {
+    fontSize: 14,
+    color: '#3B82F6',
+  },
+  blurredStatus: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+  },
+
+  // glassOverlay already hai — bas opacity thodi kam karo
+  glassOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15,10,20,0.25)', // 0.45 → 0.25 (lighter)
+  },
+});
+const pTab = StyleSheet.create({
+  wrapper: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  track: {
+    flexDirection: 'row',
+    // backgroundColor: 'rgba(200,225,255,0.55)',
+    borderRadius: 18,
+    padding: 5,
+    position: 'relative',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.9)',
+    shadowColor: '#ff00aa',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  // ── Sliding white elevated card ──
+  slider: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    bottom: 5,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#FF0059',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  tab: {
+    flex: 1,
+    zIndex: 1,
+    borderRadius: 14,
+  },
+  tabInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+  tabEmoji: {
+    fontSize: 15,
+  },
+  tabLabel: {
+    fontSize: 14,
+    fontFamily: 'Nunito-Bold',
+    color: '#94A3B8',
+    letterSpacing: 0.2,
+  },
+  tabLabelActive: {
+    color: '#0F172A',
+  },
+  badge: {
+    backgroundColor: 'rgba(180,210,240,0.4)',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  badgeActive: {
+    backgroundColor: '#FEE2E2',
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94A3B8',
+  },
+  badgeTextActive: {
+    color: '#FF0059',
   },
 });

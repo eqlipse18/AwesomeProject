@@ -72,18 +72,22 @@ export default function FeedFilterModal({
     initialFilters.selectedCity ?? null,
   );
   const [showCityPicker, setShowCityPicker] = useState(false);
-
-  // Sync when modal opens
+  // Sync when modal opens — ageMin/ageMax → ageRange convert karo
   useEffect(() => {
     if (!visible) return;
-    setAgeRange([initialFilters.ageMin ?? 18, initialFilters.ageMax ?? 50]);
+
+    // ageRange array ya ageMin/ageMax dono handle karo
+    const min = initialFilters.ageRange?.[0] ?? initialFilters.ageMin ?? 18;
+    const max = initialFilters.ageRange?.[1] ?? initialFilters.ageMax ?? 50;
+
+    setAgeRange([min, max]);
     setDistance(initialFilters.distance ?? 100);
     setExpandSearch(initialFilters.expandSearch ?? true);
     setShowMe(initialFilters.showMe ?? 'Women');
     setGoals(initialFilters.goals ?? []);
     setVerifiedOnly(initialFilters.verifiedOnly ?? false);
     setSelectedCity(initialFilters.selectedCity ?? null);
-  }, [visible]); // eslint-disable-line
+  }, [visible, initialFilters]); // eslint-disable-line
 
   // Slide-up animation
   const slideAnim = useRef(new Animated.Value(MODAL_HEIGHT)).current;
@@ -132,14 +136,13 @@ export default function FeedFilterModal({
   // ✅ Apply — send customLat/customLng when city manually selected
   const handleApply = useCallback(() => {
     onApply({
-      ageMin: ageRange[0],
-      ageMax: ageRange[1],
+      ageRange: [ageRange[0], ageRange[1]], // ← array bhejo, ageMin/ageMax nahi
       distance,
       expandSearch,
       showMe,
       goals,
       verifiedOnly,
-      selectedCity, // { name, lat, lng } | null
+      selectedCity,
       customLat: selectedCity?.lat ?? null,
       customLng: selectedCity?.lng ?? null,
     });

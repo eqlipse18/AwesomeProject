@@ -4,7 +4,7 @@ import React from 'react';
 const PremiumScreen = () => {
   return (
     <View>
-      <Text>PremiumScreen</Text>
+      <Text>PremmmmiumScreen</Text>
     </View>
   );
 };

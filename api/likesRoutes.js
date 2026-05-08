@@ -331,14 +331,14 @@ router.get('/likes/received', authenticate, async (req, res) => {
       success: true,
       likes: users.map(u => ({
         userId: u.userId,
-        name: isPremium ? u.firstName : null,
-        age: isPremium ? u.ageForSort : null,
-        image: u.imageUrls?.[0] || null,
+        name: isPremium ? u.firstName : null, // ← name blur
+        age: u.ageForSort || null, // ✅ sabko visible
+        image: u.imageUrls?.[0] || null, // ← photo blur frontend pe
         hometown: isPremium ? u.hometown : null,
-        isOnline: isPremium ? u.isOnline || false : null,
-        lastActiveAt: isPremium ? u.lastActiveAt || null : null,
-        isVerified: isPremium ? u.isVerified || false : false,
-        goals: isPremium ? u.goals || null : null,
+        isOnline: u.isOnline || false, // ✅ sabko visible
+        lastActiveAt: u.lastActiveAt || null, // ✅ sabko visible
+        isVerified: u.isVerified || false, // ✅ sabko visible
+        goals: isPremium ? u.goals : null,
         type: gsiMetaMap[u.userId]?.type || 'like',
         isMatched: isMatchedMap[u.userId] || false,
         matchId: isMatchedMap[u.userId] ? matchIdMap[u.userId] || null : null,

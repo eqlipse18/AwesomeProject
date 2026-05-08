@@ -1,9 +1,7 @@
 /**
- * VisitorsScreen — redesigned like LikedMeScreen
- * - Back button + visitor count badge
- * - Filter chips (All / New / Nearby / Online)
- * - Profile cards grid (blurred for non-premium)
- * - No avatar row
+ * LikedMeScreen
+ * Standalone screen — shows only received likes (Liked You tab)
+ * Navigate from ProfileScreen → "See Who Likes Me" button
  */
 
 import React, {
@@ -26,6 +24,8 @@ import {
   ScrollView,
   StatusBar,
   Animated,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'react-native-linear-gradient';
@@ -34,7 +34,9 @@ import ReAnimated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { AuthContext } from '../AuthContex';
+import { useLikes, useSubscription } from '../src/hooks/usePremiumHooks';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
+import { MatchModal } from '../src/components/swipe/MatchModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;
@@ -51,13 +53,13 @@ const createApiClient = token =>
     timeout: 10000,
   });
 
-// ── Filters for visitors ──────────────────────────────────────────────────
-// No superlike / mutual — those are likes concepts, not visits
+// ── Filter / Sort config ──────────────────────────────────────────────────
 const FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'new', label: 'New' },
-  { key: 'online', label: 'Online' },
   { key: 'nearby', label: 'Nearby' },
+  { key: 'superliked', label: 'Superliked' },
+  { key: 'mutual', label: 'Mutual' },
 ];
 const SORTS = [
   { key: 'recent', label: 'Recent' },
@@ -146,12 +148,12 @@ const EmptyState = ({ activeFilter }) => (
       resizeMode="contain"
     />
     <Text style={s.emptyTitle}>
-      {activeFilter !== 'all' ? 'No results' : 'No visitors yet'}
+      {activeFilter !== 'all' ? 'No results' : 'No likes yet'}
     </Text>
     <Text style={s.emptySub}>
       {activeFilter !== 'all'
         ? 'Try a different filter'
-        : "When someone views your profile, they'll appear here 👀"}
+        : 'Keep swiping — someone will like you soon! 💫'}
     </Text>
   </View>
 );
@@ -211,177 +213,265 @@ const FilterSortBar = ({
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-// VISITOR CARD
+// PROFILE CARD
 // ════════════════════════════════════════════════════════════════════════════
-const VisitorCard = ({ item, onPress, blurred = false }) => (
-  <ReAnimated.View entering={FadeInDown.duration(300).springify()}>
-    <TouchableOpacity
-      style={s.card}
-      onPress={onPress}
-      activeOpacity={blurred ? 1 : 0.9}
-    >
-      {item.image ? (
-        <Image
-          source={{ uri: item.image }}
-          style={s.cardImage}
-          blurRadius={blurred ? 18 : 0}
-        />
-      ) : (
-        <View style={[s.cardImage, s.cardImageFallback]}>
-          <Text style={{ fontSize: 36 }}>📷</Text>
-        </View>
-      )}
+const ProfileCard = ({
+  item,
+  onPress,
+  onLikeBack,
+  onMessage,
+  blurred = false,
+}) => {
+  const isSuperlike = item.type === 'superlike';
+  const isMutual = item.isMatched;
 
-      {blurred ? (
-        <>
-          <View style={s.glassOverlay} />
-          <View style={s.blurredBottomBar}>
-            <View style={s.blurredNameRow}>
-              <View style={s.namePill} />
-              {!!item.age && <Text style={s.blurredAge}>{item.age}</Text>}
+  return (
+    <ReAnimated.View entering={FadeInDown.duration(300).springify()}>
+      <TouchableOpacity
+        style={s.card}
+        onPress={onPress}
+        activeOpacity={blurred ? 1 : 0.9}
+        onLongPress={onLikeBack}
+        delayLongPress={300}
+      >
+        {item.image ? (
+          <Image
+            source={{ uri: item.image }}
+            style={s.cardImage}
+            blurRadius={blurred ? 18 : 0}
+          />
+        ) : (
+          <View style={[s.cardImage, s.cardImageFallback]}>
+            <Text style={{ fontSize: 36 }}>📷</Text>
+          </View>
+        )}
+
+        {isSuperlike && !blurred && (
+          <View style={s.superlikeBadge}>
+            <Text style={s.badgeText}>⭐</Text>
+          </View>
+        )}
+        {isMutual && !blurred && (
+          <View style={s.mutualBadge}>
+            <Text style={s.badgeText}> Matched</Text>
+          </View>
+        )}
+
+        {blurred ? (
+          <>
+            <View style={s.glassOverlay} />
+            <View style={s.blurredBottomBar}>
+              <View style={s.blurredNameRow}>
+                <View style={s.namePill} />
+                {!!item.age && <Text style={s.blurredAge}>{item.age}</Text>}
+                {item.isVerified && <Text style={s.verifiedBadge}>✔</Text>}
+              </View>
+              {item.isOnline ? (
+                <View style={s.onlineRow}>
+                  <View style={s.onlineDot} />
+                  <Text style={[s.blurredStatus, { color: '#22C55E' }]}>
+                    Online
+                  </Text>
+                </View>
+              ) : item.lastActiveAt ? (
+                <Text style={s.blurredStatus}>
+                  Active {formatLastActive(item.lastActiveAt, 3)}
+                </Text>
+              ) : null}
             </View>
-            {item.isOnline ? (
-              <View style={s.onlineRow}>
-                <View style={s.onlineDot} />
-                <Text style={[s.blurredStatus, { color: '#22C55E' }]}>
-                  Online
+          </>
+        ) : (
+          <>
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']}
+              style={s.cardGradient}
+            />
+            <View style={s.cardInfoOverlay}>
+              <View style={s.nameRow}>
+                <Text style={s.cardName} numberOfLines={1}>
+                  {item.name}
+                  {item.age ? `, ${item.age}` : ''}
                 </Text>
               </View>
-            ) : item.lastActiveAt ? (
-              <Text style={s.blurredStatus}>
-                Active {formatLastActive(item.lastActiveAt, 3)}
-              </Text>
-            ) : null}
-            {item.visitedAt && (
-              <Text style={s.visitedAtText}>
-                👀 {formatLastActive(item.visitedAt, 1) || 'recently'}
-              </Text>
+              {item.isOnline ? (
+                <View style={s.onlineRow}>
+                  <View style={s.onlineDot} />
+                  <Text style={s.onlineText}>Online</Text>
+                </View>
+              ) : item.lastActiveAt ? (
+                <Text style={s.cardActive}>
+                  {formatLastActive(item.lastActiveAt, 3)}
+                </Text>
+              ) : null}
+              {onLikeBack && !isMutual && (
+                <Text style={s.likeBackHint}>Hold to like back</Text>
+              )}
+            </View>
+
+            {isMutual && onMessage && (
+              <TouchableOpacity
+                style={s.messageCta}
+                onPress={onMessage}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={['#FF0059', '#FF6B6B']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.messageCtaGradient}
+                >
+                  <Image
+                    source={require('../assets/Images/chat.png')}
+                    style={s.messageCtaIcon}
+                    resizeMode="contain"
+                  />
+                  <Text style={s.messageCtaText}>Chat</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             )}
-          </View>
-        </>
-      ) : (
-        <>
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.72)']}
-            style={s.cardGradient}
-          />
-          <View style={s.cardInfoOverlay}>
-            <Text style={s.cardName} numberOfLines={1}>
-              {item.name}
-              {item.age ? `, ${item.age}` : ''}
-            </Text>
-            {item.isOnline ? (
-              <View style={s.onlineRow}>
-                <View style={s.onlineDot} />
-                <Text style={s.onlineText}>Online</Text>
-              </View>
-            ) : item.lastActiveAt ? (
-              <Text style={s.cardActive}>
-                {formatLastActive(item.lastActiveAt, 3)}
-              </Text>
-            ) : null}
-            {item.visitedAt && (
-              <Text style={s.visitedAtText}>
-                👀 {formatLastActive(item.visitedAt, 1) || 'recently'}
-              </Text>
-            )}
-          </View>
-        </>
-      )}
-    </TouchableOpacity>
-  </ReAnimated.View>
+          </>
+        )}
+      </TouchableOpacity>
+    </ReAnimated.View>
+  );
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIKE-BACK ACTION SHEET
+// ════════════════════════════════════════════════════════════════════════════
+const LikeBackSheet = ({
+  visible,
+  user,
+  onClose,
+  onLike,
+  onPass,
+  onViewProfile,
+}) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="slide"
+    onRequestClose={onClose}
+  >
+    <Pressable style={s.sheetOverlay} onPress={onClose}>
+      <Pressable style={s.actionSheet}>
+        {user?.image && (
+          <Image source={{ uri: user.image }} style={s.sheetImage} />
+        )}
+        <Text style={s.sheetName}>
+          {user?.name}
+          {user?.age ? `, ${user.age}` : ''}
+        </Text>
+        {user?.goals && <Text style={s.sheetGoals}>{user.goals}</Text>}
+        <View style={s.sheetActions}>
+          <TouchableOpacity
+            style={s.sheetPassBtn}
+            onPress={onPass}
+            activeOpacity={0.8}
+          >
+            <Text style={s.sheetPassText}>✕ Pass</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.sheetLikeBtn}
+            onPress={onLike}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#FF0059', '#FF6B6B']}
+              style={s.sheetLikeGradient}
+            >
+              <Text style={s.sheetLikeText}>❤️ Like Back</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity onPress={onViewProfile} style={s.sheetViewProfile}>
+          <Text style={s.sheetViewProfileText}>View Full Profile →</Text>
+        </TouchableOpacity>
+      </Pressable>
+    </Pressable>
+  </Modal>
 );
 
 // ════════════════════════════════════════════════════════════════════════════
 // MAIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
-export default function VisitorsScreen({ navigation }) {
+export default function LikedMeScreen({ navigation }) {
   const { token } = useContext(AuthContext);
   const apiClient = useRef(createApiClient(token));
-  const [visitors, setVisitors] = useState([]);
-  const [blurred, setBlurred] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [activeSort, setActiveSort] = useState('recent');
+  const [refreshing, setRefreshing] = useState(false);
+  const [actionSheetUser, setActionSheetUser] = useState(null);
+  const [matchedUsers, setMatchedUsers] = useState(null);
+  const [currentUserImage, setCurrentUserImage] = useState(null);
 
-  const fetchVisitors = useCallback(async () => {
-    try {
-      const resp = await apiClient.current.get('/profile-visitors');
-      if (resp.data.success) {
-        setVisitors(resp.data.visitors || []);
-        setBlurred(resp.data.blurred || false);
-      }
-    } catch (e) {
-      console.error('[VisitorsScreen]', e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { receivedLikes, loading, refetch, isBlurred } = useLikes({ token });
+  const { subscription } = useSubscription({ token });
 
   useEffect(() => {
-    fetchVisitors();
-  }, [fetchVisitors]);
+    if (!token) return;
+    apiClient.current
+      .get('/user-profile')
+      .then(resp => {
+        if (resp.data.success) {
+          setCurrentUserImage(resp.data.user?.imageUrls?.[0] || null);
+        }
+      })
+      .catch(() => {});
+  }, [token]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchVisitors();
+    await refetch();
     setRefreshing(false);
-  }, [fetchVisitors]);
+  }, [refetch]);
 
-  const handleCardPress = useCallback(
-    item => {
-      navigation.navigate('UserProfile', {
-        targetUserId: item.userId,
-        imageUrl: item.image,
-      });
-    },
-    [navigation],
-  );
-
-  // ── Process + filter ────────────────────────────────────────────────────
+  // ── Process data ────────────────────────────────────────────────────────
   const processedData = useMemo(() => {
-    let filtered = [...visitors];
+    let filtered = [...receivedLikes];
     switch (activeFilter) {
       case 'new':
         filtered = filtered.filter(
-          u => u.visitedAt && new Date() - new Date(u.visitedAt) < 48 * 3600000,
+          u => u.likedAt && new Date() - new Date(u.likedAt) < 48 * 3600000,
         );
-        break;
-      case 'online':
-        filtered = filtered.filter(u => u.isOnline);
         break;
       case 'nearby':
         filtered = filtered.filter(u => u.lat && u.lng);
+        break;
+      case 'superliked':
+        filtered = filtered.filter(u => u.type === 'superlike');
+        break;
+      case 'mutual':
+        filtered = filtered.filter(u => u.isMatched);
         break;
     }
     if (activeSort === 'online') {
       filtered.sort((a, b) => {
         if (a.isOnline && !b.isOnline) return -1;
         if (!a.isOnline && b.isOnline) return 1;
-        return new Date(b.visitedAt || 0) - new Date(a.visitedAt || 0);
+        return new Date(b.likedAt || 0) - new Date(a.likedAt || 0);
       });
     } else {
       filtered.sort(
-        (a, b) => new Date(b.visitedAt || 0) - new Date(a.visitedAt || 0),
+        (a, b) => new Date(b.likedAt || 0) - new Date(a.likedAt || 0),
       );
     }
     return filtered;
-  }, [visitors, activeFilter, activeSort]);
+  }, [receivedLikes, activeFilter, activeSort]);
 
   // ── New / old separator ─────────────────────────────────────────────────
   const dataWithSep = useMemo(() => {
     const newItems = processedData.filter(
-      u => u.visitedAt && new Date() - new Date(u.visitedAt) < 48 * 3600000,
+      u => u.likedAt && new Date() - new Date(u.likedAt) < 48 * 3600000,
     );
     const oldItems = processedData.filter(
-      u => !u.visitedAt || new Date() - new Date(u.visitedAt) >= 48 * 3600000,
+      u => !u.likedAt || new Date() - new Date(u.likedAt) >= 48 * 3600000,
     );
     const result = [];
     if (newItems.length > 0) {
       result.push({
         _separator: true,
-        _label: `👀 ${newItems.length} New`,
+        _label: `🔥 ${newItems.length} New`,
         _key: 'sep_new',
       });
       result.push(...newItems);
@@ -413,6 +503,50 @@ export default function VisitorsScreen({ navigation }) {
     return result;
   }, [dataWithSep]);
 
+  // ── Handlers ────────────────────────────────────────────────────────────
+  const handleCardPress = useCallback(
+    item => {
+      navigation.navigate('UserProfile', {
+        targetUserId: item.userId,
+        imageUrl: item.image,
+      });
+    },
+    [navigation],
+  );
+
+  const handleMessage = useCallback(
+    item => {
+      navigation.navigate('Conversation', {
+        matchId: item.matchId,
+        targetUserId: item.userId,
+        name: item.name,
+        image: item.image,
+      });
+    },
+    [navigation],
+  );
+
+  const handleLikeBack = useCallback(
+    async item => {
+      try {
+        const resp = await apiClient.current.post('/swipe', {
+          likedId: item.userId,
+          type: 'like',
+        });
+        setActionSheetUser(null);
+        if (resp.data.success && resp.data.match) {
+          setMatchedUsers({
+            user1: { name: 'You', age: '', image: currentUserImage },
+            user2: { name: item.name, age: item.age, image: item.image },
+          });
+        }
+      } catch (e) {
+        console.error('[LikeBack]', e.message);
+      }
+    },
+    [currentUserImage],
+  );
+
   // ── Render ───────────────────────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item }) => {
@@ -427,16 +561,30 @@ export default function VisitorsScreen({ navigation }) {
       }
       return (
         <View style={s.row}>
-          <VisitorCard
+          <ProfileCard
             item={item.left}
-            blurred={blurred}
+            blurred={isBlurred}
             onPress={() => handleCardPress(item.left)}
+            onMessage={
+              item.left.isMatched ? () => handleMessage(item.left) : null
+            }
+            onLikeBack={
+              !item.left.isMatched ? () => setActionSheetUser(item.left) : null
+            }
           />
           {item.right ? (
-            <VisitorCard
+            <ProfileCard
               item={item.right}
-              blurred={blurred}
+              blurred={isBlurred}
               onPress={() => handleCardPress(item.right)}
+              onMessage={
+                item.right.isMatched ? () => handleMessage(item.right) : null
+              }
+              onLikeBack={
+                !item.right.isMatched
+                  ? () => setActionSheetUser(item.right)
+                  : null
+              }
             />
           ) : (
             <View style={{ width: CARD_WIDTH }} />
@@ -444,12 +592,12 @@ export default function VisitorsScreen({ navigation }) {
         </View>
       );
     },
-    [blurred, handleCardPress],
+    [isBlurred, handleCardPress, handleMessage],
   );
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F0FFF4" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFF5F7" />
 
       {/* ── Header ── */}
       <View style={s.header}>
@@ -460,22 +608,22 @@ export default function VisitorsScreen({ navigation }) {
         >
           <Text style={s.backIco}>←</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Visitors</Text>
+
+        <Text style={s.headerTitle}>Liked Me</Text>
+
         <ReAnimated.View entering={FadeIn.duration(400)} style={s.countBadge}>
-          <Text style={s.countEmoji}>👀</Text>
+          <Text style={s.countEmoji}>❤️</Text>
           <Text style={s.countNum}>
-            {visitors.length > 99 ? '99+' : visitors.length}
+            {receivedLikes.length > 99 ? '99+' : receivedLikes.length}
           </Text>
-          <Text style={s.countLabel}>views</Text>
+          <Text style={s.countLabel}>likes</Text>
         </ReAnimated.View>
       </View>
 
       {/* ── Filter + Sort ── */}
       <FilterSortBar
         activeFilter={activeFilter}
-        onFilterPress={f => {
-          setActiveFilter(f);
-        }}
+        onFilterPress={setActiveFilter}
         activeSort={activeSort}
         onSortPress={setActiveSort}
       />
@@ -496,11 +644,39 @@ export default function VisitorsScreen({ navigation }) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#22C55E']}
+              colors={['#FF0059']}
             />
           }
         />
       )}
+
+      {/* ── Like-back Sheet ── */}
+      <LikeBackSheet
+        visible={!!actionSheetUser}
+        user={actionSheetUser}
+        onClose={() => setActionSheetUser(null)}
+        onLike={() => handleLikeBack(actionSheetUser)}
+        onPass={() => setActionSheetUser(null)}
+        onViewProfile={() => {
+          setActionSheetUser(null);
+          navigation.navigate('UserProfile', {
+            targetUserId: actionSheetUser.userId,
+            imageUrl: actionSheetUser.image,
+          });
+        }}
+      />
+
+      {/* ── Match Modal ── */}
+      <MatchModal
+        visible={matchedUsers !== null}
+        user1={matchedUsers?.user1}
+        user2={matchedUsers?.user2}
+        onKeepSwiping={() => setMatchedUsers(null)}
+        onLetsChat={() => {
+          setMatchedUsers(null);
+          navigation.navigate('Chat');
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -509,7 +685,7 @@ export default function VisitorsScreen({ navigation }) {
 // STYLES
 // ════════════════════════════════════════════════════════════════════════════
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F0FFF4' },
+  container: { flex: 1, backgroundColor: '#FFF5F7' },
 
   // Header
   header: {
@@ -527,9 +703,9 @@ const s = StyleSheet.create({
     backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#22C55E',
+    shadowColor: '#FF0059',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 3,
   },
@@ -545,20 +721,20 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#FFF1F5',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#BBF7D0',
+    borderColor: '#FECDD3',
   },
-  countEmoji: { fontSize: 13 },
-  countNum: { fontSize: 16, fontWeight: '800', color: '#16A34A' },
-  countLabel: { fontSize: 11, color: '#16A34A', fontWeight: '600' },
+  countEmoji: { fontSize: 11 },
+  countNum: { fontSize: 16, fontWeight: '800', color: '#FF0059' },
+  countLabel: { fontSize: 14, color: '#FF0059', fontWeight: '600' },
 
   // Filter bar
   filterBarWrapper: {
-    backgroundColor: 'rgba(220,252,231,0.6)',
+    backgroundColor: 'rgba(255,228,236,0.5)',
     borderRadius: 20,
     marginHorizontal: 10,
     marginBottom: 8,
@@ -575,10 +751,10 @@ const s = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 20,
     borderWidth: 0.5,
-    borderColor: '#BBF7D0',
+    borderColor: 'pink',
     backgroundColor: 'white',
   },
-  filterChipActive: { backgroundColor: '#22C55E', borderColor: '#16A34A' },
+  filterChipActive: { backgroundColor: '#FF0059', borderColor: '#fc86ab' },
   sortChip: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -617,8 +793,8 @@ const s = StyleSheet.create({
     marginVertical: 10,
     gap: 8,
   },
-  separatorLine: { flex: 1, height: 1, backgroundColor: '#D1FAE5' },
-  separatorText: { fontSize: 12, fontWeight: '700', color: '#16A34A' },
+  separatorLine: { flex: 1, height: 1, backgroundColor: '#FFE4EC' },
+  separatorText: { fontSize: 12, fontWeight: '700', color: '#FF0059' },
 
   // Card
   card: {
@@ -659,9 +835,20 @@ const s = StyleSheet.create({
     paddingHorizontal: 10,
     paddingBottom: 10,
   },
-  cardName: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  cardName: { fontSize: 13, fontWeight: '700', color: '#fff', flex: 1 },
   cardActive: { fontSize: 9, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
-  visitedAtText: { fontSize: 9, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
+  likeBackHint: {
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: 2,
+    fontWeight: '500',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+  },
 
   // Online
   onlineRow: {
@@ -680,7 +867,7 @@ const s = StyleSheet.create({
   },
   onlineText: { fontSize: 11, fontWeight: '700', color: '#22C55E' },
 
-  // Blurred
+  // Blurred state
   glassOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15,10,20,0.25)',
@@ -708,6 +895,97 @@ const s = StyleSheet.create({
   },
   blurredAge: { fontSize: 14, fontWeight: '700', color: '#fff' },
   blurredStatus: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  verifiedBadge: { fontSize: 14, color: '#3B82F6' },
+
+  // Badges
+  superlikeBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.6)',
+  },
+  mutualBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(139,92,246,0.85)',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  badgeText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+
+  // Match CTA
+  messageCta: {
+    position: 'absolute',
+    bottom: 38,
+    right: 8,
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#FF0059',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  messageCtaGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    gap: 4,
+  },
+  messageCtaIcon: { width: 13, height: 13, tintColor: '#fff' },
+  messageCtaText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+
+  // Action Sheet
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  actionSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 40,
+    alignItems: 'center',
+  },
+  sheetImage: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  sheetName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  sheetGoals: { fontSize: 13, color: '#94A3B8', marginBottom: 20 },
+  sheetActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    marginBottom: 16,
+  },
+  sheetPassBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  sheetPassText: { fontSize: 15, fontWeight: '700', color: '#64748B' },
+  sheetLikeBtn: { flex: 1, borderRadius: 14, overflow: 'hidden' },
+  sheetLikeGradient: { paddingVertical: 14, alignItems: 'center' },
+  sheetLikeText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  sheetViewProfile: { paddingVertical: 8 },
+  sheetViewProfileText: { fontSize: 13, color: '#FF0059', fontWeight: '600' },
 
   // Empty
   emptyState: {

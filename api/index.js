@@ -922,6 +922,27 @@ app.post('/resend-reset-code', async (req, res) => {
   }
 });
 
+// Existing routes ke saath add karo
+// app.post('/auth/signout', authenticate, async (req, res) => {
+//   try {
+//     const { userId } = req.user;
+//     await docClient.send(
+//       new UpdateCommand({
+//         TableName: 'Users',
+//         Key: { userId },
+//         UpdateExpression: 'SET isOnline = :f, lastActiveAt = :t',
+//         ExpressionAttributeValues: {
+//           ':f': false,
+//           ':t': new Date().toISOString(),
+//         },
+//       }),
+//     );
+//     return res.status(200).json({ success: true });
+//   } catch (err) {
+//     return res.status(200).json({ success: true });
+//   }
+// });
+
 const googleClient = new OAuth2Client();
 const USER_POOL_ID = 'ap-south-1_GXlmQsjSF'; // flamedevapp pool id
 

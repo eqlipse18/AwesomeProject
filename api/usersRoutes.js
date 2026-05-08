@@ -153,21 +153,35 @@ router.get('/profile-visitors', authenticate, async (req, res) => {
     const { userId } = req.user;
     const { limit = 50 } = req.query;
 
+    // ✅ Premium check add karo
+    const subResponse = await docClient.send(
+      new GetCommand({
+        TableName: 'Subscriptions',
+        Key: { userId },
+        ProjectionExpression: 'isActive',
+      }),
+    );
+    const isPremium = subResponse.Item?.isActive || false;
+
     const visitorsResp = await docClient.send(
       new QueryCommand({
         TableName: 'ProfileVisitors',
         KeyConditionExpression: 'visitedId = :userId',
         ExpressionAttributeValues: { ':userId': userId },
         Limit: parseInt(limit, 10),
-        ScanIndexForward: false, // newest first
+        ScanIndexForward: false,
         ProjectionExpression: 'visitorId, visitedAt',
       }),
     );
 
     if (!visitorsResp.Items?.length)
-      return res.status(200).json({ success: true, visitors: [], total: 0 });
+      return res.status(200).json({
+        success: true,
+        visitors: [],
+        total: 0,
+        blurred: !isPremium, // ← ADD
+      });
 
-    // Dedupe — ek user ke multiple visits mein sirf latest rakho
     const latestVisitMap = {};
     visitorsResp.Items.forEach(item => {
       if (
@@ -180,7 +194,6 @@ router.get('/profile-visitors', authenticate, async (req, res) => {
 
     const uniqueVisitorIds = Object.keys(latestVisitMap);
 
-    // BatchGet visitor profiles
     const usersResp = await docClient.send(
       new BatchGetCommand({
         RequestItems: {
@@ -195,17 +208,16 @@ router.get('/profile-visitors', authenticate, async (req, res) => {
 
     const users = usersResp.Responses?.Users || [];
 
-    // Sort by visitedAt newest first
     const sorted = users
       .map(u => ({
         userId: u.userId,
-        name: u.firstName,
-        age: u.ageForSort,
-        image: u.imageUrls?.[0] || null,
-        hometown: u.hometown || null,
-        isOnline: u.isOnline || false,
-        lastActiveAt: u.lastActiveAt || null,
-        goals: u.goals || null,
+        name: isPremium ? u.firstName : null, // ← premium gate
+        age: u.ageForSort || null, // ← sabko visible
+        image: u.imageUrls?.[0] || null, // ← blur frontend pe
+        hometown: isPremium ? u.hometown : null,
+        isOnline: u.isOnline || false, // ← sabko visible
+        lastActiveAt: u.lastActiveAt || null, // ← sabko visible
+        goals: isPremium ? u.goals : null,
         visitedAt: latestVisitMap[u.userId]?.visitedAt || null,
       }))
       .sort((a, b) => new Date(b.visitedAt) - new Date(a.visitedAt));
@@ -214,12 +226,111 @@ router.get('/profile-visitors', authenticate, async (req, res) => {
       success: true,
       visitors: sorted,
       total: sorted.length,
+      blurred: !isPremium, // ← ADD
     });
   } catch (error) {
     console.error('[/profile-visitors] Error:', error);
     return res
       .status(500)
       .json({ success: false, error: 'Failed to fetch visitors' });
+  }
+});
+
+// ── PATCH /user-profile ────────────────────────────────────────────────────
+router.patch('/user-profile', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { firstName, bio, hometown, job, company, education, height } =
+      req.body;
+
+    const expressions = [];
+    const names = {};
+    const values = { ':updatedAt': new Date().toISOString() };
+
+    const addField = (key, val, attrName) => {
+      if (val === undefined) return;
+      const placeholder = `:${key}`;
+      const namePlaceholder = `#${key}`;
+      expressions.push(`${namePlaceholder} = ${placeholder}`);
+      names[namePlaceholder] = attrName || key;
+      values[placeholder] = val;
+    };
+
+    addField('firstName', firstName, 'firstName');
+    addField('bio', bio, 'bio');
+    addField('hometown', hometown, 'hometown');
+    addField('job', job, 'job');
+    addField('company', company, 'company');
+    addField('education', education, 'education');
+    addField('height', height, 'height');
+
+    if (expressions.length === 0)
+      return res
+        .status(400)
+        .json({ success: false, error: 'No fields to update' });
+
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'Users',
+        Key: { userId },
+        UpdateExpression: `SET ${expressions.join(
+          ', ',
+        )}, updatedAt = :updatedAt`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }),
+    );
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[PATCH /user-profile]', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /auth/signout ─────────────────────────────────────────────────────
+router.post('/auth/signout', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+
+    // Update online status to false
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'Users',
+        Key: { userId },
+        UpdateExpression: 'SET isOnline = :f, lastActiveAt = :t',
+        ExpressionAttributeValues: {
+          ':f': false,
+          ':t': new Date().toISOString(),
+        },
+      }),
+    );
+
+    // Optional: invalidate token in DB (if you store tokens)
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('[POST /auth/signout]', err.message);
+    return res.status(200).json({ success: true }); // Always succeed signout
+  }
+});
+
+// ── GET /users/visitors/count ──────────────────────────────────────────────
+router.get('/users/visitors/count', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const resp = await docClient.send(
+      new QueryCommand({
+        TableName: 'flame-Visitors',
+        IndexName: 'visitedId-index',
+        KeyConditionExpression: 'visitedId = :uid',
+        ExpressionAttributeValues: { ':uid': userId },
+        Select: 'COUNT',
+      }),
+    );
+    return res.status(200).json({ success: true, count: resp.Count || 0 });
+  } catch (err) {
+    return res.status(200).json({ success: true, count: 0 });
   }
 });
 

@@ -296,7 +296,15 @@ export default function ProfileScreen({ navigation }) {
           {/* Avatar + info */}
           <View style={s.avatarSection}>
             <TouchableOpacity
-              onPress={() => navigation.navigate('EditProfile')}
+              onPress={() =>
+                navigation.navigate('UserProfile', {
+                  targetUserId: userId, // apna userId
+                  userId: userId,
+                  imageUrl: avatar,
+                  isOwnProfile: true,
+                  // coords not needed for own profile
+                })
+              }
               activeOpacity={0.9}
               style={s.avatarWrap}
             >
@@ -359,7 +367,7 @@ export default function ProfileScreen({ navigation }) {
               title="See Who Likes Me"
               sub={`${likeCount} people like you`}
               count={likeCount}
-              onPress={() => navigation.navigate('Like')}
+              onPress={() => navigation.navigate('likedme')}
               entering={FadeInDown.delay(100).duration(300)}
             />
             <View style={s.rowDiv} />

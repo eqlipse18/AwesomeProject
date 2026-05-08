@@ -28,6 +28,7 @@ import {
   Image,
   Pressable,
   Platform,
+  DeviceEventEmitter,
 } from 'react-native';
 import { LinearGradient } from 'react-native-linear-gradient';
 import LottieView from 'lottie-react-native';
@@ -733,19 +734,81 @@ export default function HomeScreen({ navigation }) {
     }
   }, [swipeStack, cardFadeInOpacity]);
 
+  // ── 1. loadFilters function — reusable ────────────────────────────────────
+  const loadFilters = useCallback(async () => {
+    try {
+      const resp = await apiClient.current.get('/filter-preferences');
+      if (resp.data.success) {
+        const saved = resp.data.filters;
+        setActiveFilters(saved);
+        setCurrentCity(resp.data.city || '');
+        const isDifferent =
+          JSON.stringify(saved) !== JSON.stringify(DEFAULT_FILTERS);
+        if (isDifferent) {
+          swipeStack.updateFilters(saved);
+          setStackKey(k => k + 1); // refresh cards with new filter
+        }
+      }
+    } catch (e) {
+      console.warn('[HomeScreen] loadFilters:', e.message);
+    }
+  }, [swipeStack]);
+
+  // ── 2. Replace existing filter useEffect with this ────────────────────────
+  useEffect(() => {
+    if (!token) return;
+    loadFilters();
+  }, [token]); // ← mount pe ek baar
+
+  // ── 3. DeviceEventEmitter — settings se filter update aaye toh ───────────
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('filter_updated', () => {
+      loadFilters().then(() => {
+        setSeenAll(false);
+        cardFadeInOpacity.value = 0;
+        setStackKey(k => k + 1);
+      });
+    });
+    return () => sub.remove();
+  }, [loadFilters, cardFadeInOpacity]);
+
+  // ── 4. handleFilterApply — ageRange fix ──────────────────────────────────
   const handleFilterApply = useCallback(
     filters => {
-      setActiveFilters(filters);
+      // FeedFilterModal sends ageRange array — convert to ageMin/ageMax for local state
+      const normalized = {
+        ...filters,
+        ageMin: filters.ageRange?.[0] ?? filters.ageMin ?? 18,
+        ageMax: filters.ageRange?.[1] ?? filters.ageMax ?? 50,
+      };
+
+      setActiveFilters(normalized);
       setSeenAll(false);
       cardFadeInOpacity.value = 0;
-      swipeStack.updateFilters(filters);
+      swipeStack.updateFilters(normalized);
+      setStackKey(k => k + 1);
 
-      // ✅ null values strip karo before sending to backend
-      const cleanFilters = Object.fromEntries(
-        Object.entries(filters).filter(([_, v]) => v !== null),
+      // Backend mein save karo — ageRange array format mein
+      const payload = {
+        ageRange: [normalized.ageMin, normalized.ageMax],
+        distance: filters.distance,
+        expandSearch: filters.expandSearch,
+        showMe: filters.showMe,
+        goals: filters.goals,
+        verifiedOnly: filters.verifiedOnly,
+        selectedCity: filters.selectedCity,
+        customLat: filters.customLat,
+        customLng: filters.customLng,
+      };
+
+      // null values strip karo
+      const clean = Object.fromEntries(
+        Object.entries(payload).filter(([_, v]) => v !== null),
       );
+
       apiClient.current
-        .patch('/filter-preferences', cleanFilters)
+        .patch('/filter-preferences', clean)
+        .then(() => DeviceEventEmitter.emit('filter_updated')) // ← sibling screens ko batao
         .catch(console.error);
     },
     [swipeStack, cardFadeInOpacity],

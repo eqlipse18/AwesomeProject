@@ -130,7 +130,7 @@ router.patch('/filter-preferences', authenticate, async (req, res) => {
         .json({ success: false, error: 'goals must be an array' });
     }
 
-    // ── Build updates map ──
+    // filterRoutes.js PATCH — updates block mein yeh add karo
     const updates = {};
     if (ageRange !== undefined) {
       updates.ageMin = ageRange[0];
@@ -138,20 +138,12 @@ router.patch('/filter-preferences', authenticate, async (req, res) => {
     }
     if (distance !== undefined) updates.distance = distance;
     if (expandSearch !== undefined) updates.expandSearch = expandSearch;
-    if (
-      showMe !== undefined &&
-      showMe !== null &&
-      !['Women', 'Men', 'Everyone'].includes(showMe)
-    ) {
-      return res
-        .status(400)
-        .json({ success: false, error: 'Invalid showMe value' });
-    }
-    // if (goals !== undefined) updates.goals = goals;
-    if (selectedCity !== undefined) updates.selectedCity = selectedCity; // { name, lat, lng } | null
+    if (showMe !== undefined && showMe !== null) updates.showMe = showMe; // ← ADD
+    if (goals !== undefined) updates.goals = goals; // ← UNCOMMENT
+    if (verifiedOnly !== undefined) updates.verifiedOnly = verifiedOnly;
+    if (selectedCity !== undefined) updates.selectedCity = selectedCity;
     if (customLat !== undefined) updates.customLat = customLat;
     if (customLng !== undefined) updates.customLng = customLng;
-    if (verifiedOnly !== undefined) updates.verifiedOnly = verifiedOnly;
 
     if (Object.keys(updates).length === 0) {
       return res
