@@ -26,6 +26,7 @@ import {
   ActivityIndicator,
   Platform,
   ImageBackground,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'react-native-linear-gradient';
@@ -41,6 +42,10 @@ import { useMyLocation } from '../LocationContext';
 import { useDailyFeed } from '../src/hooks/useDailyFeedHook';
 import { getLocationDisplay } from '../utils/locationUtils';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
+import axios from 'axios';
+import Config from 'react-native-config';
+import { useFocusEffect } from '@react-navigation/native';
+const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 const _cardWidth = SCREEN_WIDTH * 0.76;
@@ -137,13 +142,44 @@ const BackdropPhoto = ({ uri, index, scrollX }) => {
 // PROFILE CARD
 // ════════════════════════════════════════════════════════════════════════════
 
-const ProfileCard = ({ item, index, scrollX }) => {
+const ProfileCard = ({ item, index, scrollX, token, navigation }) => {
   const myLocation = useMyLocation();
+  const [actionState, setActionState] = useState(
+    item.isMatched ? 'matched' : 'idle',
+  ); // 'idle' | 'likedBack' | 'matched'
+  const [acting, setActing] = useState(false);
 
   const locationDisplay = useMemo(
     () => getLocationDisplay(myLocation, item),
     [myLocation, item],
   );
+
+  const handleLikeBack = useCallback(async () => {
+    if (acting || actionState !== 'idle') return;
+    setActing(true);
+    try {
+      const resp = await axios.post(
+        `${API_BASE_URL}/swipe`,
+        { likedId: item.userId, type: 'like' },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (resp.data.match) setActionState('matched');
+      else setActionState('likedBack');
+    } catch (e) {
+      console.error('[DailyCard] likeBack:', e.message);
+    } finally {
+      setActing(false);
+    }
+  }, [acting, actionState, item.userId, token]);
+
+  const handleChat = useCallback(() => {
+    navigation.navigate('Conversation', {
+      matchId: item.matchId,
+      targetUserId: item.userId,
+      name: item.name,
+      image: item.image,
+    });
+  }, [item, navigation]);
 
   const cardStyle = useAnimatedStyle(() => {
     const scale = interpolate(
@@ -202,20 +238,47 @@ const ProfileCard = ({ item, index, scrollX }) => {
 
       <View style={styles.cardInfo}>
         <TagBadge tag={item.tag} />
+
         <View style={styles.nameRow}>
           <Text style={styles.cardName}>{item.name}</Text>
           {item.age ? <Text style={styles.cardAge}>{item.age}</Text> : null}
         </View>
+
         {locationDisplay ? (
           <Text style={styles.cardLocation} numberOfLines={1}>
             {locationDisplay}
           </Text>
         ) : null}
-        {item.goals ? (
-          <Text style={styles.cardGoals} numberOfLines={2}>
-            {item.goals}
-          </Text>
-        ) : null}
+
+        {/* ── Action Buttons ── */}
+        {actionState === 'matched' && (
+          <TouchableOpacity
+            style={dc.chatBtn}
+            onPress={handleChat}
+            activeOpacity={0.85}
+          >
+            <Text style={dc.chatBtnTxt}>💬 Start Chat</Text>
+          </TouchableOpacity>
+        )}
+
+        {actionState === 'idle' && item.hasLikedMe && (
+          <TouchableOpacity
+            style={[dc.likeBackBtn, acting && dc.btnDisabled]}
+            onPress={handleLikeBack}
+            disabled={acting}
+            activeOpacity={0.85}
+          >
+            <Text style={dc.likeBackTxt}>
+              {acting ? '⏳ Liking...' : '❤️ Like Back'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {actionState === 'likedBack' && (
+          <View style={dc.likedBackConfirm}>
+            <Text style={dc.likedBackTxt}>✓ Liked!</Text>
+          </View>
+        )}
       </View>
     </Animated.View>
   );
@@ -306,9 +369,24 @@ const EndCard = ({ index, scrollX, lastImage, onScrollBack }) => {
 
 export default function DailyScreen({ navigation }) {
   const { token } = useContext(AuthContext);
-  const { profiles, unseenCount, loading, error, markSeen } = useDailyFeed({
-    token,
-  });
+  const { profiles, unseenCount, loading, error, markSeen, refetch } =
+    useDailyFeed({
+      token,
+    });
+
+  useFocusEffect(
+    useCallback(() => {
+      // Focus pe fresh status check — profiles reload karo
+      refetch?.();
+    }, [refetch]),
+  );
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('user_liked', () => {
+      refetch?.();
+    });
+    return () => sub.remove();
+  }, [refetch]);
 
   const scrollX = useSharedValue(0);
   const flatListRef = useRef(null);
@@ -475,7 +553,13 @@ export default function DailyScreen({ navigation }) {
                   });
                 }}
               >
-                <ProfileCard item={item} index={index} scrollX={scrollX} />
+                <ProfileCard
+                  item={item}
+                  index={index}
+                  scrollX={scrollX}
+                  token={token} // ← ADD
+                  navigation={navigation} // ← ADD
+                />
               </TouchableOpacity>
             );
           }}
@@ -712,4 +796,36 @@ const styles = StyleSheet.create({
 
   footer: { paddingVertical: 12, alignItems: 'center' },
   footerText: { color: 'rgba(255,255,255,0.25)', fontSize: 11 },
+});
+const dc = StyleSheet.create({
+  chatBtn: {
+    backgroundColor: '#FF0059',
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  chatBtnTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  likeBackBtn: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  likeBackTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  likedBackConfirm: {
+    backgroundColor: 'rgba(34,197,94,0.25)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  likedBackTxt: { color: '#22C55E', fontSize: 13, fontWeight: '700' },
+  btnDisabled: { opacity: 0.5 },
 });

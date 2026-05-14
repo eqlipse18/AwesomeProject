@@ -26,6 +26,7 @@ import {
   Modal,
   FlatList,
   InteractionManager,
+  DeviceEventEmitter,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'react-native-linear-gradient';
@@ -45,6 +46,7 @@ import { useMyLocation } from '../LocationContext';
 import { formatLastActive } from '../src/hooks/useOnlineStatus';
 import { getLocationDisplay } from '../utils/locationUtils';
 import { useRequests } from '../src/hooks/useRequests';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width: W, height: H } = Dimensions.get('screen');
 const IMAGE_HEIGHT = H * 0.52;
@@ -182,6 +184,8 @@ export default function UserProfileScreen({ navigation, route }) {
     targetUserId,
     isOwnProfile = false,
     imageUrl: transitionImageUrl,
+    name: routeName = '', // ← ADD
+    image: routeImage = null,
     targetLat = null,
     targetLng = null,
     targetHometown = null,
@@ -205,6 +209,10 @@ export default function UserProfileScreen({ navigation, route }) {
   const [dataReady, setDataReady] = useState(false);
   const [reqState, setReqState] = useState('idle');
 
+  const displayName = profile?.firstName || routeName || 'User';
+  const displayImage =
+    profile?.imageUrls?.[0] || routeImage || transitionImageUrl || null;
+
   const scrollY = useSharedValue(0);
   const apiClient = useRef(createApiClient(token));
   const heroX = useSharedValue(originX);
@@ -214,6 +222,16 @@ export default function UserProfileScreen({ navigation, route }) {
   const heroBR = useSharedValue(20);
   const contentOpacity = useSharedValue(0);
   const bgOpacity = useSharedValue(0);
+
+  const [profileStatus, setProfileStatus] = useState({
+    iLiked: false,
+    iSuperliked: false,
+    hasLikedMe: false,
+    hasSuperlikedMe: false,
+    isMatched: false,
+    matchId: null,
+  });
+  const [statusLoaded, setStatusLoaded] = useState(false);
 
   useEffect(() => {
     const inter = InteractionManager.runAfterInteractions(() => {
@@ -247,6 +265,21 @@ export default function UserProfileScreen({ navigation, route }) {
       }
     })();
   }, [targetUserId]);
+
+  // ── Fetch status — after existing fetchProfile useEffect ──────────────────
+  useEffect(() => {
+    if (!profileUserId || isOwnProfile) {
+      setStatusLoaded(true);
+      return;
+    }
+    apiClient.current
+      .get(`/check-status/${profileUserId}`)
+      .then(r => {
+        if (r.data.success) setProfileStatus(r.data);
+      })
+      .catch(e => console.warn('[UserProfile] checkStatus:', e.message))
+      .finally(() => setStatusLoaded(true));
+  }, [profileUserId, isOwnProfile]);
 
   const locationDisplay = useMemo(() => {
     return getLocationDisplay(myLocation, {
@@ -358,6 +391,38 @@ export default function UserProfileScreen({ navigation, route }) {
     );
   }
 
+  const fetchStatus = useCallback(() => {
+    if (!profileUserId || isOwnProfile) {
+      setStatusLoaded(true);
+      return;
+    }
+    apiClient.current
+      .get(`/check-status/${profileUserId}`)
+      .then(r => {
+        if (r.data.success) setProfileStatus(r.data);
+      })
+      .catch(e => console.warn('[UserProfile] checkStatus:', e.message))
+      .finally(() => setStatusLoaded(true));
+  }, [profileUserId, isOwnProfile]);
+
+  // Focus pe refetch
+  useFocusEffect(
+    useCallback(() => {
+      fetchStatus();
+    }, [fetchStatus]),
+  );
+
+  // HomeScreen se like aaya → refetch
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      'user_liked',
+      ({ likedUserId }) => {
+        if (likedUserId === profileUserId) fetchStatus();
+      },
+    );
+    return () => sub.remove();
+  }, [profileUserId, fetchStatus]);
+
   const allImages = profile?.imageUrls || [];
   const primaryImage = allImages[0] || transitionImageUrl;
   const age = profile?.ageForSort || profile?.age;
@@ -439,57 +504,93 @@ export default function UserProfileScreen({ navigation, route }) {
           ) : (
             <>
               {/* ── Action Buttons ── */}
-              {!isOwnProfile && (
+              {!isOwnProfile && statusLoaded && (
                 <View style={s.actionRow}>
-                  <TouchableOpacity
-                    style={[s.likeBtn, actionDone === 'liked' && s.likeBtnDone]}
-                    onPress={handleLike}
-                    disabled={!!actionDone || actionLoading}
-                    activeOpacity={0.85}
-                  >
-                    <LinearGradient
-                      colors={
-                        actionDone === 'liked'
-                          ? ['#10B981', '#059669']
-                          : ['#FF0059', '#FF5289']
+                  {profileStatus.isMatched ? (
+                    // Matched → Chat
+                    <TouchableOpacity
+                      style={[
+                        s.actionBtn,
+                        { backgroundColor: '#22C55E', flex: 1 },
+                      ]}
+                      onPress={() =>
+                        navigation.navigate('Conversation', {
+                          matchId: profileStatus.matchId,
+                          targetUserId: profileUserId,
+                          name: displayName,
+                          image: displayImage,
+                        })
                       }
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={s.likeBtnGradient}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={s.actionBtnIcon}>💬</Text>
+                      <Text style={s.actionBtnText}>Start Chat</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    // Normal Like OR Like Back — dono same button, label alag
+                    <TouchableOpacity
+                      style={[
+                        s.actionBtn,
+                        s.likeBtn,
+                        { flex: 1 },
+                        actionDone === 'liked' && s.actionBtnDone,
+                      ]}
+                      onPress={handleLike}
+                      disabled={!!actionDone || actionLoading}
+                      activeOpacity={0.85}
                     >
                       {actionLoading ? (
                         <ActivityIndicator size="small" color="#fff" />
                       ) : (
                         <>
                           <Text style={s.actionBtnIcon}>
-                            {actionDone === 'liked' ? '✓' : '🔥'}
+                            {actionDone === 'liked'
+                              ? '✓'
+                              : profileStatus.hasLikedMe
+                              ? '❤️'
+                              : '🔥'}{' '}
                           </Text>
                           <Text style={s.actionBtnText}>
-                            {actionDone === 'liked' ? 'Liked!' : 'Like Profile'}
+                            {actionDone === 'liked'
+                              ? 'Liked!'
+                              : profileStatus.hasLikedMe
+                              ? 'Like Back' // ← only when they liked
+                              : 'Like Profile'}
                           </Text>
                         </>
                       )}
-                    </LinearGradient>
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                  )}
 
-                  <TouchableOpacity
-                    style={[
-                      s.requestBtn,
-                      reqState === 'sent' && s.requestBtnSent,
-                      reqState === 'sending' && s.requestBtnLoading,
-                      reqState === 'error' && s.requestBtnError,
-                    ]}
-                    onPress={handleSendRequest}
-                    disabled={reqState !== 'idle'}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={s.requestBtnTxt}>
-                      {reqState === 'idle' && '💌 Send Message Request'}
-                      {reqState === 'sending' && '⏳ Sending...'}
-                      {reqState === 'sent' && '✓ Request Sent'}
-                      {reqState === 'error' && '✕ Failed, try again'}
-                    </Text>
-                  </TouchableOpacity>
+                  {/* Message Request — sirf tab jab matched nahi ──────────────────── */}
+                  {!profileStatus.isMatched && (
+                    <TouchableOpacity
+                      style={[
+                        s.requestBtn,
+                        reqState === 'sent' && s.requestBtnSent,
+                        reqState === 'sending' && s.requestBtnLoading,
+                        reqState === 'error' && s.requestBtnError,
+                      ]}
+                      onPress={handleSendRequest}
+                      disabled={reqState !== 'idle'}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={s.requestBtnTxt}>
+                        {reqState === 'idle' && '💌 Request'}
+                        {reqState === 'sending' && '⏳'}
+                        {reqState === 'sent' && '✓ Sent'}
+                        {reqState === 'error' && '✕'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {!isOwnProfile && profileStatus.hasSuperlikedMe && (
+                <View style={s.superlikedBanner}>
+                  <Text style={s.superlikedBannerTxt}>
+                    ⭐ This person superliked you!
+                  </Text>
                 </View>
               )}
 
@@ -719,34 +820,132 @@ const s = StyleSheet.create({
   },
 
   // Action buttons
-  actionRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
-  likeBtn: { flex: 1, borderRadius: 16, overflow: 'hidden' },
-  likeBtnGradient: {
+  // ═══════════ Action buttons ═══════════
+
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 24,
+  },
+
+  actionBtn: {
+    minHeight: 58,
+    borderRadius: 20,
+
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+
+    paddingHorizontal: 18,
     paddingVertical: 14,
+    gap: 8,
+
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
   },
-  likeBtnDone: {},
-  actionBtnIcon: { fontSize: 16 },
-  actionBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+  // Main pink/red CTA
+  likeBtn: {
+    flex: 1,
+    backgroundColor: '#FF2E63',
+
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+
+    overflow: 'hidden',
+  },
+
+  // Already liked state
+  actionBtnDone: {
+    backgroundColor: '#2A2A2A',
+
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+
+    opacity: 0.82,
+  },
+
+  actionBtnIcon: {
+    fontSize: 17,
+    marginTop: -1,
+  },
+
+  actionBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+
+  // ═══════════ Request button ═══════════
 
   requestBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: '#FFF1F5',
+    minHeight: 58,
+    borderRadius: 20,
+    backgroundColor: '#FFF',
     borderWidth: 1.5,
-    borderColor: '#FECDD3',
+    borderColor: '#FFD6E2',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  requestBtnSent: { backgroundColor: '#DCFCE7', borderColor: '#BBF7D0' },
-  requestBtnLoading: { backgroundColor: '#FEF9C3', borderColor: '#FDE047' },
-  requestBtnError: { backgroundColor: '#FEE2E2', borderColor: '#FECACA' },
-  requestBtnTxt: { fontSize: 13, fontWeight: '700', color: '#FF0059' },
 
+  requestBtnTxt: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FF2E63',
+    letterSpacing: 0.2,
+  },
+
+  requestBtnSent: {
+    backgroundColor: '#ECFDF3',
+    borderColor: '#BBF7D0',
+  },
+
+  requestBtnLoading: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+
+  requestBtnError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+
+  // ═══════════ Superliked banner ═══════════
+
+  superlikedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+
+    backgroundColor: 'rgba(255,215,0,0.10)',
+
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.28)',
+
+    borderRadius: 16,
+
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+
+    marginBottom: 18,
+  },
+
+  superlikedBannerTxt: {
+    color: '#E6B800',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
   editOwnBtn: {
     flexDirection: 'row',
     alignItems: 'center',
