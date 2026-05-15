@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -17,15 +17,15 @@ import Animated, {
   runOnJS,
   FadeIn,
   FadeOut,
+  FadeInDown,
   Easing,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { DeliveryStatus } from './DeliveryStatus';
-import { VoiceMessageBubble } from './VoiceMessageBubble';
 
 const BIG_R = 20,
   SML_R = 5;
-const MAX_W = '80%';
+const MAX_W = '82%'; // ← slightly wider since we removed edge padding
 const REPLY_TRIGGER = 40;
 const MAX_DRAG = 80;
 
@@ -40,7 +40,6 @@ const fmt = ts =>
 // ── Reply quote ───────────────────────────────────────────────────────────────
 const ReplyQuote = ({ replyTo, isOwn, onPress }) => {
   if (!replyTo?.messageId) return null;
-
   const preview =
     replyTo.type === 'image'
       ? '📷 Photo'
@@ -49,7 +48,6 @@ const ReplyQuote = ({ replyTo, isOwn, onPress }) => {
       : replyTo.type === 'deleted'
       ? '🚫 Deleted'
       : (replyTo.content || '').slice(0, 90);
-
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
       <View style={[q.wrap, isOwn ? q.own : q.other]}>
@@ -81,7 +79,7 @@ const q = StyleSheet.create({
     minHeight: 38,
   },
   own: { backgroundColor: '#ff6a9e94' },
-  other: { backgroundColor: 'rgba(255, 0, 0, 0.06)' },
+  other: { backgroundColor: 'rgba(255,0,0,0.06)' },
   accent: { width: 2, flexShrink: 0 },
   accentOwn: { backgroundColor: '#FF0059' },
   accentOther: { backgroundColor: '#FF0059' },
@@ -89,12 +87,12 @@ const q = StyleSheet.create({
   sender: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
   senderOwn: { color: 'rgba(255,255,255,0.9)' },
   senderOther: { color: '#FF0059' },
-  txt: { fontSize: 12, lineHeight: 17, color: '#0F172A' },
-  txtOwn: { color: 'rgba(255, 255, 255, 0.95)' },
+  txt: { fontSize: 12, lineHeight: 17 },
+  txtOwn: { color: 'rgba(255,255,255,0.95)' },
   txtOther: { color: '#ff0099' },
 });
 
-// ── Reaction tip ──────────────────────────────────────────────────────────────
+// ── Reaction tip ─────────────────────────────────────────────────────────────
 const RxTip = ({ reactions, isOwn, onPress }) => {
   if (!reactions || !Object.keys(reactions).length) return null;
   const emojis = [...new Set(Object.values(reactions))].slice(0, 3).join('');
@@ -144,7 +142,7 @@ export const MessageBubble = React.memo(
     isOwn,
     first,
     last,
-    isLast, // ← NEW: true only for index===0 in inverted list (newest msg)
+    isLast,
     reactions,
     myUserId,
     otherImage,
@@ -165,38 +163,15 @@ export const MessageBubble = React.memo(
     const hasReactions = reactions && Object.keys(reactions).length > 0;
     const [showOriginal, setShowOriginal] = useState(false);
     const containerRef = useRef(null);
-    const isVoice = message.type === 'audio';
 
     // ── Animation guard ───────────────────────────────────────────────────
-    // hasAnimated prevents re-animating on re-renders (status update, edit, etc.)
+    // ✅ FIX: isTemp messages skip entry animation — they get replaced by real
+    // message which would cause double animation (temp mount → real remount)
     const hasAnimated = useRef(false);
-    const isNewMessage = isLast && !hasAnimated.current;
+    const isNewMessage = isLast && !hasAnimated.current && !message.isTemp;
+    if (isNewMessage) hasAnimated.current = true;
 
-    // Own messages slide slightly faster — feels more immediate
     const duration = isOwn ? 180 : 220;
-
-    // ── Entry animation ───────────────────────────────────────────────────
-    // New messages  → start from (opacity:0, y:12), animate in
-    // Old messages  → start at final state, no animation
-    const entryOpacity = useSharedValue(isNewMessage ? 0 : 1);
-    const entryY = useSharedValue(isNewMessage ? 12 : 0);
-
-    useEffect(() => {
-      if (isNewMessage) {
-        entryOpacity.value = withTiming(1, { duration, delay: 20 });
-        entryY.value = withTiming(0, {
-          duration,
-          delay: 20,
-          easing: Easing.out(Easing.cubic),
-        });
-        hasAnimated.current = true; // lock — never animates again for this instance
-      }
-    }, [isNewMessage]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    const entryStyle = useAnimatedStyle(() => ({
-      transform: [{ translateY: entryY.value }],
-      opacity: entryOpacity.value,
-    }));
 
     // ── Border radii ──────────────────────────────────────────────────────
     const radius = isOwn
@@ -295,19 +270,22 @@ export const MessageBubble = React.memo(
 
     const handleRxTipPress = useCallback(() => {
       containerRef.current?.measureInWindow((x, y, width, height) => {
-        onRxTipPress?.(message, {
-          x: isOwn ? x : x + width,
-          y: y + height,
-        });
+        onRxTipPress?.(message, { x: isOwn ? x : x + width, y: y + height });
       });
     }, [message, isOwn, onRxTipPress]);
 
-    // ── Render ────────────────────────────────────────────────────────────
     return (
       <Animated.View
-        // ✅ Layout transition:
-        //   - New message  → entry animation handles it (no layout anim needed)
-        //   - Old messages → smooth upward shift when new message pushes them up
+        // ✅ New real message → FadeInDown entry
+        // Old messages → smooth layout shift (LinearTransition)
+        // Temp messages → no animation (replaced by real = would double)
+        entering={
+          isNewMessage
+            ? FadeInDown.duration(duration)
+                .easing(Easing.out(Easing.cubic))
+                .delay(10)
+            : undefined
+        }
         layout={
           !isNewMessage
             ? LinearTransition.duration(200).easing(Easing.out(Easing.cubic))
@@ -318,16 +296,8 @@ export const MessageBubble = React.memo(
           isOwn ? s.rowOwn : s.rowOther,
           !first && s.rowGrouped,
           hasReactions && s.rowWithRx,
-          entryStyle,
         ]}
       >
-        {/* Arrow — received */}
-        {!isOwn && (
-          <Animated.View style={[s.arrow, s.arrowLeft, arrowStyle]}>
-            <Text style={s.arrowIco}>↩</Text>
-          </Animated.View>
-        )}
-
         {/* Avatar */}
         {!isOwn && (
           <View style={s.avtSlot}>
@@ -345,9 +315,20 @@ export const MessageBubble = React.memo(
           </View>
         )}
 
-        {/* ── Swipeable col ── */}
+        {/* Swipeable col */}
         <GestureDetector gesture={swipeGesture}>
           <Animated.View style={[s.col, isOwn && s.colOwn, swipeStyle]}>
+            {!isOwn && (
+              <Animated.View style={[s.arrow, s.arrowLeft, arrowStyle]}>
+                <Text style={s.arrowIco}>↩</Text>
+              </Animated.View>
+            )}
+            {isOwn && (
+              <Animated.View style={[s.arrow, s.arrowRight, arrowStyle]}>
+                <Text style={s.arrowIco}>↩</Text>
+              </Animated.View>
+            )}
+
             <Pressable
               ref={containerRef}
               onPress={handlePress}
@@ -371,13 +352,7 @@ export const MessageBubble = React.memo(
                 <ReplyQuote
                   replyTo={message.replyTo}
                   isOwn={isOwn}
-                  onPress={() => {
-                    console.log(
-                      '[DEBUG] ReplyQuote pressed, id:',
-                      message.replyTo.messageId,
-                    );
-                    onPressReplyQuote?.(message.replyTo.messageId);
-                  }}
+                  onPress={() => onPressReplyQuote?.(message.replyTo.messageId)}
                 />
               )}
 
@@ -386,27 +361,6 @@ export const MessageBubble = React.memo(
                 <View style={[s.deletedBubble, radius]}>
                   <Text style={s.deletedTxt}>🚫 This message was deleted</Text>
                 </View>
-              ) : isVoice ? (
-                isOwn ? (
-                  <LinearGradient
-                    colors={['#FF0059', '#FF5289']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[radius, { overflow: 'hidden' }]}
-                  >
-                    <VoiceMessageBubble message={message} isOwn={true} />
-                  </LinearGradient>
-                ) : (
-                  <View
-                    style={[
-                      s.bblOther,
-                      radius,
-                      { padding: 0, overflow: 'hidden' },
-                    ]}
-                  >
-                    <VoiceMessageBubble message={message} isOwn={false} />
-                  </View>
-                )
               ) : isMedia ? (
                 <TouchableOpacity
                   onPress={() => onMediaPress?.(message.content)}
@@ -531,13 +485,6 @@ export const MessageBubble = React.memo(
             )}
           </Animated.View>
         </GestureDetector>
-
-        {/* Arrow — own */}
-        {isOwn && (
-          <Animated.View style={[s.arrow, s.arrowRight, arrowStyle]}>
-            <Text style={s.arrowIco}>↩</Text>
-          </Animated.View>
-        )}
       </Animated.View>
     );
   },
@@ -552,7 +499,7 @@ export const MessageBubble = React.memo(
       prev.isOwn === next.isOwn &&
       prev.first === next.first &&
       prev.last === next.last &&
-      prev.isLast === next.isLast && // ← ADD
+      prev.isLast === next.isLast &&
       prev.isLastOwn === next.isLastOwn &&
       prev.isHighlighted === next.isHighlighted &&
       prev.selectedMsgId === next.selectedMsgId &&
@@ -567,6 +514,8 @@ const s = StyleSheet.create({
     alignItems: 'flex-end',
     marginBottom: 3,
     overflow: 'visible',
+    // ✅ NO paddingHorizontal here — edge padding removed
+    // FlatList's contentContainerStyle handles outer padding
   },
   rowOwn: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
@@ -574,27 +523,28 @@ const s = StyleSheet.create({
   rowWithRx: { marginBottom: 18 },
 
   arrow: {
+    position: 'absolute',
     width: 26,
     height: 26,
     borderRadius: 13,
     backgroundColor: 'rgba(0,0,0,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
-    flexShrink: 0,
+    zIndex: 10,
+    bottom: 0,
   },
-  arrowLeft: { marginRight: 2 },
-  arrowRight: { marginLeft: 2 },
+  arrowLeft: { left: -30 }, // bubble ke left side pe
+  arrowRight: { right: -30 }, // bubble ke right side pe
   arrowIco: { fontSize: 11, color: '#64748B' },
 
   avtSlot: {
-    width: 32,
+    width: 30, // ← slightly smaller to save space
     marginRight: 4,
     alignItems: 'center',
     justifyContent: 'flex-end',
     flexShrink: 0,
   },
-  avt: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F1F5F9' },
+  avt: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#F1F5F9' },
   avtFb: { justifyContent: 'center', alignItems: 'center' },
 
   col: { maxWidth: MAX_W, alignItems: 'flex-start' },
@@ -640,7 +590,7 @@ const s = StyleSheet.create({
   originalTxtOther: { fontSize: 12, color: '#94A3B8', fontStyle: 'italic' },
 
   highlightOverlay: {
-    backgroundColor: 'rgba(0, 251, 255, 0.25)',
+    backgroundColor: 'rgba(0,251,255,0.25)',
     borderRadius: 20,
     zIndex: 10,
   },
