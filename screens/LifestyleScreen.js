@@ -28,6 +28,8 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
+// Import
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 const LifestyleScreen = () => {
   const [drink, setDrink] = useState('');
@@ -103,6 +105,10 @@ const LifestyleScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="LifeStyle" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         // entering={_entering}
         layout={_layout}

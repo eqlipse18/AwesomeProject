@@ -24,6 +24,7 @@ import axios from 'axios';
 import { getRegistrationProgress } from '../utils/registrationUtils';
 import { BASE_URL } from '../urls/url';
 import { AuthContext } from '../AuthContex';
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 const REGISTRATION_SCREENS = [
   'Email',
@@ -157,6 +158,10 @@ const PreFinalScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="Final" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         layout={_layout}
         style={{

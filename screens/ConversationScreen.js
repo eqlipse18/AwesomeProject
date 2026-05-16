@@ -153,7 +153,6 @@ export default function ConversationScreen({ navigation, route }) {
     deleteMessage,
     editMessage,
     cacheLoaded,
-    sendVoice,
     clearChat,
 
     blockUser,
@@ -247,15 +246,6 @@ export default function ConversationScreen({ navigation, route }) {
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
 
   const micOverlayRef = useRef(null);
-
-  const handleSendVoice = useCallback(
-    async (uri, duration, waveform) => {
-      await sendVoice(uri, duration, waveform);
-      flatRef.current?.scrollToOffset({ offset: 0, animated: true });
-      setAtBottom(true);
-    },
-    [sendVoice],
-  );
 
   const typingIntervalRef = useRef(null);
 
@@ -826,14 +816,14 @@ export default function ConversationScreen({ navigation, route }) {
               onAttach={() => setShowAttach(true)}
               onFocusChange={handleFocusChange}
               emitTyping={emitTyping}
-              sending={sending}
               replyingTo={replyingTo}
               onCancelReply={() => setReplyingTo(null)}
               myUserId={userId}
               editingMsg={editingMsg}
               onCancelEdit={() => setEditingMsg(null)}
               onEditSave={handleEditSave}
-              onSendVoice={handleSendVoice}
+              // onSendVoice={handleSendVoice}
+              // sending={sending}
             />
           )}
         </SafeAreaView>

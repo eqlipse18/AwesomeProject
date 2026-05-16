@@ -25,7 +25,7 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
-
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 const NameScreen = () => {
   const [firstName, setFirstName] = React.useState('');
@@ -76,6 +76,10 @@ const NameScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="Name" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         layout={_layout}
         style={{

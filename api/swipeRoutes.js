@@ -385,8 +385,34 @@ router.get('/feed', authenticate, async (req, res) => {
     }
     console.log('[/feed] baseFiltered length:', baseFiltered.length);
 
+    // ── Who superliked current user? ──────────────────────────────────────────
+    let superlikedMeIds = new Set();
+    try {
+      const slResp = await docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Likes',
+          IndexName: 'likedId-index',
+          KeyConditionExpression: 'likedId = :uid',
+          FilterExpression: '#type = :sl',
+          ExpressionAttributeNames: { '#type': 'type' },
+          ExpressionAttributeValues: { ':uid': userId, ':sl': 'superlike' },
+          ProjectionExpression: 'likerId',
+        }),
+      );
+      superlikedMeIds = new Set((slResp.Items || []).map(i => i.likerId));
+    } catch (e) {
+      console.warn('[/feed] superlikedMe fetch failed:', e.message);
+    }
+
+    // ── Priority sort — superlikers first ─────────────────────────────────────
+    const prioritized = [
+      ...filtered.filter(u => superlikedMeIds.has(u.userId)),
+      ...filtered.filter(u => !superlikedMeIds.has(u.userId)),
+    ];
+    const users = prioritized.slice(0, parsedLimit);
+
     // ── Slice to limit ──
-    const users = filtered.slice(0, parsedLimit);
+    // const users = filtered.slice(0, parsedLimit);
 
     // ── Next cursor ──
     const cursorMap = {};
@@ -412,6 +438,7 @@ router.get('/feed', authenticate, async (req, res) => {
       lat: onlineMap[u.userId]?.lat ?? null,
       lng: onlineMap[u.userId]?.lng ?? null,
       isVerified: onlineMap[u.userId]?.isVerified ?? false,
+      superlikedMe: superlikedMeIds.has(u.userId),
     }));
 
     return res.status(200).json({
@@ -628,6 +655,14 @@ router.post('/swipe', authenticate, async (req, res) => {
               lastMessage: '👋 New match!',
               lastMessageAt: now,
             };
+            // ← ADD — notify target user they got a like
+            if (type !== 'pass') {
+              io.to(likedId).emit('liked_by_user', {
+                fromUserId: userId,
+                type,
+              });
+            }
+
             // Dono users ko notify karo
             io.emit(`new_match_${userId}`, matchPayload);
             io.emit(`new_match_${likedId}`, matchPayload);
@@ -858,6 +893,75 @@ router.post('/get-user-by-id', authenticate, async (req, res) => {
     return res
       .status(500)
       .json({ success: false, error: 'Failed to fetch user' });
+  }
+});
+
+// swipeRoutes.js mein — existing routes ke baad add karo
+
+router.get('/check-status/:targetId', authenticate, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { targetId } = req.params;
+
+    if (!targetId)
+      return res
+        .status(400)
+        .json({ success: false, error: 'targetId required' });
+
+    // Parallel fetch — myLike, theirLike, matches
+    const [myLike, theirLike, match1, match2] = await Promise.all([
+      docClient.send(
+        new GetCommand({
+          TableName: 'flame-Likes',
+          Key: { likerId: userId, likedId: targetId },
+          ProjectionExpression: '#t',
+          ExpressionAttributeNames: { '#t': 'type' },
+        }),
+      ),
+      docClient.send(
+        new GetCommand({
+          TableName: 'flame-Likes',
+          Key: { likerId: targetId, likedId: userId },
+          ProjectionExpression: '#t',
+          ExpressionAttributeNames: { '#t': 'type' },
+        }),
+      ),
+      docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Matches',
+          IndexName: 'user1Id-index',
+          KeyConditionExpression: 'user1Id = :uid',
+          FilterExpression: 'user2Id = :tid',
+          ExpressionAttributeValues: { ':uid': userId, ':tid': targetId },
+          Limit: 1,
+        }),
+      ),
+      docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Matches',
+          IndexName: 'user1Id-index',
+          KeyConditionExpression: 'user1Id = :tid',
+          FilterExpression: 'user2Id = :uid',
+          ExpressionAttributeValues: { ':tid': targetId, ':uid': userId },
+          Limit: 1,
+        }),
+      ),
+    ]);
+
+    const matchItem = match1.Items?.[0] || match2.Items?.[0] || null;
+
+    return res.status(200).json({
+      success: true,
+      iLiked: !!myLike.Item,
+      iSuperliked: myLike.Item?.type === 'superlike',
+      hasLikedMe: !!theirLike.Item,
+      hasSuperlikedMe: theirLike.Item?.type === 'superlike',
+      isMatched: !!matchItem,
+      matchId: matchItem?.matchId || null,
+    });
+  } catch (err) {
+    console.error('[GET /check-status]', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

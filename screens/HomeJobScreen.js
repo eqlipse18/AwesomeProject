@@ -31,6 +31,7 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 const HomeJobScreen = () => {
   const navigation = useNavigation();
@@ -112,6 +113,10 @@ const HomeJobScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="HomeJob" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         layout={_layout}
         style={{

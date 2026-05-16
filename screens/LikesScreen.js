@@ -62,6 +62,8 @@ import Footprint from '../assets/SVG/footprint';
 import Redheart from '../assets/SVG/redheart';
 import Staricon from '../assets/SVG/staricon';
 import { useFocusEffect } from '@react-navigation/native';
+import { LikeActionButton } from '../src/components/shared/LikeActionButton';
+import { useLikeStatus } from '../src/hooks/useLikeStatus';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2;

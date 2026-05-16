@@ -285,6 +285,79 @@ router.get('/daily-feed', authenticate, async (req, res) => {
         console.warn('[/daily-feed] Top liked fallback failed:', e.message);
       }
     }
+    // dailyFeedRoutes.js — GET /daily-feed
+    // "── 7. Order" se PEHLE add karo
+
+    // ── Check who has liked back / matched ───────────────────────────────────
+    const allProfileIds = finalProfiles.map(p => p.userId);
+
+    // Who has liked current user?
+    let likedMeIds = new Set();
+    let matchedWithIds = new Set();
+    let matchIdMap = {};
+
+    try {
+      const likedMeResp = await docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Likes',
+          IndexName: 'likedId-index',
+          KeyConditionExpression: 'likedId = :uid',
+          FilterExpression: '#type IN (:like, :superlike)',
+          ExpressionAttributeNames: { '#type': 'type' },
+          ExpressionAttributeValues: {
+            ':uid': userId,
+            ':like': 'like',
+            ':superlike': 'superlike',
+          },
+          ProjectionExpression: 'likerId',
+        }),
+      );
+      likedMeIds = new Set((likedMeResp.Items || []).map(i => i.likerId));
+    } catch (e) {
+      console.warn('[/daily-feed] likedMe fetch:', e.message);
+    }
+
+    try {
+      // Check matches — user1 perspective
+      const m1Resp = await docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Matches',
+          IndexName: 'user1Id-index',
+          KeyConditionExpression: 'user1Id = :uid',
+          ExpressionAttributeValues: { ':uid': userId },
+          ProjectionExpression: 'matchId, user2Id',
+        }),
+      );
+      (m1Resp.Items || []).forEach(m => {
+        matchedWithIds.add(m.user2Id);
+        matchIdMap[m.user2Id] = m.matchId;
+      });
+
+      // user2 perspective
+      const m2Resp = await docClient.send(
+        new QueryCommand({
+          TableName: 'flame-Matches',
+          IndexName: 'user2Id-index',
+          KeyConditionExpression: 'user2Id = :uid',
+          ExpressionAttributeValues: { ':uid': userId },
+          ProjectionExpression: 'matchId, user1Id',
+        }),
+      );
+      (m2Resp.Items || []).forEach(m => {
+        matchedWithIds.add(m.user1Id);
+        matchIdMap[m.user1Id] = m.matchId;
+      });
+    } catch (e) {
+      console.warn('[/daily-feed] matches fetch:', e.message);
+    }
+
+    // ── Enrich profiles with status flags ─────────────────────────────────────
+    finalProfiles = finalProfiles.map(p => ({
+      ...p,
+      hasLikedMe: likedMeIds.has(p.userId),
+      isMatched: matchedWithIds.has(p.userId),
+      matchId: matchIdMap[p.userId] || null,
+    }));
 
     // ── 7. Order: superlike → boost → top_liked (shuffled within groups) ──
     const superlikeGroup = shuffleArray(

@@ -38,9 +38,12 @@ import BlockedConfirmScreen from '../screens/BlockedConfirmScreen';
 import SearchChatsScreen from '../screens/SearchChatsScreen';
 import RequestsScreen from '../screens/RequestsScreen';
 import Likedmescreen from '../screens/Likedmescreen';
-
+import VerifyScreen from '../screens/VerifyScreen';
 import CustomTabBar from './CustomTabBar';
+import { createStackNavigator } from '@react-navigation/stack';
+import { Easing } from 'react-native-reanimated';
 
+const OnboardingStackNav = createStackNavigator();
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 function BottomTabs() {
@@ -131,6 +134,11 @@ function AppStack() {
         component={Likedmescreen}
         options={{ headerShown: false }}
       />
+      <Stack.Screen
+        name="Verify"
+        component={VerifyScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }
@@ -149,9 +157,105 @@ const AuthStack = () => {
   );
 };
 
+// ── Custom transition — smooth slide + fade + slight scale ───────────────────
+const onboardingTransition = {
+  gestureEnabled: true,
+  gestureDirection: 'vertical',
+
+  transitionSpec: {
+    open: {
+      animation: 'spring',
+      config: {
+        stiffness: 160, // 260 → 160 — slower
+        damping: 22, // 26 → 22 — thoda bounce
+        mass: 1.2, // 0.85 → 1.2 — heavier feel
+        overshootClamping: false,
+        restDisplacementThreshold: 0.01,
+        restSpeedThreshold: 0.01,
+      },
+    },
+    close: {
+      animation: 'spring',
+      config: {
+        stiffness: 180, // close thoda faster — natural feel
+        damping: 24,
+        mass: 1.0,
+      },
+    },
+  },
+
+  cardStyleInterpolator: ({ current, next, layouts }) => {
+    const { height } = layouts.screen;
+
+    // Incoming — aur neeche se start karo
+    const translateY = current.progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [height * 0.88, 0], // 0.75 → 0.88 — longer travel
+      extrapolate: 'clamp',
+    });
+
+    const inScale = current.progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.88, 1], // 0.92 → 0.88 — more dramatic entry
+      extrapolate: 'clamp',
+    });
+
+    const inOpacity = current.progress.interpolate({
+      inputRange: [0, 0.35, 1], // fade in thoda late shuru ho
+      outputRange: [0, 0.6, 1],
+      extrapolate: 'clamp',
+    });
+
+    // Outgoing — scale down slower
+    const outScale = next
+      ? next.progress.interpolate({
+          inputRange: [0, 0.6, 1], // extra keyframe — ease out
+          outputRange: [1, 0.94, 0.88],
+          extrapolate: 'clamp',
+        })
+      : undefined;
+
+    const outOpacity = next
+      ? next.progress.interpolate({
+          inputRange: [0, 0.4, 1], // fade out late shuru
+          outputRange: [1, 0.8, 0],
+          extrapolate: 'clamp',
+        })
+      : undefined;
+
+    const outTranslateY = next
+      ? next.progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -55], // -40 → -55 — more lift
+          extrapolate: 'clamp',
+        })
+      : undefined;
+
+    return {
+      cardStyle: {
+        transform: [
+          { translateY: outTranslateY ?? translateY },
+          { scale: outScale ?? inScale },
+        ],
+        opacity: outOpacity ?? inOpacity,
+        borderRadius: current.progress.interpolate({
+          inputRange: [0, 0.7, 1],
+          outputRange: [28, 8, 0], // gradual flatten — smoother
+          extrapolate: 'clamp',
+        }),
+        overflow: 'hidden',
+      },
+    };
+  },
+};
 function OnboardingStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <OnboardingStackNav.Navigator
+      screenOptions={{
+        headerShown: false,
+        ...onboardingTransition,
+      }}
+    >
       <Stack.Screen name="Name" component={NameScreen} />
       <Stack.Screen name="Setup" component={SetupProfileScreen} />
       <Stack.Screen name="Goals" component={GoalsScreen} />
@@ -160,8 +264,40 @@ function OnboardingStack() {
       <Stack.Screen name="Photo" component={PhotoScreen} />
       <Stack.Screen name="Hobby" component={HobbyScreen} />
       <Stack.Screen name="Final" component={PreFinalScreen} />
-      <Stack.Screen name="Home" component={HomeScreen} />
-    </Stack.Navigator>
+      <Stack.Screen
+        name="Home"
+        component={HomeScreen}
+        // Home pe alag transition — feel like "entering the app"
+        options={{
+          cardStyleInterpolator: ({ current }) => ({
+            cardStyle: {
+              opacity: current.progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 1],
+              }),
+              transform: [
+                {
+                  scale: current.progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.96, 1],
+                  }),
+                },
+              ],
+            },
+          }),
+          transitionSpec: {
+            open: {
+              animation: 'timing',
+              config: { duration: 420, easing: Easing.out(Easing.ease) },
+            },
+            close: {
+              animation: 'timing',
+              config: { duration: 300 },
+            },
+          },
+        }}
+      />
+    </OnboardingStackNav.Navigator>
   );
 }
 

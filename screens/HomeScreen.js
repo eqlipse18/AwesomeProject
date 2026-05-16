@@ -62,6 +62,7 @@ import FeedFilterModal from '../src/components/feed/FeedFilterModal';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRequests } from '../src/hooks/useRequests';
+import { emitLikeUpdate } from '../src/hooks/useLikeStatus';
 
 const PremiumModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
@@ -326,14 +327,25 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
           <Text style={styles.fallbackText}>📷</Text>
         </View>
       )}
+
+      {/* ⭐ Superlike badge */}
+      {user.superlikedMe && (
+        <View style={styles.superlikeBadge}>
+          <Text style={styles.superlikeEmoji}>⭐</Text>
+          <Text style={styles.superlikeTxt}>Superliked you</Text>
+        </View>
+      )}
+
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.85)']}
         style={styles.gradient}
       />
+
       <View style={styles.profileInfo}>
         <View style={styles.nameAgeContainer}>
           <Text style={styles.name}>{user.name}</Text>
           <Text style={styles.age}>{user.age}</Text>
+
           {lastActiveText && (
             <View
               style={[
@@ -349,9 +361,11 @@ const ProfileCard = React.memo(({ user, cardFadeInOpacity }) => {
             </View>
           )}
         </View>
+
         {locationDisplay && (
           <Text style={styles.hometown}>{locationDisplay}</Text>
         )}
+
         <Text style={styles.goals} numberOfLines={2} ellipsizeMode="tail">
           {user.goals || 'No goals set'}
         </Text>
@@ -850,6 +864,8 @@ export default function HomeScreen({ navigation }) {
     if (!result.success) setLocalError(result.error || 'Failed to rewind');
   }, [subscription, rewind]);
 
+  // HomeScreen.js
+
   const handleSwipeComplete = useCallback(
     async (direction, user, index) => {
       if (!user || matchedUsers) return;
@@ -863,13 +879,14 @@ export default function HomeScreen({ navigation }) {
         duration: 300,
         easing: Easing.out(Easing.ease),
       });
+
       swipeProgressY.value = withTiming(0, {
         duration: 300,
         easing: Easing.out(Easing.ease),
       });
 
       try {
-        // 🔥 Existing swipe logic — unchanged
+        // 🔥 Existing swipe logic
         const result = await swipeStack.handleSwipe(user.userId, type);
 
         if (!result?.success) {
@@ -877,7 +894,16 @@ export default function HomeScreen({ navigation }) {
           return;
         }
 
-        // ⭐ Superlike → message request (fire and forget)
+        // ← REPLACE existing DeviceEventEmitter.emit('user_liked') with this:
+        if (type !== 'pass') {
+          emitLikeUpdate({
+            toUserId: user.userId,
+            isMatch: result.match,
+            matchId: result.matchId || null,
+          });
+        }
+
+        // ⭐ Superlike → message request
         if (direction === 'up') {
           sendRequest(user.userId, true)
             .then(r => {
@@ -890,18 +916,33 @@ export default function HomeScreen({ navigation }) {
             });
         }
 
-        // ❤️ Match handling — unchanged
+        // ❤️ Match handling
         if (result.match) {
           setMatchedUsers({
-            user1: { name: 'You', age: '', image: myImage },
-            user2: { name: user.name, age: user.age, image: user.image },
+            user1: {
+              name: 'You',
+              age: '',
+              image: myImage,
+            },
+            user2: {
+              name: user.name,
+              age: user.age,
+              image: user.image,
+            },
           });
         }
       } catch (err) {
         setLocalError(err.message || 'Unknown error');
       }
     },
-    [swipeStack, matchedUsers, swipeProgressX, swipeProgressY, sendRequest], // ← sendRequest add
+    [
+      swipeStack,
+      matchedUsers,
+      swipeProgressX,
+      swipeProgressY,
+      sendRequest,
+      myImage,
+    ],
   );
 
   const handleKeepSwiping = useCallback(() => setMatchedUsers(null), []);
@@ -1552,6 +1593,7 @@ const styles = StyleSheet.create({
     gap: 14,
     zIndex: 50,
     paddingVertical: 20,
+
     paddingBottom: 50,
   },
 
@@ -1572,4 +1614,31 @@ const styles = StyleSheet.create({
   },
   errorToastText: { color: '#FFF', fontSize: 14, fontWeight: '600', flex: 1 },
   errorToastClose: { color: '#FFF', fontSize: 18, fontWeight: '700' },
+  superlikeBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 6, 188, 0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    zIndex: 20,
+    backdropFilter: 'blur(10px)', // optional
+  },
+
+  superlikeEmoji: {
+    fontSize: 14,
+    marginRight: 5,
+  },
+
+  superlikeTxt: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
 });
