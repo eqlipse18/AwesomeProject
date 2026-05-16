@@ -21,6 +21,11 @@ import {
 import Animated, {
   FadeInDown,
   LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+  Easing,
 } from 'react-native-reanimated';
 import {
   getRegistrationProgress,
@@ -30,12 +35,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import axios from 'axios';
 import { BASE_URL } from '../urls/url';
+// PhotoScreen.js top pe
+import { useFaceCheck } from '../src/hooks/useFaceCheck';
+import { FaceCheckSheet } from '../src/components/registration/FaceCheckSheet';
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 const PhotoScreen = () => {
   const navigation = useNavigation();
   const [imageError, setImageError] = useState('');
   const [loading, setLoading] = useState(false);
   const [deletedUrls, setDeletedUrls] = useState([]);
+
+  const { checking, sheetState, closeSheet, validateAndSet } = useFaceCheck();
 
   useFocusEffect(
     useCallback(() => {
@@ -187,7 +198,105 @@ const PhotoScreen = () => {
     handleNextHobby(); // call the main upload function
   };
 
+  const ImageSlot = ({ slot, actualIndex, imageSlots, onPress, onRemove }) => {
+    const opacity = useSharedValue(
+      actualIndex !== 0 && imageSlots[0].status === 'empty' ? 0.4 : 1,
+    );
+
+    useEffect(() => {
+      const shouldDim = actualIndex !== 0 && imageSlots[0].status === 'empty';
+      opacity.value = withDelay(
+        actualIndex * 80,
+        withTiming(shouldDim ? 0.4 : 1, {
+          duration: 300,
+          easing: Easing.out(Easing.ease),
+        }),
+      );
+    }, [imageSlots[0].status]);
+
+    const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+    return (
+      // 👇 Animated.View wrap — opacity yahan
+      <Animated.View
+        style={[
+          {
+            flex: 1,
+            height: responsiveHeight(12.5), // 👈 height yahan lagao
+          },
+          animStyle,
+        ]}
+      >
+        <Pressable
+          style={{
+            borderColor: '#581845',
+            borderWidth: slot.status === 'empty' ? 2 : 0,
+            flex: 1,
+            width: '100%',
+            justifyContent: 'center',
+            borderStyle: 'dotted',
+            borderRadius: 15,
+            alignItems: 'center',
+            marginRight: responsiveWidth(6.5),
+          }}
+          onPress={onPress}
+        >
+          {slot.status !== 'empty' ? (
+            <>
+              <Image
+                source={{ uri: slot.localPath || slot.s3Url }}
+                style={{ width: '100%', height: '100%', borderRadius: 10 }}
+              />
+              <Pressable
+                onPress={onRemove}
+                style={{
+                  position: 'absolute',
+                  top: -10,
+                  right: -10,
+                  width: 28,
+                  height: 28,
+                  backgroundColor: 'rgba(255, 0, 34, 0.96)',
+                  borderRadius: 15,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text
+                  style={{
+                    color: 'white',
+                    fontWeight: 'bold',
+                    fontSize: 14,
+                    lineHeight: 14,
+                  }}
+                >
+                  X
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <Image
+              style={{
+                height: responsiveHeight(3.5),
+                width: responsiveWidth(6.5),
+                opacity: 0.8,
+              }}
+              source={require('../assets/Images/img.png')}
+            />
+          )}
+        </Pressable>
+      </Animated.View>
+    );
+  };
+
   const pickAndCropImage = async index => {
+    if (index !== 0 && imageSlots[0].status === 'empty') {
+      // Toast/feedback show karo
+      setImageError('Upload your Profile Picture first! ');
+      // Auto clear after 2.5s
+      setTimeout(() => setImageError(''), 4500);
+      return;
+    }
+
     const hasPermission = await requestStoragePermission();
     if (!hasPermission) return;
 
@@ -195,27 +304,37 @@ const PhotoScreen = () => {
       const image = await ImageCropPicker.openPicker({
         width: 400,
         height: 600,
-        cropping: true,
-        // compressImageQuality: 0.95,
-        compressImageQuality: 0.95, // 1 = 100%, no compression
-        compressImageMaxWidth: 2000, // optional, keep high resolution
+        cropping: false,
+        compressImageQuality: 0.95,
+        compressImageMaxWidth: 2000,
         compressImageMaxHeight: 2000,
-        cropping: false, // no crop
         includeBase64: false,
         mediaType: 'photo',
         forceJpg: true,
       });
 
-      const updated = [...imageSlots];
-      updated[index] = {
-        localPath: image.path,
-        s3Url: null,
-        status: 'new',
+      const setSlot = () => {
+        const updated = [...imageSlots];
+        updated[index] = { localPath: image.path, s3Url: null, status: 'new' };
+        setImageSlots(updated);
       };
 
-      setImageSlots(updated);
+      // ✅ Sirf slot 0 pe face check
+      if (index === 0) {
+        await validateAndSet({
+          localPath: image.path,
+          index,
+          // allowSkip: true,
+          onPass: setSlot,
+        });
+      } else {
+        // Baaki slots — seedha set, koi check nahi
+        setSlot();
+      }
     } catch (e) {
-      console.log('pick failed', e);
+      if (e?.code !== 'E_PICKER_CANCELLED') {
+        console.log('pick failed', e);
+      }
     }
   };
 
@@ -285,6 +404,24 @@ const PhotoScreen = () => {
     setImageSlots(updated);
   };
 
+  // 4️⃣ FaceCheckSheet handlers — add these:
+
+  // User retries — close sheet, re-open picker for same slot
+  const handleFaceRetry = async () => {
+    closeSheet();
+    const index = sheetState.pendingIndex;
+    if (index == null) return;
+    // Small delay so sheet closes smoothly before picker opens
+    setTimeout(() => pickAndCropImage(index), 300);
+  };
+
+  // User uploads anyway — skip face check
+  const handleFaceSkip = () => {
+    if (!sheetState.onPass) return;
+    closeSheet();
+    sheetState.onPass(); // call the stored onPass — sets slot directly
+  };
+
   const _damping = 15;
   const _stiffness = 200;
   const _damping1 = 25;
@@ -313,6 +450,10 @@ const PhotoScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="Photo" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         layout={_layout}
         // entering={_entering}
@@ -343,138 +484,36 @@ const PhotoScreen = () => {
       <View style={{ marginTop: responsiveHeight(2), margin: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           {imageSlots.slice(0, 3).map((slot, index) => (
-            <Pressable
+            <ImageSlot
               key={index}
-              style={{
-                borderColor: '#581845',
-                borderWidth: slot.status === 'empty' ? 2 : 0, // ✅ status se check
-                flex: 1,
-                justifyContent: 'center',
-                borderStyle: 'dotted',
-                borderRadius: 15,
-                alignItems: 'center',
-                height: responsiveHeight(12.5),
-                marginLeft: responsiveWidth(3.5),
-                marginRight: responsiveWidth(3.5),
-              }}
+              slot={slot}
+              actualIndex={index}
+              imageSlots={imageSlots}
               onPress={() =>
-                slot.status === 'empty' // ✅ consistent check
+                slot.status === 'empty'
                   ? pickAndCropImage(index)
                   : previewOrRecrop(index)
               }
-            >
-              {slot.status !== 'empty' ? (
-                <>
-                  <Image
-                    source={{ uri: slot.localPath || slot.s3Url }}
-                    style={{ width: '100%', height: '100%', borderRadius: 10 }}
-                  />
-                  <Pressable
-                    onPress={() => removeImage(index)}
-                    style={{
-                      position: 'absolute',
-                      top: -10,
-                      right: -10,
-                      width: 28,
-                      height: 28,
-                      backgroundColor: 'rgba(255, 0, 34, 0.96)',
-                      borderRadius: 15,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: 'white',
-                        fontWeight: 'bold',
-                        fontSize: 14,
-                        lineHeight: 14,
-                      }}
-                    >
-                      X
-                    </Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Image
-                  style={{
-                    height: responsiveHeight(3.5),
-                    width: responsiveWidth(6.5),
-                    opacity: 0.8,
-                  }}
-                  source={require('../assets/Images/img.png')}
-                />
-              )}
-            </Pressable>
+              onRemove={() => removeImage(index)}
+            />
           ))}
         </View>
       </View>
       <View style={{ marginTop: 20, margin: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           {imageSlots.slice(3, 6).map((slot, index) => (
-            <Pressable
+            <ImageSlot
               key={index}
-              style={{
-                borderColor: '#581845',
-                borderWidth: slot.status === 'empty' ? 2 : 0, // ✅ status se check
-                flex: 1,
-                justifyContent: 'center',
-                borderStyle: 'dotted',
-                borderRadius: 15,
-                alignItems: 'center',
-                height: responsiveHeight(12.5),
-                marginLeft: responsiveWidth(3.5),
-                marginRight: responsiveWidth(3.5),
-              }}
+              slot={slot}
+              actualIndex={index + 3}
+              imageSlots={imageSlots}
               onPress={() =>
-                slot.status === 'empty' // ✅ consistent check
-                  ? pickAndCropImage(index + 3)
-                  : previewOrRecrop(index + 3)
+                slot.status === 'empty'
+                  ? pickAndCropImage(index)
+                  : previewOrRecrop(index)
               }
-            >
-              {slot.status !== 'empty' ? (
-                <>
-                  <Image
-                    source={{ uri: slot.localPath || slot.s3Url }}
-                    style={{ width: '100%', height: '100%', borderRadius: 10 }}
-                  />
-                  <Pressable
-                    onPress={() => removeImage(index + 3)}
-                    style={{
-                      position: 'absolute',
-                      top: -10,
-                      right: -10,
-                      width: 28,
-                      height: 28,
-                      backgroundColor: 'rgba(255, 0, 34, 0.96)',
-                      borderRadius: 15,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: 'white',
-                        fontWeight: 'bold',
-                        fontSize: 14,
-                        lineHeight: 14,
-                      }}
-                    >
-                      X
-                    </Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Image
-                  style={{
-                    height: responsiveHeight(3.5),
-                    width: responsiveWidth(6.5),
-                    opacity: 0.8,
-                  }}
-                  source={require('../assets/Images/img.png')}
-                />
-              )}
-            </Pressable>
+              onRemove={() => removeImage(index)}
+            />
           ))}
         </View>
         <View style={{ marginVertical: 10 }}>
@@ -505,20 +544,23 @@ const PhotoScreen = () => {
         style={{ alignItems: 'center', justifyContent: 'center' }}
       >
         {imageError !== '' && (
-          <Text
+          <Animated.Text
+            entering={FadeInDown.duration(200).springify()}
             style={{
-              color: 'red',
-              fontWeight: 'bold',
+              color: imageError.includes('main photo') ? '#FF0059' : 'red',
+              fontWeight: '600',
               textAlign: 'center',
               marginBottom: 6,
+              fontSize: 13,
             }}
           >
             {imageError}
-          </Text>
+          </Animated.Text>
         )}
 
         <Pressable
           onPress={handlePressNext}
+          layout={_layout}
           disabled={loading} // disable if less than 2 images or uploading
           style={({ pressed }) => ({
             transform: [{ scale: pressed ? 0.96 : 1 }],
@@ -566,6 +608,15 @@ const PhotoScreen = () => {
           )}
         </Pressable>
       </Animated.View>
+
+      <FaceCheckSheet
+        visible={sheetState.visible}
+        result={sheetState.result}
+        imageUri={sheetState.imageUri}
+        onRetry={handleFaceRetry}
+        // onSkip={handleFaceSkip}
+        onClose={closeSheet}
+      />
     </SafeAreaView>
   );
 };

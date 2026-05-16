@@ -29,6 +29,7 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 const GoalsScreen = () => {
   const [goals, setGoals] = useState('');
@@ -79,6 +80,10 @@ const GoalsScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="Goals" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         // entering={_entering}
         layout={_layout}

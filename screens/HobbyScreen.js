@@ -25,6 +25,7 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 // const HobbyScreen = () => {
 //   const usenavigation = useNavigation();
 //   const handleNextFinal = () => {
@@ -140,6 +141,10 @@ const HobbyScreen = () => {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="Hobby" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         layout={_layout}
         style={{

@@ -43,6 +43,7 @@ import {
   getRegistrationProgress,
   saveRegistrationProgress,
 } from '../utils/registrationUtils';
+import { OnboardingProgress } from '../src/components/shared/OnboardingProgress';
 
 export default function SetupProfileScreen() {
   const [gender, setGender] = useState('');
@@ -431,6 +432,10 @@ export default function SetupProfileScreen() {
         backgroundColor: 'white',
       }}
     >
+      <OnboardingProgress
+        currentStep="Setup" // ← har screen ka apna key
+        onBack={() => navigation.goBack()}
+      />
       <Animated.View
         layout={_layout}
         style={{
