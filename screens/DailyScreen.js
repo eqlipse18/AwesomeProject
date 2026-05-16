@@ -45,6 +45,9 @@ import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { useFocusEffect } from '@react-navigation/native';
+import { useLikeStatus } from '../src/hooks/useLikeStatus';
+import { LikeActionButton } from '../src/components/shared/LikeActionButton';
+
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
@@ -154,6 +157,11 @@ const ProfileCard = ({ item, index, scrollX, token, navigation }) => {
     [myLocation, item],
   );
 
+  const { uiState, status } = useLikeStatus({
+    token,
+    targetUserId: item.userId,
+  });
+
   const handleLikeBack = useCallback(async () => {
     if (acting || actionState !== 'idle') return;
     setActing(true);
@@ -251,7 +259,7 @@ const ProfileCard = ({ item, index, scrollX, token, navigation }) => {
         ) : null}
 
         {/* ── Action Buttons ── */}
-        {actionState === 'matched' && (
+        {/* {actionState === 'matched' && (
           <TouchableOpacity
             style={dc.chatBtn}
             onPress={handleChat}
@@ -278,6 +286,19 @@ const ProfileCard = ({ item, index, scrollX, token, navigation }) => {
           <View style={dc.likedBackConfirm}>
             <Text style={dc.likedBackTxt}>✓ Liked!</Text>
           </View>
+        )} */}
+        {(uiState === 'like_back' || uiState === 'chat') && (
+          <LikeActionButton
+            token={token}
+            targetUserId={item.userId}
+            targetName={item.name}
+            targetImage={item.image}
+            uiState={uiState}
+            matchId={status.matchId}
+            navigation={navigation}
+            size="small"
+            style={{ alignSelf: 'flex-start', marginTop: 10 }}
+          />
         )}
       </View>
     </Animated.View>

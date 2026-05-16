@@ -62,6 +62,7 @@ import FeedFilterModal from '../src/components/feed/FeedFilterModal';
 import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRequests } from '../src/hooks/useRequests';
+import { emitLikeUpdate } from '../src/hooks/useLikeStatus';
 
 const PremiumModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
@@ -893,11 +894,12 @@ export default function HomeScreen({ navigation }) {
           return;
         }
 
-        // 📡 Emit event for likes / superlikes
-        if (direction !== 'left') {
-          DeviceEventEmitter.emit('user_liked', {
-            likedUserId: user.userId,
-            type: direction === 'up' ? 'superlike' : 'like',
+        // ← REPLACE existing DeviceEventEmitter.emit('user_liked') with this:
+        if (type !== 'pass') {
+          emitLikeUpdate({
+            toUserId: user.userId,
+            isMatch: result.match,
+            matchId: result.matchId || null,
           });
         }
 

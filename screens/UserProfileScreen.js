@@ -48,6 +48,9 @@ import { getLocationDisplay } from '../utils/locationUtils';
 import { useRequests } from '../src/hooks/useRequests';
 import { useFocusEffect } from '@react-navigation/native';
 
+import { useLikeStatus, emitLikeUpdate } from '../src/hooks/useLikeStatus';
+import { LikeActionButton } from '../src/components/shared/LikeActionButton';
+
 const { width: W, height: H } = Dimensions.get('screen');
 const IMAGE_HEIGHT = H * 0.52;
 const API_BASE_URL = Config.API_BASE_URL || 'http://192.168.100.154:9000';
@@ -208,6 +211,10 @@ export default function UserProfileScreen({ navigation, route }) {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [dataReady, setDataReady] = useState(false);
   const [reqState, setReqState] = useState('idle');
+  const { uiState, status } = useLikeStatus({
+    token,
+    targetUserId: profileUserId,
+  });
 
   const displayName = profile?.firstName || routeName || 'User';
   const displayImage =
@@ -339,21 +346,60 @@ export default function UserProfileScreen({ navigation, route }) {
     opacity: contentOpacity.value,
   }));
 
+  // UserProfileScreen.js — handleLike update karo
   const handleLike = useCallback(async () => {
     if (!profile || actionDone) return;
     try {
       setActionLoading(true);
-      await apiClient.current.post('/swipe', {
+      const result = await apiClient.current.post('/swipe', {
         likedId: profile.userId,
         type: 'like',
       });
-      setActionDone('liked');
+
+      if (result.data.match) {
+        // ── MATCHED! → update status + navigate to convo ──────────────
+        setProfileStatus(prev => ({
+          ...prev,
+          isMatched: true,
+          matchId: result.data.matchId,
+        }));
+        setActionDone('matched');
+
+        // Emit so other screens refresh
+        DeviceEventEmitter.emit('user_liked', {
+          likedUserId: profile.userId,
+          type: 'like',
+        });
+
+        // Navigate to convo after small delay (user sees "Matched!" briefly)
+        setTimeout(() => {
+          navigation.replace('Conversation', {
+            matchId: result.data.matchId,
+            targetUserId: profileUserId,
+            name: displayName,
+            image: displayImage,
+          });
+        }, 800);
+      } else {
+        setActionDone('liked');
+        DeviceEventEmitter.emit('user_liked', {
+          likedUserId: profile.userId,
+          type: 'like',
+        });
+      }
     } catch (e) {
-      console.error('[UserProfile] Like:', e.message);
+      console.error('[UserProfile] Like error:', e.message);
     } finally {
       setActionLoading(false);
     }
-  }, [profile, actionDone]);
+  }, [
+    profile,
+    actionDone,
+    profileUserId,
+    displayName,
+    displayImage,
+    navigation,
+  ]);
 
   const openPreview = useCallback(index => {
     setPreviewIndex(index);
@@ -506,81 +552,23 @@ export default function UserProfileScreen({ navigation, route }) {
               {/* ── Action Buttons ── */}
               {!isOwnProfile && statusLoaded && (
                 <View style={s.actionRow}>
-                  {profileStatus.isMatched ? (
-                    // Matched → Chat
+                  <LikeActionButton
+                    token={token}
+                    targetUserId={profileUserId}
+                    targetName={displayName}
+                    targetImage={displayImage}
+                    uiState={uiState}
+                    matchId={status.matchId}
+                    navigation={navigation}
+                    size="large"
+                    style={{ flex: 1 }}
+                  />
+                  {uiState !== 'chat' && (
                     <TouchableOpacity
-                      style={[
-                        s.actionBtn,
-                        { backgroundColor: '#22C55E', flex: 1 },
-                      ]}
-                      onPress={() =>
-                        navigation.navigate('Conversation', {
-                          matchId: profileStatus.matchId,
-                          targetUserId: profileUserId,
-                          name: displayName,
-                          image: displayImage,
-                        })
-                      }
-                      activeOpacity={0.85}
-                    >
-                      <Text style={s.actionBtnIcon}>💬</Text>
-                      <Text style={s.actionBtnText}>Start Chat</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    // Normal Like OR Like Back — dono same button, label alag
-                    <TouchableOpacity
-                      style={[
-                        s.actionBtn,
-                        s.likeBtn,
-                        { flex: 1 },
-                        actionDone === 'liked' && s.actionBtnDone,
-                      ]}
-                      onPress={handleLike}
-                      disabled={!!actionDone || actionLoading}
-                      activeOpacity={0.85}
-                    >
-                      {actionLoading ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <>
-                          <Text style={s.actionBtnIcon}>
-                            {actionDone === 'liked'
-                              ? '✓'
-                              : profileStatus.hasLikedMe
-                              ? '❤️'
-                              : '🔥'}{' '}
-                          </Text>
-                          <Text style={s.actionBtnText}>
-                            {actionDone === 'liked'
-                              ? 'Liked!'
-                              : profileStatus.hasLikedMe
-                              ? 'Like Back' // ← only when they liked
-                              : 'Like Profile'}
-                          </Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Message Request — sirf tab jab matched nahi ──────────────────── */}
-                  {!profileStatus.isMatched && (
-                    <TouchableOpacity
-                      style={[
-                        s.requestBtn,
-                        reqState === 'sent' && s.requestBtnSent,
-                        reqState === 'sending' && s.requestBtnLoading,
-                        reqState === 'error' && s.requestBtnError,
-                      ]}
+                      style={s.requestBtn}
                       onPress={handleSendRequest}
-                      disabled={reqState !== 'idle'}
-                      activeOpacity={0.85}
                     >
-                      <Text style={s.requestBtnTxt}>
-                        {reqState === 'idle' && '💌 Request'}
-                        {reqState === 'sending' && '⏳'}
-                        {reqState === 'sent' && '✓ Sent'}
-                        {reqState === 'error' && '✕'}
-                      </Text>
+                      <Text>💌 Request</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -805,7 +793,7 @@ const s = StyleSheet.create({
 
   // Sheet
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: '#fff2fa',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 22,

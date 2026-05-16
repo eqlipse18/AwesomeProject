@@ -655,6 +655,14 @@ router.post('/swipe', authenticate, async (req, res) => {
               lastMessage: '👋 New match!',
               lastMessageAt: now,
             };
+            // ← ADD — notify target user they got a like
+            if (type !== 'pass') {
+              io.to(likedId).emit('liked_by_user', {
+                fromUserId: userId,
+                type,
+              });
+            }
+
             // Dono users ko notify karo
             io.emit(`new_match_${userId}`, matchPayload);
             io.emit(`new_match_${likedId}`, matchPayload);
