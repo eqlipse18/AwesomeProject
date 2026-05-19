@@ -276,11 +276,11 @@ export default function ProfileScreen({ navigation }) {
               {/* Verify button */}
               <TouchableOpacity
                 style={s.verifyBtn}
-                onPress={() => navigation.navigate('Verify')}
+                // onPress={() => navigation.navigate('Verify')}
                 activeOpacity={0.8}
               >
                 <Text style={s.verifyIco}>✓</Text>
-                <Text style={s.verifyTxt}>Verify Profile</Text>
+                <Text style={s.verifyTxt}>Verified Profile</Text>
               </TouchableOpacity>
               {/* Settings */}
               <TouchableOpacity
@@ -411,12 +411,12 @@ export default function ProfileScreen({ navigation }) {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F0EB' },
+  container: { flex: 1, backgroundColor: '#FFF5F7' },
   scroll: { paddingBottom: 40 },
 
   // ── Header ──
   topSection: {
-    backgroundColor: '#F5F0EB',
+    backgroundColor: '#FFF5F7',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 20,

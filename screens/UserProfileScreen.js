@@ -410,14 +410,18 @@ export default function UserProfileScreen({ navigation, route }) {
   const handleSendRequest = useCallback(async () => {
     if (reqState !== 'idle') return;
     setReqState('sending');
+    console.log('[Request] Sending to:', profileUserId);
+
     const result = await sendRequest(profileUserId, false);
-    if (result.success || result.alreadySent) setReqState('sent');
-    else {
+    console.log('[Request] Result:', result);
+
+    if (result?.success || result?.alreadySent) {
+      setReqState('sent');
+    } else {
       setReqState('error');
       setTimeout(() => setReqState('idle'), 2000);
     }
   }, [reqState, profileUserId, sendRequest]);
-
   if (!profileUserId || error) {
     return (
       <SafeAreaView style={s.centered}>
@@ -565,10 +569,25 @@ export default function UserProfileScreen({ navigation, route }) {
                   />
                   {uiState !== 'chat' && (
                     <TouchableOpacity
-                      style={s.requestBtn}
+                      style={[
+                        s.requestBtn,
+                        reqState === 'sent' && s.requestBtnSent,
+                        reqState === 'error' && s.requestBtnError,
+                        reqState !== 'idle' && { opacity: 0.7 },
+                      ]}
                       onPress={handleSendRequest}
+                      disabled={reqState !== 'idle'}
+                      activeOpacity={0.85}
                     >
-                      <Text>💌 Request</Text>
+                      <Text style={s.requestBtnTxt}>
+                        {reqState === 'idle'
+                          ? '💌 Request'
+                          : reqState === 'sending'
+                          ? '⏳'
+                          : reqState === 'sent'
+                          ? '✓ Sent'
+                          : '✕'}
+                      </Text>
                     </TouchableOpacity>
                   )}
                 </View>

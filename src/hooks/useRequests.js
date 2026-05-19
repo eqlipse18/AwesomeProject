@@ -46,7 +46,10 @@ export const useRequests = () => {
   const fetchSent = useCallback(async () => {
     if (!token) return;
     try {
-      const resp = await api.current.get('/requests/sent');
+      const resp = await api.current.post('/requests/send', {
+        receiverId: targetUserId, // ← targetUserId → receiverId
+        fromSuperlike,
+      });
       if (resp.data.success) setSent(resp.data.requests || []);
     } catch (err) {
       console.error(
@@ -58,25 +61,27 @@ export const useRequests = () => {
   }, [token]);
 
   // ── Send request ──────────────────────────────────────────────────────
+  // useRequests.js — sendRequest mein detailed log add karo
   const sendRequest = useCallback(
     async (targetUserId, fromSuperlike = false) => {
-      if (!token) return { success: false };
+      if (!token) {
+        console.log('[sendRequest] No token!');
+        return { success: false, error: 'No token' };
+      }
       try {
-        const resp = await api.current.post('/requests/send', {
-          targetUserId,
-          fromSuperlike,
-        });
+        console.log('[sendRequest] Calling:', targetUserId);
+        const resp = await api.current.post(
+          '/requests/send',
+          { targetUserId, fromSuperlike },
+          { headers: { Authorization: `Bearer ${token}` } }, // ← direct header
+        );
+        console.log('[sendRequest] resp.data:', JSON.stringify(resp.data));
         return resp.data;
       } catch (err) {
-        console.error(
-          '[useRequests] sendRequest:',
-          err.response?.status,
-          err.response?.data || err.message,
-        );
-        return {
-          success: false,
-          error: err.response?.data?.error || err.message,
-        };
+        const status = err.response?.status;
+        const body = err.response?.data;
+        console.error('[sendRequest] Error:', status, JSON.stringify(body));
+        return { success: false, error: body?.error || err.message };
       }
     },
     [token],

@@ -39,6 +39,7 @@ import SearchChatsScreen from '../screens/SearchChatsScreen';
 import RequestsScreen from '../screens/RequestsScreen';
 import Likedmescreen from '../screens/Likedmescreen';
 import VerifyScreen from '../screens/VerifyScreen';
+import VerifySelfieScreen from '../screens/VerifySelfieScreen';
 import CustomTabBar from './CustomTabBar';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Easing } from 'react-native-reanimated';
@@ -137,6 +138,11 @@ function AppStack() {
       <Stack.Screen
         name="Verify"
         component={VerifyScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="VerifySelfie"
+        component={VerifySelfieScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

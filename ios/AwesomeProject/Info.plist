@@ -23,9 +23,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription </key>
-	<string>Flame app requires camera to take photos.</string>
+	<string>Flame app requires camera to verify your profile</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Flame app requires photo library access to uplaod images.</string>
+	<string>Flame app requires photo library access to upload images.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string/>
 	<key>LSRequiresIPhoneOS</key>

@@ -650,6 +650,126 @@ const FilterSortBar = ({
   </View>
 );
 
+// ── Received tab ke liye wrapper — useLikeStatus hook yahan ────────────────
+const ReceivedProfileCard = ({ item, onPress, navigation, token, blurred }) => {
+  const { uiState, status } = useLikeStatus({
+    token,
+    targetUserId: item.userId,
+  });
+
+  // Existing isMutual ko uiState se override karo
+  const enrichedItem = {
+    ...item,
+    isMatched: uiState === 'chat' || item.isMatched,
+    matchId: status.matchId || item.matchId,
+  };
+
+  return (
+    <ReAnimated.View entering={FadeInDown.duration(300).springify()}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={onPress}
+        activeOpacity={blurred ? 1 : 0.9}
+      >
+        {/* Image — same as ProfileCard */}
+        {item.image ? (
+          <Image
+            source={{ uri: item.image }}
+            style={styles.cardImage}
+            blurRadius={blurred ? 18 : 0}
+          />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImageFallback]}>
+            <Text style={{ fontSize: 36 }}>📷</Text>
+          </View>
+        )}
+
+        {/* Superlike badge */}
+        {item.type === 'superlike' && !blurred && (
+          <View style={styles.superlikeBadge}>
+            <Text style={styles.badgeText}>⭐</Text>
+          </View>
+        )}
+
+        {/* Matched badge */}
+        {uiState === 'chat' && !blurred && (
+          <View style={styles.mutualBadge}>
+            <Text style={styles.badgeText}>💞 Matched</Text>
+          </View>
+        )}
+
+        {blurred ? (
+          // ── Blurred overlay (non-premium) — same as before ──
+          <>
+            <View style={styles.glassOverlay} />
+            <View style={styles.blurredBottomBar}>
+              <View style={styles.blurredNameRow}>
+                <View style={styles.namePill} />
+                {!!item.age && (
+                  <Text style={styles.blurredAge}>{item.age}</Text>
+                )}
+              </View>
+              {item.isOnline ? (
+                <View style={styles.onlineRow}>
+                  <View style={styles.onlineDotInline} />
+                  <Text style={[styles.blurredStatus, { color: '#29ec5d' }]}>
+                    Online
+                  </Text>
+                </View>
+              ) : item.lastActiveAt ? (
+                <Text style={styles.blurredStatus}>
+                  {`Active ${formatLastActive(item.lastActiveAt, 3)}`}
+                </Text>
+              ) : null}
+            </View>
+          </>
+        ) : (
+          // ── Unblurred — name + LikeActionButton ──
+          <>
+            <LinearGradient
+              colors={[
+                'transparent',
+                'rgba(140,60,120,0.18)',
+                'rgba(0,0,0,0.82)',
+              ]}
+              style={styles.cardGradient}
+            />
+            <View style={styles.cardInfoOverlay}>
+              <Text style={styles.cardName} numberOfLines={1}>
+                {item.name}
+                {item.age ? `, ${item.age}` : ''}
+              </Text>
+              {item.isOnline ? (
+                <View style={styles.onlineRow}>
+                  <View style={styles.onlineDotInline} />
+                  <Text style={styles.onlineText}>Online</Text>
+                </View>
+              ) : item.lastActiveAt ? (
+                <Text style={styles.cardActive}>
+                  {formatLastActive(item.lastActiveAt, 3)}
+                </Text>
+              ) : null}
+
+              {/* ← LikeActionButton — sirf received tab pe */}
+              <LikeActionButton
+                token={token}
+                targetUserId={item.userId}
+                targetName={item.name}
+                targetImage={item.image}
+                uiState={uiState}
+                matchId={status.matchId || item.matchId}
+                navigation={navigation}
+                size="small"
+                style={{ marginTop: 8, alignSelf: 'flex-start' }}
+              />
+            </View>
+          </>
+        )}
+      </TouchableOpacity>
+    </ReAnimated.View>
+  );
+};
+
 // ════════════════════════════════════════════════════════════════════════════
 // PROFILE CARD (Likes)
 // ════════════════════════════════════════════════════════════════════════════
@@ -1203,11 +1323,21 @@ export default function LikesScreen({ navigation }) {
           type: 'like',
         });
         setActionSheetUser(null);
-        if (resp.data.success && resp.data.match) {
-          setMatchedUsers({
-            user1: { name: 'You', age: '', image: currentUserImage },
-            user2: { name: item.name, age: item.age, image: item.image },
+
+        if (resp.data.success) {
+          // ← Broadcast to all screens
+          emitLikeUpdate({
+            toUserId: item.userId,
+            isMatch: resp.data.match,
+            matchId: resp.data.matchId || null,
           });
+
+          if (resp.data.match) {
+            setMatchedUsers({
+              user1: { name: 'You', age: '', image: currentUserImage },
+              user2: { name: item.name, age: item.age, image: item.image },
+            });
+          }
         }
       } catch (e) {
         console.error('[LikeBack]', e.message);
@@ -1326,34 +1456,52 @@ export default function LikesScreen({ navigation }) {
           </View>
         );
       }
+
       if (item._type === 'pair') {
+        // ── Received tab → ReceivedProfileCard (with LikeActionButton) ──
+        if (activeTab === 'received') {
+          return (
+            <View style={styles.row}>
+              <ReceivedProfileCard
+                item={item.left}
+                blurred={isBlurred}
+                token={token}
+                navigation={navigation}
+                onPress={() => handleCardPress(item.left)}
+              />
+              {item.right ? (
+                <ReceivedProfileCard
+                  item={item.right}
+                  blurred={isBlurred}
+                  token={token}
+                  navigation={navigation}
+                  onPress={() => handleCardPress(item.right)}
+                />
+              ) : (
+                <View style={{ width: CARD_WIDTH }} />
+              )}
+            </View>
+          );
+        }
+
+        // ── Sent tab → existing ProfileCard (no like back needed) ──
         return (
           <View style={styles.row}>
             <ProfileCard
               item={item.left}
-              blurred={activeTab === 'received' ? isBlurred : false}
+              blurred={false}
               onPress={() => handleCardPress(item.left)}
               onMessage={
                 item.left.isMatched ? () => handleMessage(item.left) : null
-              }
-              onLikeBack={
-                activeTab === 'received' && !item.left.isMatched
-                  ? () => setActionSheetUser(item.left)
-                  : null
               }
             />
             {item.right ? (
               <ProfileCard
                 item={item.right}
-                blurred={activeTab === 'received' ? isBlurred : false}
+                blurred={false}
                 onPress={() => handleCardPress(item.right)}
                 onMessage={
                   item.right.isMatched ? () => handleMessage(item.right) : null
-                }
-                onLikeBack={
-                  activeTab === 'received' && !item.right.isMatched
-                    ? () => setActionSheetUser(item.right)
-                    : null
                 }
               />
             ) : (
@@ -1362,9 +1510,10 @@ export default function LikesScreen({ navigation }) {
           </View>
         );
       }
+
       return null;
     },
-    [activeTab, handleCardPress, handleMessage, isBlurred],
+    [activeTab, handleCardPress, handleMessage, isBlurred, token, navigation],
   );
 
   return (
