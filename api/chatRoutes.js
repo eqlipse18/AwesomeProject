@@ -24,6 +24,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { authenticate } from './authenticate.js';
 import { getIO } from './socket.js';
+import { checkSubscriptionStatus } from './subscriptionHelpers.js';
 
 const router = express.Router();
 
@@ -291,12 +292,12 @@ router.post('/messages', authenticate, async (req, res) => {
     const { userId } = req.user;
     const { matchId, content, type = 'text', replyTo } = req.body;
 
-    if (!matchId || !content) {
+    if (!matchId || !content)
       return res
         .status(400)
         .json({ success: false, error: 'matchId and content required' });
-    }
 
+    // ── Match verify ──────────────────────────────────────────────────────
     const matchResp = await docClient.send(
       new GetCommand({
         TableName: 'flame-Matches',
@@ -305,9 +306,59 @@ router.post('/messages', authenticate, async (req, res) => {
     );
     if (!matchResp.Item)
       return res.status(404).json({ success: false, error: 'Match not found' });
+
     const match = matchResp.Item;
     if (match.user1Id !== userId && match.user2Id !== userId)
       return res.status(403).json({ success: false, error: 'Not authorized' });
+
+    // ── 🔒 PREMIUM GATE — first match free ───────────────────────────────
+    const sub = await checkSubscriptionStatus(userId);
+
+    if (!sub.isActive) {
+      // Free user — sirf pehla match free hai
+      const [m1Resp, m2Resp] = await Promise.all([
+        docClient.send(
+          new QueryCommand({
+            TableName: 'flame-Matches',
+            IndexName: 'user1Id-index',
+            KeyConditionExpression: 'user1Id = :uid',
+            ExpressionAttributeValues: { ':uid': userId },
+            ProjectionExpression: 'matchId, createdAt',
+            ScanIndexForward: true, // oldest first
+            Limit: 2,
+          }),
+        ),
+        docClient.send(
+          new QueryCommand({
+            TableName: 'flame-Matches',
+            IndexName: 'user2Id-index',
+            KeyConditionExpression: 'user2Id = :uid',
+            ExpressionAttributeValues: { ':uid': userId },
+            ProjectionExpression: 'matchId, createdAt',
+            ScanIndexForward: true,
+            Limit: 2,
+          }),
+        ),
+      ]);
+
+      // Sab matches sort karo oldest first
+      const allMatches = [
+        ...(m1Resp.Items || []),
+        ...(m2Resp.Items || []),
+      ].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+      const firstMatchId = allMatches[0]?.matchId;
+
+      // Agar ye pehla match nahi hai → premium required
+      if (allMatches.length > 1 && matchId !== firstMatchId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Upgrade to Flame Plus to chat with more matches',
+          requiresPremium: true,
+          firstMatchId, // ← frontend ko batao which match is free
+        });
+      }
+    }
 
     const messageId = uuidv4();
     const now = new Date().toISOString();

@@ -122,6 +122,15 @@ router.get('/daily-feed', authenticate, async (req, res) => {
       }
     };
 
+    const subResp = await docClient.send(
+      new GetCommand({
+        TableName: 'Subscriptions',
+        Key: { userId },
+        ProjectionExpression: 'isActive',
+      }),
+    );
+    const isPremium = subResp.Item?.isActive || false;
+
     // ── 3a. Superliker IDs ──
     const fetchSuperlikers = async () => {
       try {
@@ -357,6 +366,7 @@ router.get('/daily-feed', authenticate, async (req, res) => {
       hasLikedMe: likedMeIds.has(p.userId),
       isMatched: matchedWithIds.has(p.userId),
       matchId: matchIdMap[p.userId] || null,
+      blurred: !isPremium && p.tag === 'superlike',
     }));
 
     // ── 7. Order: superlike → boost → top_liked (shuffled within groups) ──

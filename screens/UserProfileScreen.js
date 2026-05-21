@@ -407,21 +407,37 @@ export default function UserProfileScreen({ navigation, route }) {
   }, []);
 
   const { sendRequest } = useRequests();
+  // handleSendRequest mein — error handle karo
   const handleSendRequest = useCallback(async () => {
     if (reqState !== 'idle') return;
     setReqState('sending');
-    console.log('[Request] Sending to:', profileUserId);
 
     const result = await sendRequest(profileUserId, false);
-    console.log('[Request] Result:', result);
 
     if (result?.success || result?.alreadySent) {
       setReqState('sent');
+    } else if (result?.requiresPremium) {
+      setReqState('idle');
+      navigation.navigate('Premium', { plan: 'plus' }); // ← premium screen pe bhejo
+    } else if (result?.limitReached) {
+      setReqState('idle');
+      Alert.alert(
+        'Daily Limit Reached',
+        'Upgrade to Flame Ultra for unlimited message requests!',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          {
+            text: 'Upgrade',
+            onPress: () => navigation.navigate('Premium', { plan: 'ultra' }),
+          },
+        ],
+      );
     } else {
       setReqState('error');
       setTimeout(() => setReqState('idle'), 2000);
     }
-  }, [reqState, profileUserId, sendRequest]);
+  }, [reqState, profileUserId, sendRequest, navigation]);
+
   if (!profileUserId || error) {
     return (
       <SafeAreaView style={s.centered}>

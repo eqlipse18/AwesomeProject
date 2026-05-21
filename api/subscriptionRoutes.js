@@ -89,16 +89,22 @@ router.get('/subscription-status', authenticate, async (req, res) => {
 
     let superlikes = 0;
     let rewinds = 0;
-
+    let messageRequests = 0;
     if (subscription.isActive) {
       if (subscription.subscriptionType === 'Plus') {
         superlikes = Math.max(0, 5 - (usage.superlikes || 0));
-        rewinds = Math.max(0, 10 - (usage.rewinds || 0));
+        messageRequests = Math.max(0, 1 - (usage.messageRequests || 0));
+        rewinds = 999;
       } else if (subscription.subscriptionType === 'Ultra') {
         superlikes = 999;
         rewinds = 999;
+        messageRequests = 999;
       }
     }
+
+    // subscriptionRoutes.js — GET /subscription-status
+    // ❌ sub.type — sub defined nahi
+    // ✅ subscription.subscriptionType use karo
 
     return res.status(200).json({
       success: true,
@@ -112,12 +118,17 @@ router.get('/subscription-status', authenticate, async (req, res) => {
         superlikes: {
           used: usage.superlikes || 0,
           remaining: superlikes,
-          limit: subscription.subscriptionType === 'Plus' ? 5 : 999,
+          limit: subscription.subscriptionType === 'Plus' ? 5 : 999, // ← sub.type → subscription.subscriptionType
         },
         rewinds: {
           used: usage.rewinds || 0,
           remaining: rewinds,
-          limit: subscription.subscriptionType === 'Plus' ? 10 : 999,
+          limit: 999,
+        },
+        messageRequests: {
+          used: usage.messageRequests || 0,
+          remaining: messageRequests,
+          limit: subscription.subscriptionType === 'Plus' ? 1 : 999, // ← fix
         },
       },
     });
@@ -133,47 +144,31 @@ router.get('/subscription-status', authenticate, async (req, res) => {
 // POST /subscribe
 // ════════════════════════════════════════════════════════════════════════════
 
+// POST /subscribe — fix duration + add messageRequests tracking
 router.post('/subscribe', authenticate, async (req, res) => {
   try {
     const { userId } = req.user;
-    const { planType } = req.body;
+    const { planType, durationMonths = 1 } = req.body;
 
-    if (!['Plus', 'Ultra'].includes(planType)) {
+    if (!['Plus', 'Ultra'].includes(planType))
       return res
         .status(400)
-        .json({
-          success: false,
-          error: 'Invalid planType. Must be "Plus" or "Ultra"',
-        });
-    }
+        .json({ success: false, error: 'Invalid planType' });
 
     const now = new Date();
-    const planStartDate = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-    const expiryDate = new Date(planStartDate);
-    expiryDate.setDate(expiryDate.getDate() + (planType === 'Plus' ? 15 : 30));
-
-    const daysRemaining = Math.ceil(
-      (expiryDate - planStartDate) / (1000 * 60 * 60 * 24),
-    );
+    const expiryDate = new Date(now);
+    expiryDate.setMonth(expiryDate.getMonth() + durationMonths); // ← months not days
 
     const subscription = {
       userId,
       subscriptionType: planType,
-      planStartDate: planStartDate.toISOString(),
+      planStartDate: now.toISOString(),
       expiryDate: expiryDate.toISOString(),
       isActive: true,
       purchaseDate: now.toISOString(),
       purchaseId: uuidv4(),
+      durationMonths,
       autoRenew: true,
-      daysRemaining,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
@@ -182,18 +177,20 @@ router.post('/subscribe', authenticate, async (req, res) => {
       new PutCommand({ TableName: 'Subscriptions', Item: subscription }),
     );
 
-    console.log(`[/subscribe] ${planType} subscription created for ${userId}`);
+    // Update Users table cache
+    await updateUserSubscriptionCache(userId, {
+      isActive: true,
+      type: planType,
+    });
 
     return res.status(201).json({
       success: true,
       subscription,
-      message: `${planType} plan activated for ${daysRemaining} days`,
+      message: `${planType} activated for ${durationMonths} month(s)`,
     });
-  } catch (error) {
-    console.error('[/subscribe] Error:', error);
-    return res
-      .status(500)
-      .json({ success: false, error: 'Failed to create subscription' });
+  } catch (err) {
+    console.error('[/subscribe]', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -226,13 +223,11 @@ router.post('/superlike', authenticate, async (req, res) => {
 
     const subscription = subResponse.Item;
     if (!subscription?.isActive) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          error: 'Premium subscription required for SUPERLIKE',
-          requiresPremium: true,
-        });
+      return res.status(403).json({
+        success: false,
+        error: 'Premium subscription required for SUPERLIKE',
+        requiresPremium: true,
+      });
     }
 
     // 2. Check daily limit
@@ -248,13 +243,11 @@ router.post('/superlike', authenticate, async (req, res) => {
     const usage = usageResponse.Item || { superlikes: 0 };
 
     if (subscription.subscriptionType === 'Plus' && usage.superlikes >= 5) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          error: 'Daily SUPERLIKE limit reached (5/day)',
-          limitReached: true,
-        });
+      return res.status(403).json({
+        success: false,
+        error: 'Daily SUPERLIKE limit reached (5/day)',
+        limitReached: true,
+      });
     }
 
     // 3. Record SUPERLIKE
@@ -413,13 +406,11 @@ router.post('/rewind', authenticate, async (req, res) => {
 
     const subscription = subResponse.Item;
     if (!subscription?.isActive) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          error: 'Premium subscription required for REWIND',
-          requiresPremium: true,
-        });
+      return res.status(403).json({
+        success: false,
+        error: 'Premium subscription required for REWIND',
+        requiresPremium: true,
+      });
     }
 
     const todayKey = `${userId}#${getTodayString()}`;
@@ -434,13 +425,11 @@ router.post('/rewind', authenticate, async (req, res) => {
     const usage = usageResponse.Item || { rewinds: 0, superlikes: 0 };
 
     if (subscription.subscriptionType === 'Plus' && usage.rewinds >= 10) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          error: 'Daily REWIND limit reached (10/day)',
-          limitReached: true,
-        });
+      return res.status(403).json({
+        success: false,
+        error: 'Daily REWIND limit reached (10/day)',
+        limitReached: true,
+      });
     }
 
     await docClient.send(

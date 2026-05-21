@@ -40,10 +40,13 @@ export function useSubscription({ token }) {
     }
   }, [token]);
 
+  // usePremiumHooks.js
   const fetchSubscription = useCallback(async () => {
+    if (!token) return null;
+
+    // apiClient lazy init
     if (!apiClient.current) {
-      setError('Not authenticated');
-      return;
+      apiClient.current = createApiClient(token);
     }
 
     try {
@@ -53,27 +56,28 @@ export function useSubscription({ token }) {
       const response = await apiClient.current.get('/subscription-status');
 
       if (!response.data.success) {
-        throw new Error(response.data.error || 'Failed to fetch subscription');
+        throw new Error(response.data.error || 'Failed');
       }
 
       setSubscription(response.data.subscription);
       return response.data.subscription;
     } catch (err) {
-      const errorMsg =
-        err.response?.data?.error || err.message || 'Unknown error';
-      setError(errorMsg);
-      console.error('[useSubscription] Error:', errorMsg);
-      return null;
+      const status = err.response?.status;
+      const msg = err.response?.data?.error || err.message;
+      console.error('[useSubscription] Status:', status, 'Error:', msg);
+
+      // ← Graceful fallback — free user assume karo
+      const fallback = { isPremium: false, type: null, daysRemaining: 0 };
+      setSubscription(fallback);
+      return fallback;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]); // ← token dependency add karo
 
   useEffect(() => {
-    if (token) {
-      fetchSubscription();
-    }
-  }, [token, fetchSubscription]);
+    if (token) fetchSubscription();
+  }, [token]); // ← fetchSubscription remove from deps (loop avoid)
 
   return {
     subscription,

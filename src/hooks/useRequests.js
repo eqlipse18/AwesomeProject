@@ -80,8 +80,24 @@ export const useRequests = () => {
       } catch (err) {
         const status = err.response?.status;
         const body = err.response?.data;
+
+        // ← Premium gate errors expected hain — error log mat karo
+        if (body?.requiresPremium || body?.limitReached) {
+          return {
+            success: false,
+            requiresPremium: body?.requiresPremium || false,
+            limitReached: body?.limitReached || false,
+            upgradeToUltra: body?.upgradeToUltra || false,
+            error: body?.error,
+          };
+        }
+
+        // Real errors ke liye log karo
         console.error('[sendRequest] Error:', status, JSON.stringify(body));
-        return { success: false, error: body?.error || err.message };
+        return {
+          success: false,
+          error: body?.error || err.message,
+        };
       }
     },
     [token],

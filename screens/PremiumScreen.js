@@ -31,6 +31,10 @@ import { AuthContext } from '../AuthContex';
 import LottieView from 'lottie-react-native';
 
 const { width: W, height: H } = Dimensions.get('window');
+const CARD_WIDTH = W * 0.52;
+const CARD_GAP = 12;
+const LEFT_PAD = 20;
+const SIDE_PEEK = (W - CARD_WIDTH) / 2 - CARD_GAP;
 
 // ── Plan Config ───────────────────────────────────────────────────────────
 const PLANS = {
@@ -229,21 +233,20 @@ const Particle = ({ x, y, size, opacity, color }) => (
 
 // ── Pricing Card ───────────────────────────────────────────────────────────
 const PricingCard = ({ plan: p, item, selected, onSelect }) => {
-  const scale = useSharedValue(selected ? 1 : 0.96);
+  const opacity = useSharedValue(selected ? 1 : 0.45);
 
   useEffect(() => {
-    scale.value = withSpring(selected ? 1 : 0.96, {
-      damping: 18,
-      stiffness: 200,
-    });
+    opacity.value = withTiming(selected ? 1 : 0.45, { duration: 160 });
   }, [selected]);
 
   const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
   }));
 
   return (
-    <Animated2.View style={animStyle}>
+    <Animated2.View
+      style={[animStyle, { width: CARD_WIDTH, marginHorizontal: CARD_GAP / 2 }]}
+    >
       <TouchableOpacity
         style={[
           ps.pricingCard,
@@ -273,21 +276,24 @@ const PricingCard = ({ plan: p, item, selected, onSelect }) => {
         <Text
           style={[
             ps.cardPrice,
-            { color: selected ? p.accentColor : 'rgba(255,255,255,0.5)' },
+            { color: selected ? p.accentColor : 'rgba(255,255,255,0.4)' },
           ]}
         >
           {item.perMonth}
         </Text>
-        {selected && (
-          <Text style={[ps.cardTotal, { color: p.accentLight }]}>
-            Total: {item.total}
-          </Text>
-        )}
+        {/* Total line — always render, just invisible when not selected to keep height fixed */}
+        <Text
+          style={[
+            ps.cardTotal,
+            { color: selected ? p.accentLight : 'transparent' },
+          ]}
+        >
+          Total: {item.total}
+        </Text>
       </TouchableOpacity>
     </Animated2.View>
   );
 };
-
 // ── Feature Row ────────────────────────────────────────────────────────────
 const FeatureRow = ({ item, accentColor, accentLight, index }) => (
   <Animated2.View
@@ -406,22 +412,46 @@ export default function PremiumScreen({ navigation, route }) {
 
         {/* ── Pricing Cards ── */}
         <View style={[ps.section, { backgroundColor: p.headerColors[0] }]}>
-          <ScrollView
+          <FlatList
+            data={p.pricing}
+            keyExtractor={item => item.id}
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={ps.pricingRow}
-            decelerationRate="fast"
-          >
-            {p.pricing.map(item => (
+            // ─── snap config ───
+            snapToInterval={CARD_WIDTH + CARD_GAP}
+            snapToAlignment="start"
+            decelerationRate={0.92} // 0.92 = very fast snap, "fast" se better
+            // ─── padding ───
+            contentContainerStyle={{
+              paddingLeft: LEFT_PAD,
+              paddingRight: LEFT_PAD,
+              paddingVertical: 8,
+            }}
+            // ─── initial position ───
+            initialScrollIndex={p.pricing.findIndex(x => x.hot) || 0}
+            getItemLayout={(_, index) => ({
+              length: CARD_WIDTH + CARD_GAP,
+              offset: (CARD_WIDTH + CARD_GAP) * index,
+              index,
+            })}
+            // ─── sync selection on snap ───
+            onMomentumScrollEnd={e => {
+              const index = Math.round(
+                e.nativeEvent.contentOffset.x / (CARD_WIDTH + CARD_GAP),
+              );
+              const snapped =
+                p.pricing[Math.max(0, Math.min(index, p.pricing.length - 1))];
+              if (snapped) setSelectedPlan(snapped.id);
+            }}
+            renderItem={({ item }) => (
               <PricingCard
-                key={item.id}
                 plan={p}
                 item={item}
                 selected={selectedPlan === item.id}
                 onSelect={setSelectedPlan}
               />
-            ))}
-          </ScrollView>
+            )}
+          />
 
           {/* Dots */}
           <View style={ps.dots}>
@@ -431,8 +461,8 @@ export default function PremiumScreen({ navigation, route }) {
                 style={[
                   ps.dot,
                   selectedPlan === item.id
-                    ? { backgroundColor: p.accentColor, width: 16 }
-                    : { backgroundColor: 'rgba(255,255,255,0.3)' },
+                    ? { backgroundColor: p.accentColor, width: 18 }
+                    : { backgroundColor: 'rgba(255,255,255,0.25)' },
                 ]}
               />
             ))}
@@ -568,7 +598,6 @@ const ps = StyleSheet.create({
     paddingBottom: 8,
   },
   pricingCard: {
-    width: W * 0.42,
     padding: 18,
     borderRadius: 18,
     borderWidth: 1.5,
@@ -576,12 +605,12 @@ const ps = StyleSheet.create({
     justifyContent: 'space-between',
   },
   hotBadge: {
-    alignSelf: 'flex-start',
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 8, // sirf non-absolute use ke liye fallback
   },
+
   hotTxt: {
     color: '#fff',
     fontSize: 10,

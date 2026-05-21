@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
   // ✅ Android frosted glass alternative
   androidBar: {
     flex: 1,
-    backgroundColor: '#fef3fe',
+    backgroundColor: '#fef3fe00',
   },
   innerRow: {
     flex: 1,

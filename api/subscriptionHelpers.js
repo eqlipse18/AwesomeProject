@@ -15,75 +15,65 @@ import {
   UpdateCommand,
 } from './db.js';
 
-import {
-  checkSubscriptionStatus,
-  getDailyUsage,
-  checkFeatureLimit,
-  hasAlreadySuperliked,
-  incrementUsage,
-} from './subscriptionHelpers.js';
-
 // ════════════════════════════════════════════════════════════════════════════
 // 1. Check if user has active subscription
 // ════════════════════════════════════════════════════════════════════════════
 
+// ── Plan limits ─────────────────────────────────────────────────────────────
+export const PLAN_LIMITS = {
+  free: {
+    superlikes: 0,
+    rewinds: 0,
+    messageRequests: 0,
+    boostDays: 0,
+  },
+  Plus: {
+    superlikes: 5, // per day
+    rewinds: 999, // unlimited
+    messageRequests: 1, // per day
+    boostDays: 15, // 1 boost every 15 days
+  },
+  Ultra: {
+    superlikes: 999, // unlimited
+    rewinds: 999, // unlimited
+    messageRequests: 999, // unlimited
+    boostDays: 0, // fulltime boost
+  },
+};
+
 export const checkSubscriptionStatus = async userId => {
   try {
-    const response = await docClient.send(
+    const resp = await docClient.send(
       new GetCommand({
         TableName: 'Subscriptions',
         Key: { userId },
-        ProjectionExpression:
-          'userId, subscriptionType, expiryDate, isActive, daysRemaining',
+        ProjectionExpression: 'userId, subscriptionType, expiryDate, isActive',
       }),
     );
 
-    const subscription = response.Item;
+    const sub = resp.Item;
+    if (!sub) return { isActive: false, type: null };
 
-    if (!subscription) {
-      return {
-        isActive: false,
-        type: null,
-        daysRemaining: 0,
-      };
-    }
-
-    // Check if expired
-    const now = new Date();
-    const expiryDate = new Date(subscription.expiryDate);
-
-    if (expiryDate < now) {
-      // Subscription expired, update isActive to false
+    // Auto-expire check
+    if (new Date(sub.expiryDate) < new Date()) {
       await docClient.send(
         new UpdateCommand({
           TableName: 'Subscriptions',
           Key: { userId },
-          UpdateExpression: 'SET isActive = :isActive',
+          UpdateExpression: 'SET isActive = :f, updatedAt = :t',
           ExpressionAttributeValues: {
-            ':isActive': false,
+            ':f': false,
+            ':t': new Date().toISOString(),
           },
         }),
       );
-
-      return {
-        isActive: false,
-        type: subscription.subscriptionType,
-        daysRemaining: 0,
-      };
+      return { isActive: false, type: sub.subscriptionType };
     }
 
-    return {
-      isActive: subscription.isActive,
-      type: subscription.subscriptionType,
-      daysRemaining: subscription.daysRemaining,
-    };
-  } catch (error) {
-    console.error('[checkSubscriptionStatus] Error:', error);
-    return {
-      isActive: false,
-      type: null,
-      daysRemaining: 0,
-    };
+    return { isActive: sub.isActive, type: sub.subscriptionType };
+  } catch (e) {
+    console.error('[checkSubscriptionStatus]', e.message);
+    return { isActive: false, type: null };
   }
 };
 
@@ -101,145 +91,92 @@ const getTodayString = () => {
 
 const getTomorrowMidnightUnix = () => {
   const now = new Date();
-  const tomorrow = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-    0,
-    0,
-    0,
-    0,
+  return Math.floor(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() /
+      1000,
   );
-  return Math.floor(tomorrow.getTime() / 1000);
 };
 
+// ── Get today's daily usage ──────────────────────────────────────────────────
 export const getDailyUsage = async userId => {
   try {
-    const todayKey = `${userId}#${getTodayString()}`;
-
-    const response = await docClient.send(
+    const resp = await docClient.send(
       new GetCommand({
         TableName: 'DailyUsage',
-        Key: { 'userId#date': todayKey },
-        ProjectionExpression:
-          'userId#date, superlikes, rewinds, subscription, lastReset',
+        Key: { 'userId#date': `${userId}#${getTodayString()}` },
       }),
     );
-
-    if (!response.Item) {
-      return {
-        superlikes: 0,
-        rewinds: 0,
-        subscription: null,
-      };
-    }
-
-    return response.Item;
-  } catch (error) {
-    console.error('[getDailyUsage] Error:', error);
-    return {
-      superlikes: 0,
-      rewinds: 0,
-      subscription: null,
-    };
+    return resp.Item || { superlikes: 0, rewinds: 0, messageRequests: 0 };
+  } catch (e) {
+    return { superlikes: 0, rewinds: 0, messageRequests: 0 };
   }
 };
-
 // ════════════════════════════════════════════════════════════════════════════
 // 3. Increment feature usage
 // ════════════════════════════════════════════════════════════════════════════
 
-export const incrementUsage = async (userId, feature, subscription) => {
-  /**
-   * feature: 'superlike' | 'rewind'
-   * subscription: 'Plus' | 'Ultra'
-   */
+// ── Increment usage ──────────────────────────────────────────────────────────
+export const incrementUsage = async (userId, feature, planType) => {
+  const todayKey = `${userId}#${getTodayString()}`;
+  const usage = await getDailyUsage(userId);
 
-  try {
-    const todayKey = `${userId}#${getTodayString()}`;
-    const usage = await getDailyUsage(userId);
+  const updated = {
+    'userId#date': todayKey,
+    userId,
+    date: getTodayString(),
+    superlikes: usage.superlikes || 0,
+    rewinds: usage.rewinds || 0,
+    messageRequests: usage.messageRequests || 0,
+    subscription: planType,
+    expiresAt: getTomorrowMidnightUnix(),
+    createdAt: usage.createdAt || new Date().toISOString(),
+  };
+  updated[feature] = (usage[feature] || 0) + 1;
 
-    const updateExpression =
-      feature === 'superlike'
-        ? 'SET superlikes = :count'
-        : 'SET rewinds = :count';
-
-    const newCount =
-      feature === 'superlike' ? usage.superlikes + 1 : usage.rewinds + 1;
-
-    await docClient.send(
-      new PutCommand({
-        TableName: 'DailyUsage',
-        Item: {
-          'userId#date': todayKey,
-          userId,
-          date: getTodayString(),
-          superlikes: feature === 'superlike' ? newCount : usage.superlikes,
-          rewinds: feature === 'rewind' ? newCount : usage.rewinds,
-          subscription,
-          lastReset: new Date().toISOString(),
-          expiresAt: getTomorrowMidnightUnix(),
-          createdAt: usage.createdAt || new Date().toISOString(),
-        },
-      }),
-    );
-
-    return newCount;
-  } catch (error) {
-    console.error('[incrementUsage] Error:', error);
-    throw error;
-  }
+  await docClient.send(
+    new PutCommand({ TableName: 'DailyUsage', Item: updated }),
+  );
+  return updated[feature];
 };
 
 // ════════════════════════════════════════════════════════════════════════════
 // 4. Check feature limit
 // ════════════════════════════════════════════════════════════════════════════
 
-export const checkFeatureLimit = async (userId, feature, subscription) => {
-  /**
-   * Returns: { allowed: boolean, remaining: number, limit: number }
-   */
+export const checkFeatureLimit = async (userId, feature, sub) => {
+  if (!sub.isActive)
+    return { allowed: false, remaining: 0, reason: 'No subscription' };
 
+  const limits = PLAN_LIMITS[sub.type] || PLAN_LIMITS.free;
+  const limit = limits[feature] ?? 0;
+
+  if (limit === 999) return { allowed: true, remaining: 999 };
+
+  const usage = await getDailyUsage(userId);
+  const used = usage[feature] || 0;
+  const remaining = Math.max(0, limit - used);
+
+  return { allowed: used < limit, used, remaining, limit };
+};
+
+// ── Update Users table cache ─────────────────────────────────────────────────
+export const updateUserSubscriptionCache = async (userId, sub) => {
   try {
-    const usage = await getDailyUsage(userId);
-
-    if (!subscription.isActive) {
-      return {
-        allowed: false,
-        remaining: 0,
-        limit: 0,
-        reason: 'No active subscription',
-      };
-    }
-
-    let used = 0;
-    let limit = 0;
-
-    if (feature === 'superlike') {
-      used = usage.superlikes || 0;
-      limit = subscription.type === 'Plus' ? 5 : 999;
-    } else if (feature === 'rewind') {
-      used = usage.rewinds || 0;
-      limit = subscription.type === 'Plus' ? 10 : 999;
-    }
-
-    const remaining = Math.max(0, limit - used);
-    const allowed = used < limit;
-
-    return {
-      allowed,
-      used,
-      remaining,
-      limit,
-    };
-  } catch (error) {
-    console.error('[checkFeatureLimit] Error:', error);
-    return {
-      allowed: false,
-      remaining: 0,
-      limit: 0,
-      reason: error.message,
-    };
+    await docClient.send(
+      new UpdateCommand({
+        TableName: 'Users',
+        Key: { userId },
+        UpdateExpression:
+          'SET isPremium = :p, subscriptionType = :t, updatedAt = :u',
+        ExpressionAttributeValues: {
+          ':p': sub.isActive,
+          ':t': sub.type || null,
+          ':u': new Date().toISOString(),
+        },
+      }),
+    );
+  } catch (e) {
+    console.warn('[updateUserSubscriptionCache]', e.message);
   }
 };
 
@@ -393,33 +330,6 @@ export const cleanupExpiredMatchRequests = async () => {
       success: false,
       error: error.message,
     };
-  }
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// 9. Update user's cached subscription info in Users table
-// ════════════════════════════════════════════════════════════════════════════
-
-export const updateUserSubscriptionCache = async (userId, subscription) => {
-  try {
-    await docClient.send(
-      new UpdateCommand({
-        TableName: 'Users',
-        Key: { userId },
-        UpdateExpression:
-          'SET isPremium = :isPremium, subscriptionType = :type, subscriptionExpiryDate = :expiryDate, lastPremiumCheck = :now',
-        ExpressionAttributeValues: {
-          ':isPremium': subscription.isActive,
-          ':type': subscription.type || null,
-          ':expiryDate': subscription.expiryDate || null,
-          ':now': new Date().toISOString(),
-        },
-      }),
-    );
-
-    console.log(`[updateUserSubscriptionCache] Updated ${userId}`);
-  } catch (error) {
-    console.error('[updateUserSubscriptionCache] Error:', error);
   }
 };
 

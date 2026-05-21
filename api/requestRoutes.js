@@ -25,6 +25,11 @@ import {
 } from './db.js';
 import { authenticate } from './authenticate.js';
 import { getIO } from './socket.js';
+import {
+  checkSubscriptionStatus,
+  checkFeatureLimit,
+  incrementUsage,
+} from './subscriptionHelpers.js';
 
 const router = express.Router();
 const TABLE = 'MatchRequests'; // exact table name
@@ -47,7 +52,34 @@ router.post('/send', authenticate, async (req, res) => {
         .status(400)
         .json({ success: false, error: 'Cannot request yourself' });
 
-    // ── Duplicate check via GSI ──────────────────────────────────────────
+    // ── 🔒 PREMIUM GATE ───────────────────────────────────────────────────
+    const sub = await checkSubscriptionStatus(userId);
+
+    if (!sub.isActive) {
+      return res.status(403).json({
+        success: false,
+        error: 'Flame Plus required to send message requests',
+        requiresPremium: true,
+      });
+    }
+
+    // Plus: 1/day limit check
+    if (sub.type === 'Plus') {
+      const limit = await checkFeatureLimit(userId, 'messageRequests', sub);
+      if (!limit.allowed) {
+        return res.status(403).json({
+          success: false,
+          error: 'Daily message request limit reached (1/day for Plus)',
+          limitReached: true,
+          remaining: 0,
+          upgradeToUltra: true, // ← frontend upsell ke liye
+        });
+      }
+    }
+    // Ultra: unlimited — no check
+    // ─────────────────────────────────────────────────────────────────────
+
+    // ── Duplicate check ───────────────────────────────────────────────────
     const dupCheck = await docClient.send(
       new QueryCommand({
         TableName: TABLE,
@@ -111,6 +143,10 @@ router.post('/send', authenticate, async (req, res) => {
         },
       }),
     );
+
+    if (sub.type === 'Plus') {
+      await incrementUsage(userId, 'messageRequests', sub.type);
+    }
 
     // ── Real-time notify receiver ────────────────────────────────────────
     try {

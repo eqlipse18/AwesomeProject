@@ -63,12 +63,9 @@ import changeNavigationBarColor from 'react-native-navigation-bar-color';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRequests } from '../src/hooks/useRequests';
 import { emitLikeUpdate } from '../src/hooks/useLikeStatus';
+import SuperlikeSheet from '../src/components/SuperlikeSheet';
+import RewindSheet from '../src/components/RewindSheet';
 
-const PremiumModal = React.lazy(() =>
-  import('../src/components/PremiumModal').then(m => ({
-    default: m.PremiumModal,
-  })),
-);
 const DailyLimitModal = React.lazy(() =>
   import('../src/components/PremiumModal').then(m => ({
     default: m.DailyLimitModal,
@@ -593,7 +590,8 @@ export default function HomeScreen({ navigation }) {
   const [seenAll, setSeenAll] = useState(false); // DB bhi khaali
   const [isRetrying, setIsRetrying] = useState(false);
   const [matchedUsers, setMatchedUsers] = useState(null);
-  const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [showSuperlikeSheet, setShowSuperlikeSheet] = useState(false);
+  const [showRewindSheet, setShowRewindSheet] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [premiumFeature, setPremiumFeature] = useState('SUPERLIKE');
   const [filterVisible, setFilterVisible] = useState(false);
@@ -619,6 +617,17 @@ export default function HomeScreen({ navigation }) {
   // ── Is loading overlay visible? ──
   // Show when: initial loading OR feed is empty but still loading (auto-refetch in progress)
   const showScanOverlay = swipeStack.loading || swipeStack.isInitialLoading;
+
+  // HomeScreen mein
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      'navigate_premium',
+      ({ plan }) => {
+        navigation.navigate('Premium', { plan });
+      },
+    );
+    return () => sub.remove();
+  }, [navigation]);
 
   // ── Fade cards in when first batch arrives ──
   useEffect(() => {
@@ -828,41 +837,42 @@ export default function HomeScreen({ navigation }) {
     [swipeStack, cardFadeInOpacity],
   );
 
+  // handleSuperlikePress update karo
   const handleSuperlikePress = useCallback(() => {
-    if (!subscription?.isPremium) {
-      setPremiumFeature('SUPERLIKE');
-      setShowPremiumModal(true);
-      return;
-    }
     if (
+      !subscription?.isPremium ||
       !subscription?.usage?.superlikes?.remaining ||
       subscription.usage.superlikes.remaining <= 0
     ) {
-      setPremiumFeature('SUPERLIKE');
-      setShowLimitModal(true);
+      setShowSuperlikeSheet(true); // ← new sheet
       return;
     }
     stackRef.current?.swipeUp();
   }, [subscription]);
 
   const handleRewindPress = useCallback(async () => {
-    if (!subscription?.isPremium) {
-      setPremiumFeature('REWIND');
-      setShowPremiumModal(true);
-      return;
-    }
     if (
+      !subscription?.isPremium ||
       !subscription?.usage?.rewinds?.remaining ||
       subscription.usage.rewinds.remaining <= 0
     ) {
-      setPremiumFeature('REWIND');
-      setShowLimitModal(true);
+      setShowRewindSheet(true); // ← new sheet
       return;
     }
     stackRef.current?.undo();
     const result = await rewind();
     if (!result.success) setLocalError(result.error || 'Failed to rewind');
   }, [subscription, rewind]);
+
+  // HomeScreen.js
+
+  // HomeScreen.js
+
+  // ── Subscription ref — always current value ──────────────────────────────
+  const subscriptionRef = useRef(subscription);
+  useEffect(() => {
+    subscriptionRef.current = subscription;
+  }, [subscription]);
 
   // HomeScreen.js
 
@@ -873,20 +883,36 @@ export default function HomeScreen({ navigation }) {
       const type = { left: 'pass', right: 'like', up: 'superlike' }[direction];
       if (!type) return;
 
-      currentCardIndex.current = index + 1;
+      // ── 🔒 SUPERLIKE GATE — swipe up gesture ─────────────────────────────
+      if (direction === 'up') {
+        const sub = subscriptionRef.current;
+        const isPremium = sub?.isPremium;
+        const hasLeft = (sub?.usage?.superlikes?.remaining ?? 0) > 0;
 
+        if (!isPremium || !hasLeft) {
+          setShowSuperlikeSheet(true);
+
+          // ← Card wapas lao — stack reset (tiny delay so modal shows first)
+          setTimeout(() => {
+            setStackKey(k => k + 1);
+          }, 80);
+
+          return; // ← API call nahi, like bhi nahi
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      currentCardIndex.current = index + 1;
       swipeProgressX.value = withTiming(0, {
         duration: 300,
         easing: Easing.out(Easing.ease),
       });
-
       swipeProgressY.value = withTiming(0, {
         duration: 300,
         easing: Easing.out(Easing.ease),
       });
 
       try {
-        // 🔥 Existing swipe logic
         const result = await swipeStack.handleSwipe(user.userId, type);
 
         if (!result?.success) {
@@ -894,7 +920,6 @@ export default function HomeScreen({ navigation }) {
           return;
         }
 
-        // ← REPLACE existing DeviceEventEmitter.emit('user_liked') with this:
         if (type !== 'pass') {
           emitLikeUpdate({
             toUserId: user.userId,
@@ -903,32 +928,14 @@ export default function HomeScreen({ navigation }) {
           });
         }
 
-        // ⭐ Superlike → message request
         if (direction === 'up') {
-          sendRequest(user.userId, true)
-            .then(r => {
-              if (!r?.success && !r?.alreadySent) {
-                console.warn('[HomeScreen] sendRequest failed:', r?.error);
-              }
-            })
-            .catch(err => {
-              console.warn('[HomeScreen] sendRequest error:', err.message);
-            });
+          sendRequest(user.userId, true).catch(() => {});
         }
 
-        // ❤️ Match handling
         if (result.match) {
           setMatchedUsers({
-            user1: {
-              name: 'You',
-              age: '',
-              image: myImage,
-            },
-            user2: {
-              name: user.name,
-              age: user.age,
-              image: user.image,
-            },
+            user1: { name: 'You', age: '', image: myImage },
+            user2: { name: user.name, age: user.age, image: user.image },
           });
         }
       } catch (err) {
@@ -1221,11 +1228,15 @@ export default function HomeScreen({ navigation }) {
         />
 
         <Suspense fallback={<View />}>
-          <PremiumModal
-            visible={showPremiumModal}
-            onClose={() => setShowPremiumModal(false)}
-            feature={premiumFeature}
-            onSelectPlan={() => setShowPremiumModal(false)}
+          <SuperlikeSheet
+            visible={showSuperlikeSheet}
+            onClose={() => setShowSuperlikeSheet(false)}
+            navigation={navigation}
+          />
+          <RewindSheet
+            visible={showRewindSheet}
+            onClose={() => setShowRewindSheet(false)}
+            navigation={navigation}
           />
           <DailyLimitModal
             visible={showLimitModal}

@@ -229,78 +229,70 @@ const ProfileCard = ({ item, index, scrollX, token, navigation }) => {
     <Animated.View style={[styles.card, cardStyle]}>
       {item.image ? (
         <Animated.Image
-          renderToHardwareTextureAndroid
           source={{ uri: item.image }}
           style={[StyleSheet.absoluteFillObject, imageStyle]}
+          blurRadius={item.blurred ? 20 : 0} // ← ADD blur
         />
-      ) : (
-        <View style={styles.imageFallback}>
-          <Text style={{ fontSize: 48 }}>📷</Text>
+      ) : null}
+
+      {/* Superlike badge — blurred pe bhi dikhao */}
+      {item.tag === 'superlike' && (
+        <View
+          style={[
+            styles.tagBadge,
+            { backgroundColor: TAG_CONFIG.superlike.bg },
+          ]}
+        >
+          <Text style={styles.tagText}>{TAG_CONFIG.superlike.label}</Text>
         </View>
       )}
 
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.88)']}
-        style={styles.cardGradient}
-      />
-
-      <View style={styles.cardInfo}>
-        <TagBadge tag={item.tag} />
-
-        <View style={styles.nameRow}>
-          <Text style={styles.cardName}>{item.name}</Text>
-          {item.age ? <Text style={styles.cardAge}>{item.age}</Text> : null}
-        </View>
-
-        {locationDisplay ? (
-          <Text style={styles.cardLocation} numberOfLines={1}>
-            {locationDisplay}
-          </Text>
-        ) : null}
-
-        {/* ── Action Buttons ── */}
-        {/* {actionState === 'matched' && (
-          <TouchableOpacity
-            style={dc.chatBtn}
-            onPress={handleChat}
-            activeOpacity={0.85}
-          >
-            <Text style={dc.chatBtnTxt}>💬 Start Chat</Text>
-          </TouchableOpacity>
-        )}
-
-        {actionState === 'idle' && item.hasLikedMe && (
-          <TouchableOpacity
-            style={[dc.likeBackBtn, acting && dc.btnDisabled]}
-            onPress={handleLikeBack}
-            disabled={acting}
-            activeOpacity={0.85}
-          >
-            <Text style={dc.likeBackTxt}>
-              {acting ? '⏳ Liking...' : '❤️ Like Back'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {actionState === 'likedBack' && (
-          <View style={dc.likedBackConfirm}>
-            <Text style={dc.likedBackTxt}>✓ Liked!</Text>
+      {item.blurred ? (
+        // ── Blurred overlay — non-premium ────────────────────────────
+        <View style={styles.blurOverlay}>
+          <View style={styles.blurContent}>
+            <Text style={styles.blurLock}>🔒</Text>
+            <Text style={styles.blurTitle}>Superliked You!</Text>
+            <Text style={styles.blurSub}>Upgrade to see who</Text>
+            <TouchableOpacity
+              style={styles.blurBtn}
+              onPress={() => navigation.navigate('Premium', { plan: 'plus' })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.blurBtnTxt}>🔥 Get Flame Plus</Text>
+            </TouchableOpacity>
           </View>
-        )} */}
-        {(uiState === 'like_back' || uiState === 'chat') && (
-          <LikeActionButton
-            token={token}
-            targetUserId={item.userId}
-            targetName={item.name}
-            targetImage={item.image}
-            uiState={uiState}
-            matchId={status.matchId}
-            navigation={navigation}
-            size="small"
-            style={{ alignSelf: 'flex-start', marginTop: 10 }}
+        </View>
+      ) : (
+        // ── Normal card content ───────────────────────────────────────
+        <>
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.88)']}
+            style={styles.cardGradient}
           />
-        )}
-      </View>
+          <View style={styles.cardInfo}>
+            <TagBadge tag={item.tag} />
+            <View style={styles.nameRow}>
+              <Text style={styles.cardName}>{item.name}</Text>
+              {item.age ? <Text style={styles.cardAge}>{item.age}</Text> : null}
+            </View>
+            {/* Like Back / Chat buttons */}
+            {(uiState === 'like_back' || uiState === 'chat') && (
+              <LikeActionButton
+                token={token}
+                targetUserId={item.userId}
+                targetName={item.name}
+                targetImage={item.image}
+                uiState={uiState}
+                matchId={status.matchId}
+                navigation={navigation}
+                size="small"
+                style={{ alignSelf: 'flex-start', marginTop: 10 }}
+              />
+            )}
+          </View>
+        </>
+      )}
     </Animated.View>
   );
 };
@@ -849,4 +841,34 @@ const dc = StyleSheet.create({
   },
   likedBackTxt: { color: '#22C55E', fontSize: 13, fontWeight: '700' },
   btnDisabled: { opacity: 0.5 },
+
+  blurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 26,
+  },
+  blurContent: { alignItems: 'center', paddingHorizontal: 20 },
+  blurLock: { fontSize: 36, marginBottom: 10 },
+  blurTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  blurSub: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  blurBtn: {
+    backgroundColor: '#B90034',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  blurBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

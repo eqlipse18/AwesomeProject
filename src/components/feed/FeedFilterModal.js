@@ -8,9 +8,16 @@
  * - onApply sends customLat/customLng when city selected
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   Animated,
+  DeviceEventEmitter,
   Dimensions,
   Modal,
   PanResponder,
@@ -25,6 +32,8 @@ import {
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import Slider from '@react-native-community/slider';
 import LocationPickerSheet from './LocationPickerSheet';
+import { AuthContext } from '../../../AuthContex';
+import { useSubscription } from '../../hooks/usePremiumHooks';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.88;
@@ -53,6 +62,9 @@ export default function FeedFilterModal({
   initialFilters = {},
   currentCity = '', // GPS city name (from LocationContext)
 }) {
+  const { token } = useContext(AuthContext); // ← ADD
+  const { isPremium } = useSubscription({ token });
+
   const [ageRange, setAgeRange] = useState([
     initialFilters.ageMin ?? 18,
     initialFilters.ageMax ?? 50,
@@ -339,16 +351,40 @@ export default function FeedFilterModal({
             <SectionLabel label="Advanced Filters" />
 
             <View style={styles.advancedSection}>
-              <Text style={styles.advancedLabel}>Relationship Goals</Text>
-              <View style={styles.goalsGrid}>
+              <View style={styles.advancedLabelRow}>
+                <Text style={styles.advancedLabel}>Relationship Goals</Text>
+                {!isPremium && (
+                  <View style={styles.premiumBadge}>
+                    <Text style={styles.premiumBadgeTxt}>🔥 Plus</Text>
+                  </View>
+                )}
+              </View>
+
+              <View
+                style={[styles.goalsGrid, !isPremium && styles.goalsGridLocked]}
+              >
                 {GOALS.map(g => {
                   const active = goals.includes(g.key);
                   return (
                     <TouchableOpacity
                       key={g.key}
-                      style={[styles.goalCard, active && styles.goalCardActive]}
-                      onPress={() => toggleGoal(g.key)}
-                      activeOpacity={0.8}
+                      style={[
+                        styles.goalCard,
+                        active && styles.goalCardActive,
+                        !isPremium && styles.goalCardDisabled, // ← locked look
+                      ]}
+                      onPress={() => {
+                        if (!isPremium) {
+                          onClose();
+                          // Navigate to premium — via DeviceEventEmitter
+                          DeviceEventEmitter.emit('navigate_premium', {
+                            plan: 'plus',
+                          });
+                          return;
+                        }
+                        toggleGoal(g.key);
+                      }}
+                      activeOpacity={isPremium ? 0.8 : 0.6}
                     >
                       <Text style={styles.goalEmoji}>{g.emoji}</Text>
                       <Text
@@ -359,6 +395,7 @@ export default function FeedFilterModal({
                       >
                         {g.label}
                       </Text>
+                      {!isPremium && <Text style={styles.lockIco}>🔒</Text>}
                     </TouchableOpacity>
                   );
                 })}
@@ -527,4 +564,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   goalLabelActive: { color: '#FF0059' },
+  advancedLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  premiumBadge: {
+    backgroundColor: '#FFF1F5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FFB6C8',
+  },
+  premiumBadgeTxt: { fontSize: 11, fontWeight: '700', color: '#B90034' },
+  goalCardDisabled: { opacity: 0.5 },
+  lockIco: { fontSize: 10, position: 'absolute', top: 6, right: 6 },
 });

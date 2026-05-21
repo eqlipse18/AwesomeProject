@@ -19,6 +19,11 @@ import {
 import { authenticate } from './authenticate.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getIO } from './socket.js';
+import {
+  checkSubscriptionStatus,
+  checkFeatureLimit,
+  incrementUsage,
+} from './subscriptionHelpers.js';
 
 const router = express.Router();
 
@@ -150,7 +155,12 @@ router.get('/feed', authenticate, async (req, res) => {
       'Still Figuring Out',
     ];
 
+    const sub = await checkSubscriptionStatus(userId);
+    const isPremiumUser = sub.isActive;
+
+    // Goals filter — existing code ko replace karo
     const goalsFilter = (() => {
+      if (!isPremiumUser) return []; // ← free users: goals filter off
       if (!rawGoals || rawGoals.length === 0) return [];
       if (Array.isArray(rawGoals))
         return rawGoals.filter(g => VALID_GOALS.includes(g));
@@ -161,6 +171,7 @@ router.get('/feed', authenticate, async (req, res) => {
           .filter(g => VALID_GOALS.includes(g));
       return [];
     })();
+
     const verifiedFilter =
       resolvedVerified === 'true' || resolvedVerified === true;
     const shouldExpand = resolvedExpand === 'true' || resolvedExpand === true;
@@ -502,6 +513,34 @@ router.post('/swipe', authenticate, async (req, res) => {
         success: false,
         error: 'Cannot swipe on yourself',
       });
+    }
+
+    // ── 🔒 SUPERLIKE GATE ─────────────────────────────────────────────────
+    if (type === 'superlike') {
+      const sub = await checkSubscriptionStatus(userId);
+
+      if (!sub.isActive) {
+        return res.status(403).json({
+          success: false,
+          error: 'Flame Plus required for Superlike',
+          requiresPremium: true,
+        });
+      }
+
+      if (sub.type === 'Plus') {
+        const limit = await checkFeatureLimit(userId, 'superlikes', sub);
+        if (!limit.allowed) {
+          return res.status(403).json({
+            success: false,
+            error: 'Daily superlike limit reached (5/day for Plus)',
+            limitReached: true,
+            remaining: 0,
+          });
+        }
+        // Increment usage
+        await incrementUsage(userId, 'superlikes', sub.type);
+      }
+      // Ultra → unlimited, no check needed
     }
 
     const targetUserResponse = await docClient.send(
