@@ -866,8 +866,6 @@ export default function HomeScreen({ navigation }) {
 
   // HomeScreen.js
 
-  // HomeScreen.js
-
   // ── Subscription ref — always current value ──────────────────────────────
   const subscriptionRef = useRef(subscription);
   useEffect(() => {

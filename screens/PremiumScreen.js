@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,8 +8,8 @@ import {
   FlatList,
   Dimensions,
   StatusBar,
-  Animated,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -24,17 +18,29 @@ import Animated2, {
   FadeIn,
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { AuthContext } from '../AuthContex';
 import LottieView from 'lottie-react-native';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback'; // FIX #6
 
 const { width: W, height: H } = Dimensions.get('window');
 const CARD_WIDTH = W * 0.52;
 const CARD_GAP = 12;
 const LEFT_PAD = 20;
-const SIDE_PEEK = (W - CARD_WIDTH) / 2 - CARD_GAP;
+
+// ── Savings helper ────────────────────────────────────────────────────────
+const getSavings = (pricing, item) => {
+  const base = Number(
+    pricing
+      .find(x => x.duration === '1')
+      ?.price.replace('₹', '')
+      .replace(',', ''),
+  );
+  const current = Number(item.price.replace('₹', '').replace(',', ''));
+  if (!base || item.duration === '1') return null;
+  const saved = Math.round(((base - current) / base) * 100);
+  return saved > 0 ? `Save ${saved}%` : null;
+};
 
 // ── Plan Config ───────────────────────────────────────────────────────────
 const PLANS = {
@@ -42,7 +48,7 @@ const PLANS = {
     id: 'plus',
     name: 'FLAME PLUS',
     tagline: 'Unlock your dating potential',
-    lottie: require('../assets/animations/PremiumGold.json'), // ← ADD
+    lottie: require('../assets/animations/PremiumGold.json'),
     lottieSize: 140,
     lottieSpeed: 1,
     glowSize: 90,
@@ -214,10 +220,11 @@ const PLANS = {
   },
 };
 
-// ── Particle Component ─────────────────────────────────────────────────────
-const Particle = ({ x, y, size, opacity, color }) => (
+// ── Particle Component ────────────────────────────────────────────────────
+// FIX #1: delay pre-computed in particles array — no Math.random() on re-render
+const Particle = ({ x, y, size, opacity, color, delay }) => (
   <Animated2.View
-    entering={FadeIn.delay(Math.random() * 1000).duration(800)}
+    entering={FadeIn.delay(delay).duration(800)}
     style={{
       position: 'absolute',
       left: x,
@@ -231,21 +238,31 @@ const Particle = ({ x, y, size, opacity, color }) => (
   />
 );
 
-// ── Pricing Card ───────────────────────────────────────────────────────────
+// ── Pricing Card ──────────────────────────────────────────────────────────
 const PricingCard = ({ plan: p, item, selected, onSelect }) => {
+  // flatListRef, index hata do props se
   const opacity = useSharedValue(selected ? 1 : 0.45);
 
   useEffect(() => {
     opacity.value = withTiming(selected ? 1 : 0.45, { duration: 160 });
   }, [selected]);
 
-  const animStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }));
+  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const saving = getSavings(p.pricing, item);
 
   return (
     <Animated2.View
-      style={[animStyle, { width: CARD_WIDTH, marginHorizontal: CARD_GAP / 2 }]}
+      style={[
+        animStyle,
+        { width: CARD_WIDTH, marginHorizontal: CARD_GAP / 2 },
+        selected && {
+          shadowColor: p.accentColor,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.45,
+          shadowRadius: 16,
+          elevation: 10,
+        },
+      ]}
     >
       <TouchableOpacity
         style={[
@@ -257,12 +274,38 @@ const PricingCard = ({ plan: p, item, selected, onSelect }) => {
               : 'rgba(255,255,255,0.05)',
           },
         ]}
-        onPress={() => onSelect(item.id)}
+        onPress={() => {
+          ReactNativeHapticFeedback.trigger('impactLight', {
+            enableVibrateFallback: true,
+            ignoreAndroidSystemSettings: false,
+          });
+          onSelect(item.id); // bas itna — no scrollToIndex
+        }}
         activeOpacity={0.85}
+        accessibilityLabel={`${item.duration} ${item.unit} plan, ${
+          item.perMonth
+        }, total ${item.total}${item.hot ? ', most popular' : ''}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
       >
         {item.hot && (
           <View style={[ps.hotBadge, { backgroundColor: p.badgeColor }]}>
             <Text style={ps.hotTxt}>HOT</Text>
+          </View>
+        )}
+        {saving && (
+          <View
+            style={[
+              ps.savingsBadge,
+              {
+                backgroundColor: `${p.accentColor}22`,
+                borderColor: `${p.accentColor}55`,
+              },
+            ]}
+          >
+            <Text style={[ps.savingsTxt, { color: p.accentLight }]}>
+              {saving}
+            </Text>
           </View>
         )}
         <Text
@@ -281,7 +324,6 @@ const PricingCard = ({ plan: p, item, selected, onSelect }) => {
         >
           {item.perMonth}
         </Text>
-        {/* Total line — always render, just invisible when not selected to keep height fixed */}
         <Text
           style={[
             ps.cardTotal,
@@ -294,10 +336,11 @@ const PricingCard = ({ plan: p, item, selected, onSelect }) => {
     </Animated2.View>
   );
 };
-// ── Feature Row ────────────────────────────────────────────────────────────
+
+// ── Feature Row ───────────────────────────────────────────────────────────
 const FeatureRow = ({ item, accentColor, accentLight, index }) => (
   <Animated2.View
-    entering={FadeInDown.delay(index * 60).duration(350)}
+    entering={FadeInDown.delay(index * 40).duration(280)}
     style={[ps.featureRow, item.isAll && ps.featureRowAll]}
   >
     <View style={[ps.featureCheck, { backgroundColor: `${accentColor}22` }]}>
@@ -312,18 +355,26 @@ const FeatureRow = ({ item, accentColor, accentLight, index }) => (
   </Animated2.View>
 );
 
-// ── Main Screen ────────────────────────────────────────────────────────────
+// ── Main Screen ───────────────────────────────────────────────────────────
 export default function PremiumScreen({ navigation, route }) {
   const planId = route.params?.plan || 'plus';
-  const p = PLANS[planId];
+  const [activePlan, setActivePlan] = useState(planId);
+  const p = PLANS[activePlan];
 
-  const [selectedPlan, setSelectedPlan] = useState(
-    p.pricing.find(x => x.hot)?.id || p.pricing[0].id,
-  );
+  const hotIndex = p.pricing.findIndex(x => x.hot);
+  const safeHotIndex = Math.max(0, hotIndex); // FIX #2 crash guard
+
+  const [selectedPlan, setSelectedPlan] = useState(p.pricing[safeHotIndex].id);
+  const [purchasing, setPurchasing] = useState(false);
+
+  // FIX #4 ref for dot-tap scrolling
+  const flatListRef = useRef(null);
 
   const selectedPricing = p.pricing.find(x => x.id === selectedPlan);
 
-  // Particles
+  const isProgrammaticScroll = useRef(false);
+
+  // FIX #1: delay pre-computed once, never changes
   const particles = useRef(
     Array.from({ length: 12 }, (_, i) => ({
       id: i,
@@ -331,8 +382,41 @@ export default function PremiumScreen({ navigation, route }) {
       y: Math.random() * H * 0.45,
       size: Math.random() * 3 + 1,
       opacity: Math.random() * 0.4 + 0.1,
+      delay: Math.floor(Math.random() * 1000), // pre-computed here
     })),
   ).current;
+
+  const handlePlanSwitch = id => {
+    ReactNativeHapticFeedback.trigger('impactLight', {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+    const newHotIndex = Math.max(
+      0,
+      PLANS[id].pricing.findIndex(x => x.hot),
+    );
+    setActivePlan(id);
+    setSelectedPlan(PLANS[id].pricing[newHotIndex].id);
+    // scroll to hot card on plan switch
+    setTimeout(() => {
+      isProgrammaticScroll.current = true; // add karo
+      flatListRef.current?.scrollToIndex({
+        index: newHotIndex,
+        animated: true,
+      });
+    }, 50);
+  };
+
+  // FIX #4 dot tap handler
+  const handleDotPress = (item, index) => {
+    ReactNativeHapticFeedback.trigger('impactLight', {
+      enableVibrateFallback: true,
+      ignoreAndroidSystemSettings: false,
+    });
+    isProgrammaticScroll.current = true; // flag set karo
+    setSelectedPlan(item.id);
+    flatListRef.current?.scrollToIndex({ index, animated: true });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: p.headerColors[0] }}>
@@ -347,9 +431,8 @@ export default function PremiumScreen({ navigation, route }) {
         contentContainerStyle={{ paddingBottom: 120 }}
         bounces={false}
       >
-        {/* ── Hero Section ── */}
+        {/* ── Hero ── */}
         <LinearGradient colors={p.headerColors} style={ps.hero}>
-          {/* Particles */}
           {particles.map(pt => (
             <Particle
               key={pt.id}
@@ -358,10 +441,10 @@ export default function PremiumScreen({ navigation, route }) {
               size={pt.size}
               opacity={pt.opacity}
               color={p.accentColor}
+              delay={pt.delay} // FIX #1
             />
           ))}
 
-          {/* Close button */}
           <SafeAreaView style={ps.closeWrap}>
             <TouchableOpacity
               style={ps.closeBtn}
@@ -376,7 +459,41 @@ export default function PremiumScreen({ navigation, route }) {
             <View style={{ width: 40 }} />
           </SafeAreaView>
 
-          {/* ── Icon — Lottie ── */}
+          {/* Plan Switcher Tabs */}
+          <View style={ps.tabRow}>
+            {Object.values(PLANS).map(plan => {
+              const isActive = activePlan === plan.id;
+              return (
+                <TouchableOpacity
+                  key={plan.id}
+                  style={[
+                    ps.tabBtn,
+                    isActive
+                      ? { backgroundColor: p.accentColor }
+                      : {
+                          borderColor: 'rgba(255,255,255,0.2)',
+                          borderWidth: 1,
+                        },
+                  ]}
+                  onPress={() => handlePlanSwitch(plan.id)}
+                  activeOpacity={0.8}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: isActive }}
+                >
+                  <Text
+                    style={[
+                      ps.tabTxt,
+                      { color: isActive ? '#fff' : 'rgba(255,255,255,0.5)' },
+                    ]}
+                  >
+                    {plan.name.split(' ')[1]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Lottie */}
           <Animated2.View
             entering={FadeIn.delay(200).duration(600)}
             style={ps.iconWrap}
@@ -413,34 +530,41 @@ export default function PremiumScreen({ navigation, route }) {
         {/* ── Pricing Cards ── */}
         <View style={[ps.section, { backgroundColor: p.headerColors[0] }]}>
           <FlatList
+            ref={flatListRef} // FIX #4
             data={p.pricing}
             keyExtractor={item => item.id}
             horizontal
             showsHorizontalScrollIndicator={false}
-            // ─── snap config ───
             snapToInterval={CARD_WIDTH + CARD_GAP}
             snapToAlignment="start"
-            decelerationRate={0.92} // 0.92 = very fast snap, "fast" se better
-            // ─── padding ───
+            decelerationRate={0.92}
             contentContainerStyle={{
-              paddingLeft: LEFT_PAD,
               paddingRight: LEFT_PAD,
               paddingVertical: 8,
             }}
-            // ─── initial position ───
-            initialScrollIndex={p.pricing.findIndex(x => x.hot) || 0}
+            initialScrollIndex={safeHotIndex} // FIX #2
             getItemLayout={(_, index) => ({
               length: CARD_WIDTH + CARD_GAP,
-              offset: (CARD_WIDTH + CARD_GAP) * index,
+              offset: (CARD_WIDTH + CARD_GAP) * index, // LEFT_PAD yahan mat add karo
               index,
             })}
-            // ─── sync selection on snap ───
+            // FIX #8 FlatList optimizations
+            removeClippedSubviews={true}
+            windowSize={3}
+            maxToRenderPerBatch={3}
             onMomentumScrollEnd={e => {
+              if (isProgrammaticScroll.current) {
+                isProgrammaticScroll.current = false; // reset
+                return; // ignore karo
+              }
               const index = Math.round(
                 e.nativeEvent.contentOffset.x / (CARD_WIDTH + CARD_GAP),
               );
-              const snapped =
-                p.pricing[Math.max(0, Math.min(index, p.pricing.length - 1))];
+              const clamped = Math.max(
+                0,
+                Math.min(index, p.pricing.length - 1),
+              );
+              const snapped = p.pricing[clamped];
               if (snapped) setSelectedPlan(snapped.id);
             }}
             renderItem={({ item }) => (
@@ -453,18 +577,25 @@ export default function PremiumScreen({ navigation, route }) {
             )}
           />
 
-          {/* Dots */}
+          {/* FIX #4 Dots — now tappable */}
           <View style={ps.dots}>
             {p.pricing.map((item, i) => (
-              <View
+              <TouchableOpacity
                 key={i}
-                style={[
-                  ps.dot,
-                  selectedPlan === item.id
-                    ? { backgroundColor: p.accentColor, width: 18 }
-                    : { backgroundColor: 'rgba(255,255,255,0.25)' },
-                ]}
-              />
+                onPress={() => handleDotPress(item, i)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={`Select ${item.duration} ${item.unit} plan`}
+              >
+                <View
+                  style={[
+                    ps.dot,
+                    selectedPlan === item.id
+                      ? { backgroundColor: p.accentColor, width: 18 }
+                      : { backgroundColor: 'rgba(255,255,255,0.25)' },
+                  ]}
+                />
+              </TouchableOpacity>
             ))}
           </View>
         </View>
@@ -473,7 +604,6 @@ export default function PremiumScreen({ navigation, route }) {
         <View
           style={[ps.featuresSection, { backgroundColor: p.headerColors[0] }]}
         >
-          {/* Header pill */}
           <View
             style={[
               ps.featuresHeader,
@@ -488,11 +618,10 @@ export default function PremiumScreen({ navigation, route }) {
             </Text>
           </View>
 
-          {/* Feature list */}
           <View style={[ps.featuresList, { borderColor: p.cardBorder }]}>
             {p.features.map((feat, i) => (
               <FeatureRow
-                key={i}
+                key={`${activePlan}-${i}`} // key includes activePlan so list re-animates on switch
                 item={feat}
                 accentColor={p.accentColor}
                 accentLight={p.accentLight}
@@ -502,22 +631,32 @@ export default function PremiumScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Legal text */}
         <Text style={ps.legal}>
           Auto-renewable subscription. Cancel anytime in Play Store settings.
+          {'\n'}
           Renews 24 hours before end of period.
         </Text>
       </ScrollView>
 
-      {/* ── Sticky CTA Button ── */}
+      {/* ── Sticky CTA ── */}
       <View style={[ps.ctaWrap, { backgroundColor: p.headerColors[0] }]}>
         <TouchableOpacity
-          style={ps.ctaBtn}
+          style={[ps.ctaBtn, purchasing && { opacity: 0.7 }]}
           activeOpacity={0.88}
-          onPress={() => {
-            // In-app purchase flow — coming soon
+          disabled={purchasing}
+          onPress={async () => {
+            setPurchasing(true);
+            ReactNativeHapticFeedback.trigger('impactMedium', {
+              enableVibrateFallback: true,
+              ignoreAndroidSystemSettings: false,
+            });
             console.log('[Premium] Purchase:', selectedPlan, selectedPricing);
+            // TODO: await your IAP handler here
+            setTimeout(() => setPurchasing(false), 2000);
           }}
+          accessibilityRole="button"
+          accessibilityLabel={`Subscribe for ${selectedPricing?.total}, ${selectedPricing?.perMonth}`}
+          accessibilityState={{ disabled: purchasing }}
         >
           <LinearGradient
             colors={p.btnColors}
@@ -525,21 +664,40 @@ export default function PremiumScreen({ navigation, route }) {
             end={{ x: 1, y: 0 }}
             style={ps.ctaBtnGradient}
           >
-            <Text style={ps.ctaBtnTxt}>
-              {selectedPricing?.total} — Get {p.name.split(' ')[1]}
-            </Text>
+            {purchasing ? (
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={ps.ctaBtnTxt}>Processing...</Text>
+              </View>
+            ) : (
+              <Text style={ps.ctaBtnTxt}>
+                {selectedPricing?.total} — Get {p.name.split(' ')[1]}
+              </Text>
+            )}
           </LinearGradient>
         </TouchableOpacity>
 
         <Text style={[ps.ctaSub, { color: `${p.accentColor}99` }]}>
           {selectedPricing?.perMonth} • Cancel anytime
         </Text>
+
+        <TouchableOpacity
+          onPress={() => console.log('[Premium] Restore purchases')}
+          style={{ marginTop: 6, alignSelf: 'center' }}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Restore previous purchases"
+        >
+          <Text style={ps.restoreTxt}>Restore purchases</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────
 const ps = StyleSheet.create({
   hero: {
     minHeight: H * 0.35,
@@ -569,7 +727,6 @@ const ps = StyleSheet.create({
     letterSpacing: 3,
     textTransform: 'uppercase',
   },
-
   iconWrap: {
     marginTop: 20,
     marginBottom: 12,
@@ -578,11 +735,9 @@ const ps = StyleSheet.create({
   },
   iconGlow: {
     position: 'absolute',
-    borderRadius: 45,
     opacity: 0.25,
     transform: [{ scaleX: 1.4 }],
   },
-  iconEmoji: { fontSize: 72 },
   heroTagline: {
     fontSize: 14,
     textAlign: 'center',
@@ -590,49 +745,82 @@ const ps = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
+  // Tabs
+  tabRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    padding: 4,
+    marginTop: 16,
+    marginHorizontal: 40,
+    gap: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  tabTxt: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+  },
+
   // Pricing
   section: { paddingTop: 20 },
-  pricingRow: {
-    paddingHorizontal: 20,
-    gap: 12,
-    paddingBottom: 8,
-  },
   pricingCard: {
     padding: 18,
     borderRadius: 18,
     borderWidth: 1.5,
-    minHeight: 120,
+    minHeight: 130,
     justifyContent: 'space-between',
   },
+  // FIX #3: HOT badge absolute — no layout shift
   hotBadge: {
-    paddingHorizontal: 10,
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 8,
-    marginBottom: 8, // sirf non-absolute use ke liye fallback
+    borderRadius: 6,
+    zIndex: 1,
   },
-
   hotTxt: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
+  },
+  savingsBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  savingsTxt: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   cardDuration: { fontSize: 14, fontWeight: '500', marginBottom: 8 },
   cardDurationNum: { fontSize: 28, fontWeight: '800' },
   cardPrice: { fontSize: 13, fontWeight: '600' },
-  cardTotal: { fontSize: 11, marginTop: 4, opacity: 0.8 },
+  cardTotal: { fontSize: 11, marginTop: 4 },
 
   dots: {
     flexDirection: 'row',
     gap: 6,
     justifyContent: 'center',
     paddingTop: 12,
+    paddingBottom: 4,
   },
   dot: {
     height: 6,
     borderRadius: 3,
     width: 6,
-    transitionDuration: '300ms',
   },
 
   // Features
@@ -655,7 +843,6 @@ const ps = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
-
   featuresList: {
     borderWidth: 1,
     borderRadius: 20,
@@ -671,9 +858,7 @@ const ps = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.07)',
   },
-  featureRowAll: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
+  featureRowAll: { backgroundColor: 'rgba(255,255,255,0.06)' },
   featureCheck: {
     width: 36,
     height: 36,
@@ -687,11 +872,7 @@ const ps = StyleSheet.create({
     color: '#fff',
     marginBottom: 2,
   },
-  featureSub: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
-    lineHeight: 16,
-  },
+  featureSub: { fontSize: 12, color: 'rgba(255,255,255,0.45)', lineHeight: 16 },
 
   legal: {
     fontSize: 10,
@@ -739,5 +920,10 @@ const ps = StyleSheet.create({
     fontSize: 11,
     marginTop: 8,
     fontWeight: '500',
+  },
+  restoreTxt: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.25)',
+    textDecorationLine: 'underline',
   },
 });
